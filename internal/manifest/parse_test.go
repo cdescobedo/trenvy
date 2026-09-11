@@ -90,3 +90,25 @@ func TestParseDistinguishesEmptyValueFromAbsent(t *testing.T) {
 		t.Error("ABSENT.Value should be nil")
 	}
 }
+
+// Maps must be non-nil even when sections are absent, so downstream code
+// can write into them without panicking (e.g., envctl set writes to
+// m.Vars[name] and later tasks write to m.Targets[targetName]).
+func TestParseNormalizesNilMapsToEmpty(t *testing.T) {
+	m, err := manifest.Parse([]byte("[project]\nid = \"test\"\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if m.Targets == nil {
+		t.Error("Targets is nil, want empty map")
+	}
+	if len(m.Targets) != 0 {
+		t.Errorf("Targets has %d entries, want 0", len(m.Targets))
+	}
+	if m.Vars == nil {
+		t.Error("Vars is nil, want empty map")
+	}
+	if len(m.Vars) != 0 {
+		t.Errorf("Vars has %d entries, want 0", len(m.Vars))
+	}
+}
