@@ -38,16 +38,22 @@ func TestDirFallsBackToHome(t *testing.T) {
 
 func TestPathHelpers(t *testing.T) {
 	t.Setenv("ENVCTL_CONFIG_DIR", "/cfg")
-	cases := map[string]string{
-		config.ConfigPath():                    "/cfg/config.toml",
-		config.RegistryPath():                  "/cfg/registry.toml",
-		config.ManifestPath("demo-project"):   "/cfg/projects/demo-project.toml",
-		config.StatePath("demo-project"):      "/cfg/state/demo-project.toml",
+	cases := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"ConfigPath", config.ConfigPath(), "/cfg/config.toml"},
+		{"RegistryPath", config.RegistryPath(), "/cfg/registry.toml"},
+		{"ManifestPath", config.ManifestPath("demo-project"), "/cfg/projects/demo-project.toml"},
+		{"StatePath", config.StatePath("demo-project"), "/cfg/state/demo-project.toml"},
 	}
-	for got, want := range cases {
-		if got != want {
-			t.Errorf("got %q, want %q", got, want)
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.got != tc.want {
+				t.Errorf("got %q, want %q", tc.got, tc.want)
+			}
+		})
 	}
 }
 
