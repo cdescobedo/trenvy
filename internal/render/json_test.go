@@ -39,14 +39,30 @@ func TestJSONIsValidAndFlat(t *testing.T) {
 }
 
 // public/env.json is served to the browser, so it must carry nothing but the
-// configuration the app reads — no envctl bookkeeping key.
+// configuration the app reads — no additional keys.
 func TestJSONCarriesNoBookkeepingKey(t *testing.T) {
-	got, err := render.JSON(resolved(map[string]string{"a": "1"}))
+	input := map[string]string{"a": "1"}
+	got, err := render.JSON(resolved(input))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(got), "envctl") {
-		t.Errorf("output mentions envctl; the file is served to browsers:\n%s", got)
+	var out map[string]string
+	if err := json.Unmarshal(got, &out); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, got)
+	}
+	// Assert the key set is exactly what went in. Any added key fails.
+	if len(out) != len(input) {
+		t.Errorf("output has %d keys, input has %d; extra keys added:\n%s", len(out), len(input), got)
+	}
+	for k := range input {
+		if _, ok := out[k]; !ok {
+			t.Errorf("input key %q missing from output:\n%s", k, got)
+		}
+	}
+	for k := range out {
+		if _, ok := input[k]; !ok {
+			t.Errorf("output has unexpected key %q not in input:\n%s", k, got)
+		}
 	}
 }
 
@@ -58,17 +74,36 @@ func TestJSONAcceptsFreeFormNamesDotenvWouldReject(t *testing.T) {
 }
 
 func TestJSONEscapesCorrectly(t *testing.T) {
-	got, err := render.JSON(resolved(map[string]string{"k": "a\"b\\c\nd"}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out map[string]string
-	if err := json.Unmarshal(got, &out); err != nil {
-		t.Fatalf("invalid JSON: %v\n%s", err, got)
-	}
-	if out["k"] != "a\"b\\c\nd" {
-		t.Errorf("round trip = %q", out["k"])
-	}
+	t.Run("standard JSON escapes round trip", func(t *testing.T) {
+		got, err := render.JSON(resolved(map[string]string{"k": "a\"b\\c\nd"}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out map[string]string
+		if err := json.Unmarshal(got, &out); err != nil {
+			t.Fatalf("invalid JSON: %v\n%s", err, got)
+		}
+		if out["k"] != "a\"b\\c\nd" {
+			t.Errorf("round trip = %q", out["k"])
+		}
+	})
+
+	t.Run("SetEscapeHTML(false) preserves ampersands", func(t *testing.T) {
+		// The implementation calls SetEscapeHTML(false) to keep URLs readable.
+		// By default, Go's JSON encoder escapes & to &. With that call,
+		// the raw & character appears in the output so URLs like ?a=1&b=2 stay legible.
+		got, err := render.JSON(resolved(map[string]string{"url": "?a=1&b=2"}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Check raw bytes: the literal & must appear, not the escape sequence.
+		if !strings.Contains(string(got), "&") {
+			t.Errorf("output does not contain literal &:\n%s", got)
+		}
+		if strings.Contains(string(got), "\\u0026") {
+			t.Errorf("output contains HTML-escaped ampersand (SetEscapeHTML(false) not applied):\n%s", got)
+		}
+	})
 }
 
 func TestJSONEndsWithNewline(t *testing.T) {
