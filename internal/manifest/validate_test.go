@@ -88,6 +88,18 @@ func TestValidateRejectsBadShape(t *testing.T) {
 			src:  "[project]\nid = \"p\"\ndefault_target = \"t\"\n[targets.t]\ndest = \"process\"\n[vars.A]\n",
 			want: "A",
 		},
+		"empty default target": {
+			src:  "[project]\nid = \"p\"\ndefault_target = \"\"\n[targets.t]\ndest = \"process\"\n",
+			want: "required",
+		},
+		"no targets": {
+			src:  "[project]\nid = \"p\"\ndefault_target = \"t\"\n",
+			want: "at least one",
+		},
+		"process target with path": {
+			src:  "[project]\nid = \"p\"\ndefault_target = \"t\"\n[targets.t]\ndest = \"process\"\npath = \".env\"\n",
+			want: "takes no path",
+		},
 	}
 
 	for name, tc := range cases {
@@ -108,14 +120,10 @@ func TestValidateReportsEveryProblemAtOnce(t *testing.T) {
 	m := parseOrFatal(t, "[project]\ndefault_target = \"ghost\"\n[targets.t]\ndest = \"sideways\"\n")
 	err := m.Validate()
 	var verr *manifest.ValidationError
-	if !errorsAs(err, &verr) {
+	if !errors.As(err, &verr) {
 		t.Fatalf("Validate returned %T, want *ValidationError", err)
 	}
 	if len(verr.Problems) < 3 {
 		t.Errorf("Problems = %v, want at least 3", verr.Problems)
 	}
-}
-
-func errorsAs(err error, target any) bool {
-	return errors.As(err, target)
 }
