@@ -153,8 +153,8 @@ func TestValuesOmittedIncludeMeansEverything(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Values: %v", err)
 	}
-	if len(got.Names) != 2 {
-		t.Errorf("Names = %v, want both vars", got.Names)
+	if !reflect.DeepEqual(got.Names, []string{"A", "B"}) {
+		t.Errorf("Names = %v, want [A B]", got.Names)
 	}
 }
 
@@ -216,5 +216,80 @@ secret = true
 	}
 	if fetched["SKIPPED"] {
 		t.Error("Values fetched a secret excluded by the target's selection")
+	}
+}
+
+func TestValuesRejectsIncludePatternError(t *testing.T) {
+	m := mustParse(t, `
+[project]
+id = "p"
+default_target = "t"
+[targets.t]
+dest = "process"
+include = ["["]
+[vars.X]
+value = "1"
+`)
+	_, err := resolve.Values(m, "t", lookupFrom(nil))
+	if err == nil {
+		t.Fatal("Values succeeded with malformed include pattern")
+	}
+	if !strings.Contains(err.Error(), "t") {
+		t.Errorf("error does not name the target: %v", err)
+	}
+	if !strings.Contains(err.Error(), "[") {
+		t.Errorf("error does not name the pattern: %v", err)
+	}
+}
+
+func TestValuesRejectsExcludePatternError(t *testing.T) {
+	m := mustParse(t, `
+[project]
+id = "p"
+default_target = "t"
+[targets.t]
+dest = "process"
+include = ["*"]
+exclude = ["["]
+[vars.X]
+value = "1"
+`)
+	_, err := resolve.Values(m, "t", lookupFrom(nil))
+	if err == nil {
+		t.Fatal("Values succeeded with malformed exclude pattern")
+	}
+	if !strings.Contains(err.Error(), "t") {
+		t.Errorf("error does not name the target: %v", err)
+	}
+	if !strings.Contains(err.Error(), "[") {
+		t.Errorf("error does not name the pattern: %v", err)
+	}
+}
+
+func TestValuesUsesDefaultValueForSecret(t *testing.T) {
+	m := mustParse(t, `
+[project]
+id = "p"
+default_target = "t"
+[targets.t]
+dest = "process"
+[vars.API_KEY]
+value = "default-key"
+secret = true
+`)
+	fetched := map[string]bool{}
+	lookup := func(name string) (string, error) {
+		fetched[name] = true
+		return "from-keyring", nil
+	}
+	got, err := resolve.Values(m, "t", lookup)
+	if err != nil {
+		t.Fatalf("Values: %v", err)
+	}
+	if got.Values["API_KEY"] != "default-key" {
+		t.Errorf("API_KEY = %q, want the default value", got.Values["API_KEY"])
+	}
+	if fetched["API_KEY"] {
+		t.Error("Values fetched a secret that had a default value")
 	}
 }

@@ -48,7 +48,11 @@ func Values(m *manifest.Manifest, target string, secret SecretLookup) (Resolved,
 	for _, name := range names {
 		// Selection happens before any value is fetched, so a secret this
 		// target excludes never costs an authorization prompt.
-		if !selected(name, t.Include, t.Exclude) {
+		sel, err := selected(name, t.Include, t.Exclude)
+		if err != nil {
+			return Resolved{}, fmt.Errorf("target %q: %w", target, err)
+		}
+		if !sel {
 			continue
 		}
 		v := m.Vars[name]
@@ -90,21 +94,29 @@ func Values(m *manifest.Manifest, target string, secret SecretLookup) (Resolved,
 
 // selected applies the target's include and exclude globs. An empty include
 // list means everything; exclude is subtracted afterwards.
-func selected(name string, include, exclude []string) bool {
+func selected(name string, include, exclude []string) (bool, error) {
 	in := len(include) == 0
 	for _, pat := range include {
-		if ok, _ := path.Match(pat, name); ok {
+		ok, err := path.Match(pat, name)
+		if err != nil {
+			return false, fmt.Errorf("invalid include pattern %q: %w", pat, err)
+		}
+		if ok {
 			in = true
 			break
 		}
 	}
 	if !in {
-		return false
+		return false, nil
 	}
 	for _, pat := range exclude {
-		if ok, _ := path.Match(pat, name); ok {
-			return false
+		ok, err := path.Match(pat, name)
+		if err != nil {
+			return false, fmt.Errorf("invalid exclude pattern %q: %w", pat, err)
+		}
+		if ok {
+			return false, nil
 		}
 	}
-	return true
+	return true, nil
 }
