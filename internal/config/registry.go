@@ -68,6 +68,7 @@ func (r *Registry) Add(e Entry) error {
 			return fmt.Errorf("%s is already registered as project %q", e.Root, existing.ID)
 		}
 	}
+	e.Root = filepath.Clean(e.Root)
 	r.Projects = append(r.Projects, e)
 	return nil
 }

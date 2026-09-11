@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -14,18 +15,21 @@ func TestLookupFindsAnAncestor(t *testing.T) {
 
 	// Every worktree under the registered root resolves to the same project.
 	// This is what makes a newly created worktree need no setup at all.
-	for _, dir := range []string{
-		"/w/demo-backend",
-		"/w/demo-backend/main",
-		"/w/demo-backend/FEAT-4001/src/DemoApp.Api",
-	} {
-		got, ok := r.Lookup(dir)
-		if !ok {
-			t.Fatalf("Lookup(%q) found nothing", dir)
-		}
-		if got.ID != "vpb" {
-			t.Errorf("Lookup(%q).ID = %q, want vpb", dir, got.ID)
-		}
+	tests := map[string]string{
+		"root":     "/w/demo-backend",
+		"worktree": "/w/demo-backend/main",
+		"deep":     "/w/demo-backend/FEAT-4001/src/DemoApp.Api",
+	}
+	for name, dir := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, ok := r.Lookup(dir)
+			if !ok {
+				t.Fatalf("Lookup(%q) found nothing", dir)
+			}
+			if got.ID != "vpb" {
+				t.Errorf("Lookup(%q).ID = %q, want vpb", dir, got.ID)
+			}
+		})
 	}
 }
 
@@ -54,13 +58,20 @@ func TestLookupPrefersTheDeepestMatch(t *testing.T) {
 	}
 }
 
-func TestAddRejectsDuplicateIDAndRoot(t *testing.T) {
+func TestAddRejectsDuplicateID(t *testing.T) {
 	r := &config.Registry{}
 	if err := r.Add(config.Entry{ID: "vpb", Root: "/w/vpb"}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 	if err := r.Add(config.Entry{ID: "vpb", Root: "/w/other"}); err == nil {
 		t.Error("Add accepted a duplicate id")
+	}
+}
+
+func TestAddRejectsDuplicateRoot(t *testing.T) {
+	r := &config.Registry{}
+	if err := r.Add(config.Entry{ID: "vpb", Root: "/w/vpb"}); err != nil {
+		t.Fatalf("Add: %v", err)
 	}
 	if err := r.Add(config.Entry{ID: "other", Root: "/w/vpb"}); err == nil {
 		t.Error("Add accepted a duplicate root")
@@ -90,5 +101,74 @@ func TestRegistryRoundTripsThroughDisk(t *testing.T) {
 	got, ok := again.Lookup(filepath.Join(root, "worktree"))
 	if !ok || got.ID != "p" {
 		t.Errorf("after reload Lookup = (%+v, %v)", got, ok)
+	}
+}
+
+func TestAddCleansTrailingSeparator(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("ENVCTL_CONFIG_DIR", dir)
+
+	r := &config.Registry{}
+	// Register with trailing separator
+	if err := r.Add(config.Entry{ID: "p", Root: "/w/vpb/"}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := r.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Verify we can resolve a directory inside the root
+	got, ok := r.Lookup("/w/vpb/main")
+	if !ok {
+		t.Fatal("Lookup failed to find ancestor with cleaned path")
+	}
+	if got.ID != "p" {
+		t.Errorf("Lookup.ID = %q, want p", got.ID)
+	}
+
+	// Verify the persisted entry is canonical (no trailing separator)
+	again, err := config.LoadRegistry()
+	if err != nil {
+		t.Fatalf("LoadRegistry: %v", err)
+	}
+	if len(again.Projects) != 1 {
+		t.Fatalf("expected 1 project, got %d", len(again.Projects))
+	}
+	if again.Projects[0].Root != "/w/vpb" {
+		t.Errorf("persisted Root = %q, want /w/vpb (canonical)", again.Projects[0].Root)
+	}
+}
+
+func TestSaveCreatesDirWithCorrectMode(t *testing.T) {
+	tempDir := t.TempDir()
+	// Use a non-existent subdirectory so Save() actually creates it
+	configDir := filepath.Join(tempDir, "envctl-config")
+	t.Setenv("ENVCTL_CONFIG_DIR", configDir)
+
+	r := &config.Registry{}
+	if err := r.Add(config.Entry{ID: "p", Root: "/w/vpb"}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := r.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Check directory permissions
+	dirInfo, err := os.Stat(config.Dir())
+	if err != nil {
+		t.Fatalf("Stat config dir: %v", err)
+	}
+	if dirInfo.Mode().Perm() != 0o700 {
+		t.Errorf("config dir mode = %o, want 0700", dirInfo.Mode().Perm())
+	}
+
+	// Check registry.toml file permissions
+	registryPath := config.RegistryPath()
+	fileInfo, err := os.Stat(registryPath)
+	if err != nil {
+		t.Fatalf("Stat registry file: %v", err)
+	}
+	if fileInfo.Mode().Perm() != 0o600 {
+		t.Errorf("registry.toml mode = %o, want 0600", fileInfo.Mode().Perm())
 	}
 }
