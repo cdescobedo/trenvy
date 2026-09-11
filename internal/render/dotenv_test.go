@@ -61,15 +61,15 @@ func TestDotenvGolden(t *testing.T) {
 // Connection strings are full of the characters that break naive writers.
 func TestDotenvQuotesAndEscapes(t *testing.T) {
 	cases := map[string]struct{ in, want string }{
-		"semicolons":    {"a;b;c", `X="a;b;c"`},
-		"equals":        {"k=v", `X="k=v"`},
-		"double quote":  {`say "hi"`, `X="say \"hi\""`},
-		"backslash":     {`C:\path`, `X="C:\\path"`},
-		"newline":       {"one\ntwo", `X="one\ntwo"`},
-		"carriage ret":  {"one\rtwo", `X="one\rtwo"`},
-		"empty":         {"", `X=""`},
-		"leading space": {"  pad", `X="  pad"`},
-		"dollar":        {"$NOT_EXPANDED", `X="$NOT_EXPANDED"`},
+		"semicolons":       {"a;b;c", `X="a;b;c"`},
+		"equals":           {"k=v", `X="k=v"`},
+		"double quote":     {`say "hi"`, `X="say \"hi\""`},
+		"backslash":        {`C:\path`, `X="C:\\path"`},
+		"newline":          {"one\ntwo", `X="one\ntwo"`},
+		"carriage ret":     {"one\rtwo", `X="one\rtwo"`},
+		"empty":            {"", `X=""`},
+		"leading space":    {"  pad", `X="  pad"`},
+		"dollar_unescaped": {"$NOT_EXPANDED", `X="$NOT_EXPANDED"`},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -85,15 +85,39 @@ func TestDotenvQuotesAndEscapes(t *testing.T) {
 }
 
 func TestDotenvRejectsNamesThatAreNotShellIdentifiers(t *testing.T) {
-	for _, bad := range []string{"auth0ClientID-x", "1LEADING", "has space", "has.dot", ""} {
-		if err := render.ValidateDotenvName(bad); err == nil {
-			t.Errorf("ValidateDotenvName(%q) = nil, want an error", bad)
-		}
+	bad := []struct {
+		name  string
+		label string
+	}{
+		{"auth0ClientID-x", "hyphen"},
+		{"1LEADING", "leading_digit"},
+		{"has space", "space"},
+		{"has.dot", "dot"},
+		{"", "empty"},
 	}
-	for _, good := range []string{"A", "_x", "auth0ClientID", "APP_URL", "A1_B2"} {
-		if err := render.ValidateDotenvName(good); err != nil {
-			t.Errorf("ValidateDotenvName(%q) = %v, want nil", good, err)
-		}
+	for _, tc := range bad {
+		t.Run(tc.label, func(t *testing.T) {
+			if err := render.ValidateDotenvName(tc.name); err == nil {
+				t.Errorf("ValidateDotenvName(%q) = nil, want an error", tc.name)
+			}
+		})
+	}
+	good := []struct {
+		name  string
+		label string
+	}{
+		{"A", "single_letter"},
+		{"_x", "leading_underscore"},
+		{"auth0ClientID", "camelcase"},
+		{"APP_URL", "uppercase_with_underscore"},
+		{"A1_B2", "digits_and_underscore"},
+	}
+	for _, tc := range good {
+		t.Run(tc.label, func(t *testing.T) {
+			if err := render.ValidateDotenvName(tc.name); err != nil {
+				t.Errorf("ValidateDotenvName(%q) = %v, want nil", tc.name, err)
+			}
+		})
 	}
 }
 
