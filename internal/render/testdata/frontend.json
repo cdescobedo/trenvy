@@ -1,0 +1,7 @@
+{
+  "auth0Audience": "http://app.example.test/api",
+  "auth0ClientID": "demoClientId00000000000000000000",
+  "auth0Domain": "dev-example.us.auth0.com",
+  "backendAPI": "/",
+  "mapboxAPIToken": "pk.demo.token.00000000000000000000000"
+}
