@@ -1,0 +1,10 @@
+# build output
+/envctl
+/dist/
+
+# go
+*.test
+/coverage.out
+
+# local
+.DS_Store
