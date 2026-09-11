@@ -23,7 +23,8 @@ func (m *Manifest) Encode() ([]byte, error) {
 
 // Save writes the manifest to path, creating parent directories, with mode
 // 0600. The manifest holds no secret values, but it does describe a project's
-// shape, so it stays private.
+// shape, so it stays private. If the file already exists, its permissions are
+// tightened to 0o600 (WriteFile does not chmod existing files).
 func Save(path string, m *Manifest) error {
 	data, err := m.Encode()
 	if err != nil {
@@ -34,6 +35,9 @@ func Save(path string, m *Manifest) error {
 	}
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("chmod %s: %w", path, err)
 	}
 	return nil
 }
