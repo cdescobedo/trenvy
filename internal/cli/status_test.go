@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/cdescobedo/envctl/internal/manifest"
 )
 
 func TestStatusReportsSecretPresence(t *testing.T) {
@@ -24,24 +26,87 @@ func TestStatusReportsSecretPresence(t *testing.T) {
 	}
 }
 
-// Presence must be established without reading values: on macOS a read can
-// raise an authorization prompt, so status would cost one prompt per secret.
-func TestStatusProbesPresenceWithoutReadingValues(t *testing.T) {
+// Freshness is an HMAC over resolved values, so status's default behaviour
+// must actually read them -- that is the whole point of the full check.
+func TestStatusWithoutQuickReadsSecretValues(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	// The secret is deliberately absent. With nothing to resolve, status must
-	// still be able to report presence — and must do so with Has alone.
+	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "s3cretvalue")
+
 	if err := h.run("status"); err != nil {
 		t.Fatal(err)
 	}
-	calls := h.mem.Calls()
-	if len(calls) == 0 {
-		t.Fatal("status probed nothing")
-	}
-	for _, call := range calls {
+	var sawGet bool
+	for _, call := range h.mem.Calls() {
 		if strings.HasPrefix(call, "Get ") {
-			t.Errorf("status read a secret value: %v", calls)
+			sawGet = true
 		}
+	}
+	if !sawGet {
+		t.Error("status without --quick never read a secret value")
+	}
+}
+
+// --quick must skip every value read while still reporting presence through
+// Has alone: on macOS a read can raise an authorization prompt, so a status
+// that only wants to see what is present must not pay for reading it too.
+func TestStatusQuickSkipsSecretReadsButStillReportsPresence(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "s3cretvalue")
+
+	if err := h.run("status", "--quick"); err != nil {
+		t.Fatal(err)
+	}
+	out := h.out.String()
+	if !strings.Contains(out, "present") {
+		t.Errorf("--quick did not report the secret present:\n%s", out)
+	}
+	if !strings.Contains(out, "unknown (--quick)") {
+		t.Errorf("--quick did not mark the target's freshness unknown:\n%s", out)
+	}
+	for _, call := range h.mem.Calls() {
+		if strings.HasPrefix(call, "Get ") {
+			t.Errorf("status --quick read a secret value: %v", h.mem.Calls())
+		}
+	}
+}
+
+// A target with no secrets at all must still report real freshness under
+// --quick: the flag exists to skip reads that are unavoidable, not to make
+// every target vaguer than it has to be.
+func TestStatusQuickReportsRealFreshnessForATargetWithNoSecrets(t *testing.T) {
+	h := newHarness(t)
+	h.gitInit("public/env.json\n")
+	m, err := manifest.Parse([]byte(`
+[project]
+id = "fe"
+default_target = "local"
+salt = "abc123"
+[targets.local]
+dest = "process"
+include = ["*"]
+[targets.web]
+dest = "file"
+format = "json"
+path = "public/env.json"
+include = ["*"]
+[vars.PUBLIC_URL]
+value = "https://example.com"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.register("fe", m)
+
+	if err := h.run("render", "web"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.run("status", "--quick"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(h.out.String(), "fresh") {
+		t.Errorf("--quick reported a secret-free target as anything but its real freshness:\n%s", h.out)
 	}
 }
 

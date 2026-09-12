@@ -182,6 +182,56 @@ func TestBackendFlagReachesTheStoreFactory(t *testing.T) {
 	}
 }
 
+// A project that never touches a secret must work even when the configured
+// backend cannot be opened at all -- the file backend errors outright with no
+// passphrase set. resolveApp must not open a store it will never use.
+func TestZeroSecretProjectWorksWithTheFileBackendAndNoPassphrase(t *testing.T) {
+	h := newHarness(t)
+	h.gitInit("public/env.json\n")
+	m, err := manifest.Parse([]byte(`
+[project]
+id = "fe"
+default_target = "local"
+salt = "abc123"
+
+[targets.local]
+dest = "process"
+include = ["*"]
+
+[targets.web]
+dest = "file"
+format = "json"
+path = "public/env.json"
+include = ["*"]
+
+[vars.PUBLIC_URL]
+value = "https://example.com"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.register("fe", m)
+
+	t.Setenv("ENVCTL_BACKEND", "file")
+	t.Setenv("ENVCTL_PASSPHRASE", "")
+	h.opts.NewStore = func(cfg *config.Config, backend string) (store.Store, error) {
+		return store.Open(backend, "someone")
+	}
+
+	if err := h.run("status"); err != nil {
+		t.Fatalf("status on a zero-secret project with an unopenable backend: %v", err)
+	}
+	if err := h.run("render", "web"); err != nil {
+		t.Fatalf("render on a zero-secret project with an unopenable backend: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(h.root, "public", "env.json")); err != nil {
+		t.Errorf("render did not write the file: %v", err)
+	}
+	if err := h.run("set", "PUBLIC_URL", "https://example.org"); err != nil {
+		t.Fatalf("set on a zero-secret project with an unopenable backend: %v", err)
+	}
+}
+
 func mkdirAll(p string) error { return os.MkdirAll(p, 0o755) }
 
 func mustReadFile(t *testing.T, path string) string {

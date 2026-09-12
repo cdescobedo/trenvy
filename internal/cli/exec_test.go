@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -102,7 +103,37 @@ func TestExecRequiresACommand(t *testing.T) {
 	}
 }
 
+// exec only checks staleness for the target it is actually running: another
+// target's staleness is not relevant to this invocation (and checking every
+// file target would re-resolve, and so re-read, every secret once per
+// target). So this warns when the stale target IS the one being exec'd.
 func TestExecWarnsAboutAStaleRenderedFile(t *testing.T) {
+	h := newHarness(t)
+	h.gitInit("src/.env\n")
+	h.register("vpb", fixtureManifest(t))
+	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "k")
+	if err := h.run("render", "docker"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.run("set", "APP_URL", "http://+:9999"); err != nil {
+		t.Fatal(err)
+	}
+
+	h.opts.Run = func(*exec.Cmd) error { return nil }
+	if err := h.run("exec", "docker", "--", "true"); err != nil {
+		t.Fatal(err)
+	}
+	// A stale .env silently overrides what exec injects; this warning is the
+	// whole reason the state file records a sum.
+	if !strings.Contains(h.errb.String(), "STALE") {
+		t.Errorf("no stale warning on stderr:\n%s", h.errb.String())
+	}
+}
+
+// The mirror image of the above: a target other than the one being exec'd
+// being stale must produce no warning at all, and must cost no extra secret
+// read for that unrelated target.
+func TestExecDoesNotWarnAboutAnUnrelatedStaleTarget(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")
 	h.register("vpb", fixtureManifest(t))
@@ -118,10 +149,53 @@ func TestExecWarnsAboutAStaleRenderedFile(t *testing.T) {
 	if err := h.run("exec", "local", "--", "true"); err != nil {
 		t.Fatal(err)
 	}
-	// A stale .env silently overrides what exec injects; this warning is the
-	// whole reason the state file records a sum.
-	if !strings.Contains(h.errb.String(), "STALE") {
-		t.Errorf("no stale warning on stderr:\n%s", h.errb.String())
+	if strings.Contains(h.errb.String(), "STALE") {
+		t.Errorf("exec warned about a target other than the one it ran:\n%s", h.errb.String())
+	}
+}
+
+// ENVCTL_PASSPHRASE unlocks the file secret backend; a child process has no
+// business inheriting it just because it inherits everything else.
+func TestExecStripsThePassphraseFromTheChildEnvironment(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "k")
+	t.Setenv("ENVCTL_PASSPHRASE", "super-secret-passphrase")
+
+	var captured *exec.Cmd
+	h.opts.Run = func(c *exec.Cmd) error { captured = c; return nil }
+
+	if err := h.run("exec", "local", "--", "true"); err != nil {
+		t.Fatal(err)
+	}
+	for _, kv := range captured.Env {
+		if strings.HasPrefix(kv, "ENVCTL_PASSPHRASE=") {
+			t.Errorf("child environment carried ENVCTL_PASSPHRASE: %v", kv)
+		}
+	}
+}
+
+// main.go must be able to tell a child's own exit status apart from an
+// envctl failure, so it can propagate the child's code with no "envctl:"
+// prefix. That requires exec's error to flow back unwrapped: this pins the
+// property main.go's own logic depends on, using a fabricated ExitError (no
+// real process is run) as the Run seam's return value.
+func TestExecSurfacesTheChildsExitErrorUnwrapped(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "k")
+
+	var ps os.ProcessState
+	want := &exec.ExitError{ProcessState: &ps}
+	h.opts.Run = func(*exec.Cmd) error { return want }
+
+	err := h.run("exec", "local", "--", "false")
+	var got *exec.ExitError
+	if !errors.As(err, &got) {
+		t.Fatalf("err = %v, want an *exec.ExitError", err)
+	}
+	if got != want {
+		t.Error("exec wrapped or replaced the child's ExitError instead of returning it as-is")
 	}
 }
 

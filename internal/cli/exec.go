@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -91,44 +92,54 @@ func prepareEnv(opts *Options, target string) (*appContext, []string, error) {
 		return nil, nil, err
 	}
 
-	warnStaleRenders(opts, app)
+	warnStaleRender(opts, app, name)
 
 	// Inheriting the parent environment matters: without it PATH is empty and
-	// nothing the user asked for can be found.
-	env := append([]string(nil), os.Environ()...)
+	// nothing the user asked for can be found. ENVCTL_PASSPHRASE is stripped:
+	// it unlocks the file secret backend, and a child process has no
+	// business inheriting it just because it inherits everything else.
+	env := make([]string, 0, len(os.Environ())+len(values.Names))
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "ENVCTL_PASSPHRASE=") {
+			continue
+		}
+		env = append(env, kv)
+	}
 	for _, n := range values.Names {
 		env = append(env, n+"="+values.Values[n])
 	}
 	return app, env, nil
 }
 
-// warnStaleRenders reports rendered files that no longer match the manifest.
+// warnStaleRender reports when the target actually being run's rendered file
+// no longer matches the manifest.
 //
 // A stale .env silently beats an injected environment in frameworks that load
 // dotenv files over the process environment, which makes this the single most
-// confusing failure this tool can have.
-func warnStaleRenders(opts *Options, app *appContext) {
-	for _, name := range sortedTargetNames(app.Manifest) {
-		t := app.Manifest.Targets[name]
-		if t.Dest != manifest.DestFile {
-			continue
-		}
-		values, err := resolve.Values(app.Manifest, name, app.secretLookup())
-		if err != nil {
-			continue
-		}
-		entry, have := app.State.Find(app.Worktree, name)
-		st, err := guard.Inspect(
-			filepath.Join(app.Worktree, t.Path),
-			render.Sum(app.Manifest.Project.Salt, values), entry, have)
-		if err != nil {
-			continue
-		}
-		if st == guard.StatusStale || st == guard.StatusModified {
-			fmt.Fprintf(opts.Stderr,
-				"envctl: %s is %s and may override what is injected; run: envctl render %s\n",
-				t.Path, st, name)
-		}
+// confusing failure this tool can have. Only the target this invocation
+// selected is checked: another target's staleness is not relevant here, and
+// checking every file target in the manifest would re-resolve (and so
+// re-read) every secret once per target on every exec.
+func warnStaleRender(opts *Options, app *appContext, name string) {
+	t, ok := app.Manifest.Targets[name]
+	if !ok || t.Dest != manifest.DestFile {
+		return
+	}
+	values, err := resolve.Values(app.Manifest, name, app.secretLookup())
+	if err != nil {
+		return
+	}
+	entry, have := app.State.Find(app.Worktree, name)
+	st, err := guard.Inspect(
+		filepath.Join(app.Worktree, t.Path),
+		render.Sum(app.Manifest.Project.Salt, values), entry, have)
+	if err != nil {
+		return
+	}
+	if st == guard.StatusStale || st == guard.StatusModified {
+		fmt.Fprintf(opts.Stderr,
+			"envctl: %s is %s and may override what is injected; run: envctl render %s\n",
+			t.Path, st, name)
 	}
 }
 

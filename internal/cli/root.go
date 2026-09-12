@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"sync"
 
 	"github.com/spf13/cobra"
 
@@ -73,13 +74,22 @@ func currentAccount() string {
 
 // appContext is everything a command needs about the project it is operating
 // on. Commands that do not need a project never build one.
+//
+// The secret store is opened lazily (see store()), not here: o.NewStore can
+// fail outright on a project with zero secrets (the file backend errors with
+// no passphrase configured, for instance), and a project that never touches a
+// secret must not pay for a store it never uses.
 type appContext struct {
 	Cfg      *config.Config
 	Entry    config.Entry
 	Manifest *manifest.Manifest
 	State    *config.State
 	Worktree string
-	Store    store.Store
+
+	opts      Options
+	storeOnce sync.Once
+	storeVal  store.Store
+	storeErr  error
 }
 
 // resolveApp locates the project owning Opts.Dir and loads everything about it.
@@ -114,22 +124,31 @@ func (o Options) resolveApp() (*appContext, error) {
 	if err != nil {
 		return nil, err
 	}
-	sec, err := o.NewStore(cfg, o.Backend)
-	if err != nil {
-		return nil, err
-	}
 
 	return &appContext{
 		Cfg: cfg, Entry: entry, Manifest: m,
-		State: st, Worktree: wt, Store: sec,
+		State: st, Worktree: wt, opts: o,
 	}, nil
+}
+
+// store opens the secret store on first use and memoizes the result (or the
+// error) for the rest of this command's run.
+func (a *appContext) store() (store.Store, error) {
+	a.storeOnce.Do(func() {
+		a.storeVal, a.storeErr = a.opts.NewStore(a.Cfg, a.opts.Backend)
+	})
+	return a.storeVal, a.storeErr
 }
 
 // secretLookup adapts the store to resolve.SecretLookup, applying the
 // configured service-name pattern.
 func (a *appContext) secretLookup() resolve.SecretLookup {
 	return func(name string) (string, error) {
-		return a.Store.Get(a.service(name))
+		s, err := a.store()
+		if err != nil {
+			return "", err
+		}
+		return s.Get(a.service(name))
 	}
 }
 
