@@ -213,6 +213,40 @@ func TestCleanRemovesTheFileAndForgetsTheState(t *testing.T) {
 	}
 }
 
+// The FOREIGN freshness state clean must refuse: a user's hand-written file
+// that envctl never rendered must survive a bare `envctl clean`, the same as
+// render's guard, and only come off with --force.
+func TestCleanRefusesAForeignFile(t *testing.T) {
+	h := newHarness(t)
+	h.gitInit("src/.env\n")
+	h.register("vpb", fixtureManifest(t))
+
+	dir := filepath.Join(h.root, "src")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	handWritten := "A=hand written\n"
+	path := filepath.Join(dir, ".env")
+	if err := os.WriteFile(path, []byte(handWritten), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := h.run("clean", "docker")
+	if err == nil {
+		t.Fatal("clean removed a file envctl has no record of writing")
+	}
+	if got := mustReadFile(t, path); got != handWritten {
+		t.Error("the foreign file was modified")
+	}
+
+	if err := h.run("clean", "docker", "--force"); err != nil {
+		t.Fatalf("clean --force: %v", err)
+	}
+	if _, statErr := os.Stat(path); statErr == nil {
+		t.Error("--force did not remove the foreign file")
+	}
+}
+
 func TestCleanOnAnAlreadyCleanTargetIsNotAnError(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")

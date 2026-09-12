@@ -116,7 +116,9 @@ func newRenderCmd(opts *Options) *cobra.Command {
 }
 
 func newCleanCmd(opts *Options) *cobra.Command {
-	return &cobra.Command{
+	var force bool
+
+	c := &cobra.Command{
 		Use:   "clean [target]",
 		Short: "Remove a rendered file from this worktree",
 		Args:  cobra.MaximumNArgs(1),
@@ -135,6 +137,24 @@ func newCleanCmd(opts *Options) *cobra.Command {
 			}
 
 			abs := filepath.Join(app.Worktree, t.Path)
+
+			// The same guard render uses: a FOREIGN or MODIFIED file must not
+			// be deleted without --force, or clean would silently destroy a
+			// hand-written file the guard exists to protect. There is no
+			// "wanted sum" to compare here — clean only cares whether the
+			// file is safe to touch at all, not whether it is stale — so an
+			// empty sum is passed; a genuinely rendered-but-stale file is
+			// still Stale (writable), never Foreign or Modified because of
+			// this.
+			entry, have := app.State.Find(app.Worktree, name)
+			status, err := guard.Inspect(abs, "", entry, have)
+			if err != nil {
+				return err
+			}
+			if err := guard.CheckWritable(status, abs, force); err != nil {
+				return err
+			}
+
 			err = os.Remove(abs)
 			switch {
 			case err == nil:
@@ -149,6 +169,8 @@ func newCleanCmd(opts *Options) *cobra.Command {
 			return app.State.Save()
 		},
 	}
+	c.Flags().BoolVar(&force, "force", false, "remove even a file envctl did not write, or one that was edited")
+	return c
 }
 
 func firstOrEmpty(args []string) string {
