@@ -142,13 +142,17 @@ func applyRows(opts *Options, app *appContext, rows []tui.Row) error {
 		}
 	}
 
+	// Validate before anything is written, so a rejected manifest cannot
+	// leave secrets in the keyring that nothing references.
 	if err := app.Manifest.Validate(); err != nil {
 		return err
 	}
-	if err := manifest.Save(config.ManifestPath(app.Entry.ID), app.Manifest); err != nil {
-		return err
-	}
 
+	// Then the keyring, and only then the manifest -- same ordering as
+	// `secret set`, for the same reason. The store is resolved lazily, so an
+	// unusable backend reports itself here, before the manifest is touched,
+	// and an interrupted run leaves at worst an unreferenced keyring item
+	// rather than a manifest entry whose secret was never stored.
 	if len(ops) > 0 {
 		s, err := app.store()
 		if err != nil {
@@ -165,6 +169,10 @@ func applyRows(opts *Options, app *appContext, rows []tui.Row) error {
 				return err
 			}
 		}
+	}
+
+	if err := manifest.Save(config.ManifestPath(app.Entry.ID), app.Manifest); err != nil {
+		return err
 	}
 
 	fmt.Fprintf(opts.Stdout, "saved %d variables\n", len(app.Manifest.Vars))

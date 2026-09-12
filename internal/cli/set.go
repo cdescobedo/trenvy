@@ -78,9 +78,8 @@ func newSecretSetCmd(opts *Options) *cobra.Command {
 				return fmt.Errorf("%s: empty value, nothing stored", name)
 			}
 
-			// Validate and save the manifest before writing the keyring: if
-			// validation fails, nothing must be left in the keyring with no
-			// corresponding manifest entry.
+			// Validate before anything is written, so a rejected manifest
+			// cannot leave a secret in the keyring that nothing references.
 			v := app.Manifest.Vars[name]
 			v.Secret = true
 			v.Value = nil // a secret never keeps a plain value
@@ -88,15 +87,23 @@ func newSecretSetCmd(opts *Options) *cobra.Command {
 			if err := app.Manifest.Validate(); err != nil {
 				return err
 			}
-			if err := manifest.Save(config.ManifestPath(app.Entry.ID), app.Manifest); err != nil {
-				return err
-			}
 
+			// Then the keyring, and only then the manifest. The store is
+			// resolved lazily, so this is also where an unusable backend (the
+			// file backend with no passphrase, say) first reports itself --
+			// before the manifest has been touched. Of the two ways a partial
+			// write can end, an unreferenced keyring item is the benign one:
+			// the manifest is the authoritative inventory, so nothing looks
+			// for it. The reverse -- a manifest entry whose secret was never
+			// stored -- shows up in status as MISSING and reads as data loss.
 			s, err := app.store()
 			if err != nil {
 				return err
 			}
 			if err := s.Set(app.service(name), value); err != nil {
+				return err
+			}
+			if err := manifest.Save(config.ManifestPath(app.Entry.ID), app.Manifest); err != nil {
 				return err
 			}
 
