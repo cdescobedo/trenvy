@@ -78,10 +78,9 @@ func newSecretSetCmd(opts *Options) *cobra.Command {
 				return fmt.Errorf("%s: empty value, nothing stored", name)
 			}
 
-			if err := app.Store.Set(app.service(name), value); err != nil {
-				return err
-			}
-
+			// Validate and save the manifest before writing the keyring: if
+			// validation fails, nothing must be left in the keyring with no
+			// corresponding manifest entry.
 			v := app.Manifest.Vars[name]
 			v.Secret = true
 			v.Value = nil // a secret never keeps a plain value
@@ -90,6 +89,14 @@ func newSecretSetCmd(opts *Options) *cobra.Command {
 				return err
 			}
 			if err := manifest.Save(config.ManifestPath(app.Entry.ID), app.Manifest); err != nil {
+				return err
+			}
+
+			s, err := app.store()
+			if err != nil {
+				return err
+			}
+			if err := s.Set(app.service(name), value); err != nil {
 				return err
 			}
 
@@ -153,7 +160,11 @@ func newSecretRmCmd(opts *Options) *cobra.Command {
 					return errors.New("aborted")
 				}
 			}
-			if err := app.Store.Delete(app.service(name)); err != nil && !errors.Is(err, store.ErrNotFound) {
+			s, err := app.store()
+			if err != nil {
+				return err
+			}
+			if err := s.Delete(app.service(name)); err != nil && !errors.Is(err, store.ErrNotFound) {
 				return err
 			}
 			fmt.Fprintf(opts.Stdout, "deleted %s from the keyring\n", name)
@@ -192,7 +203,11 @@ func newUnsetCmd(opts *Options) *cobra.Command {
 			}
 
 			if v.Secret {
-				if err := app.Store.Delete(app.service(name)); err != nil && !errors.Is(err, store.ErrNotFound) {
+				s, err := app.store()
+				if err != nil {
+					return err
+				}
+				if err := s.Delete(app.service(name)); err != nil && !errors.Is(err, store.ErrNotFound) {
 					return err
 				}
 			}

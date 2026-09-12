@@ -31,7 +31,13 @@ func newEditCmd(opts *Options) *cobra.Command {
 			}
 			final, err := opts.RunTUI(
 				tui.New(app.Entry.ID, rows),
-				func(name string) (string, error) { return app.Store.Get(app.service(name)) },
+				func(name string) (string, error) {
+					s, err := app.store()
+					if err != nil {
+						return "", err
+					}
+					return s.Get(app.service(name))
+				},
 			)
 			if err != nil {
 				return err
@@ -56,7 +62,11 @@ func rowsFromManifest(app *appContext) ([]tui.Row, error) {
 			row.Value = *v.Value
 		}
 		if v.Secret {
-			present, err := app.Store.Has(app.service(name))
+			s, err := app.store()
+			if err != nil {
+				return nil, err
+			}
+			present, err := s.Has(app.service(name))
 			if err != nil {
 				return nil, err
 			}
@@ -65,6 +75,17 @@ func rowsFromManifest(app *appContext) ([]tui.Row, error) {
 		rows = append(rows, row)
 	}
 	return rows, nil
+}
+
+// storeOp is one deferred keyring write, collected while applyRows computes
+// the manifest's new shape and only carried out once that shape has been
+// validated and saved. Writing the keyring before Validate/Save would leave a
+// secret in the keyring with no corresponding manifest entry if validation
+// then failed.
+type storeOp struct {
+	del     bool // Set when false, Delete when true.
+	service string
+	value   string
 }
 
 // applyRows writes the result of an editing session: plain values into the
@@ -78,14 +99,12 @@ func rowsFromManifest(app *appContext) ([]tui.Row, error) {
 // not rewrite every item — which on macOS would be pointless keychain churn.
 func applyRows(opts *Options, app *appContext, rows []tui.Row) error {
 	kept := map[string]bool{}
+	var ops []storeOp
 
 	for _, r := range rows {
 		if r.Deleted {
 			if r.Secret {
-				if err := app.Store.Delete(app.service(r.Name)); err != nil &&
-					!errors.Is(err, store.ErrNotFound) {
-					return err
-				}
+				ops = append(ops, storeOp{del: true, service: app.service(r.Name)})
 			}
 			delete(app.Manifest.Vars, r.Name)
 			continue
@@ -98,9 +117,7 @@ func applyRows(opts *Options, app *appContext, rows []tui.Row) error {
 		if r.Secret {
 			v.Value = nil
 			if r.Dirty && r.Value != "" {
-				if err := app.Store.Set(app.service(r.Name), r.Value); err != nil {
-					return err
-				}
+				ops = append(ops, storeOp{service: app.service(r.Name), value: r.Value})
 			}
 		} else {
 			value := r.Value
@@ -112,10 +129,7 @@ func applyRows(opts *Options, app *appContext, rows []tui.Row) error {
 				// later re-toggle to secret without setting a fresh value
 				// would (per the write-only-when-dirty guard above) silently
 				// resurrect it via a subsequent reveal.
-				if err := app.Store.Delete(app.service(r.Name)); err != nil &&
-					!errors.Is(err, store.ErrNotFound) {
-					return err
-				}
+				ops = append(ops, storeOp{del: true, service: app.service(r.Name)})
 			}
 		}
 		app.Manifest.Vars[r.Name] = v
@@ -134,6 +148,25 @@ func applyRows(opts *Options, app *appContext, rows []tui.Row) error {
 	if err := manifest.Save(config.ManifestPath(app.Entry.ID), app.Manifest); err != nil {
 		return err
 	}
+
+	if len(ops) > 0 {
+		s, err := app.store()
+		if err != nil {
+			return err
+		}
+		for _, op := range ops {
+			if op.del {
+				if err := s.Delete(op.service); err != nil && !errors.Is(err, store.ErrNotFound) {
+					return err
+				}
+				continue
+			}
+			if err := s.Set(op.service, op.value); err != nil {
+				return err
+			}
+		}
+	}
+
 	fmt.Fprintf(opts.Stdout, "saved %d variables\n", len(app.Manifest.Vars))
 	return nil
 }
