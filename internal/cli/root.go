@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/user"
 
 	"github.com/spf13/cobra"
@@ -26,6 +27,10 @@ type Options struct {
 	Dir      string
 	Backend  string
 	NewStore func(cfg *config.Config, backend string) (store.Store, error)
+
+	// Run executes a prepared child process. Swappable so tests can assert on
+	// the environment and argv without spawning anything.
+	Run func(*exec.Cmd) error
 }
 
 // Default returns Options wired to the real process.
@@ -45,6 +50,10 @@ func Default() Options {
 			// simply flag > env var > platform default. Nothing else in the
 			// CLI reimplements that precedence.
 			return store.Open(backend, currentAccount())
+		},
+		Run: func(c *exec.Cmd) error {
+			c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+			return c.Run()
 		},
 	}
 }
@@ -158,6 +167,8 @@ func Execute(opts Options, args []string) error {
 		newUnsetCmd(&opts),
 		newRenderCmd(&opts),
 		newCleanCmd(&opts),
+		newExecCmd(&opts),
+		newShellCmd(&opts),
 	)
 
 	return root.Execute()
