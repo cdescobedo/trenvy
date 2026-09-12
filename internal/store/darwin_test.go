@@ -88,3 +88,57 @@ func TestKeychainSetPutsNoValueInArgv(t *testing.T) {
 		}
 	}
 }
+
+func TestKeychainSetRejectsNewline(t *testing.T) {
+	restore := store.SetKeychainRunner(func(cmd *exec.Cmd) ([]byte, error) {
+		return nil, nil
+	})
+	t.Cleanup(restore)
+
+	k := store.NewKeychain("someone")
+	err := k.Set("envctl/service/KEY", "value\nmalicious")
+	if !errors.Is(err, store.ErrControlChar) {
+		t.Fatalf("Set with newline: got %v, want ErrControlChar", err)
+	}
+	if strings.Contains(err.Error(), "value\nmalicious") {
+		t.Error("error message contains the secret value")
+	}
+	if !strings.Contains(err.Error(), "envctl/service/KEY") {
+		t.Error("error message does not name the service")
+	}
+}
+
+func TestKeychainSetRejectsCarriageReturn(t *testing.T) {
+	restore := store.SetKeychainRunner(func(cmd *exec.Cmd) ([]byte, error) {
+		return nil, nil
+	})
+	t.Cleanup(restore)
+
+	k := store.NewKeychain("someone")
+	err := k.Set("envctl/service/KEY", "value\rmalicious")
+	if !errors.Is(err, store.ErrControlChar) {
+		t.Fatalf("Set with carriage return: got %v, want ErrControlChar", err)
+	}
+	if strings.Contains(err.Error(), "value\rmalicious") {
+		t.Error("error message contains the secret value")
+	}
+	if !strings.Contains(err.Error(), "envctl/service/KEY") {
+		t.Error("error message does not name the service")
+	}
+}
+
+func TestKeychainGetRemovesOnlyOneTrailingNewline(t *testing.T) {
+	restore := store.SetKeychainRunner(func(cmd *exec.Cmd) ([]byte, error) {
+		return []byte("value\n\n"), nil
+	})
+	t.Cleanup(restore)
+
+	k := store.NewKeychain("someone")
+	got, err := k.Get("envctl/service/KEY")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got != "value\n" {
+		t.Errorf("Get returned %q, want %q", got, "value\n")
+	}
+}

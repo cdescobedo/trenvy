@@ -10,6 +10,10 @@ import (
 	"strings"
 )
 
+// ErrControlChar is returned when a secret value contains control characters
+// (newline or carriage return) that would break the security(1) command stream.
+var ErrControlChar = errors.New("value contains a control character")
+
 // KeychainKind labels envctl's items in Keychain Access.app so a human can
 // tell at a glance which items the tool owns.
 const KeychainKind = "envctl secret"
@@ -21,7 +25,7 @@ const KeychainKind = "envctl secret"
 // answers "does this exist?" silently, while adding -w can raise a GUI
 // authorization prompt, and a library that only exposes Get would make the
 // status table cost one prompt per secret. Second, driving security(1)
-// directly gives control over -D and -j so items are labelled as envctl's.
+// directly gives control over -D so items are labelled as envctl's.
 //
 // Using the security binary also means no cgo, so the tool cross-compiles
 // from any machine.
@@ -42,7 +46,7 @@ var keychainRunner runnerFunc = func(cmd *exec.Cmd) ([]byte, error) {
 }
 
 // SetKeychainRunner replaces the command runner and returns a function that
-// restores the previous one. For tests only.
+// restores the previous one. For tests only, and not concurrency-safe.
 func SetKeychainRunner(f func(*exec.Cmd) ([]byte, error)) func() {
 	prev := keychainRunner
 	keychainRunner = f
@@ -73,7 +77,7 @@ func (k *Keychain) Get(service string) (string, error) {
 		}
 		return "", fmt.Errorf("keychain read for %s: %w", service, err)
 	}
-	return strings.TrimRight(string(out), "\n"), nil
+	return strings.TrimSuffix(string(out), "\n"), nil
 }
 
 // Set stores or replaces an item.
@@ -81,7 +85,13 @@ func (k *Keychain) Get(service string) (string, error) {
 // The value is passed on stdin through security's interactive mode, never as
 // an argument: ps exposes argv to every user on the machine, so a secret in
 // argv is a secret published to the box for the lifetime of the call.
+//
+// The value must not contain newlines or carriage returns, as security(1)
+// interprets them as command terminators in interactive mode.
 func (k *Keychain) Set(service, value string) error {
+	if strings.ContainsAny(value, "\n\r") {
+		return fmt.Errorf("%s: %w", service, ErrControlChar)
+	}
 	script := fmt.Sprintf(
 		"add-generic-password -a %s -s %s -D %s -w %s -U\nquit\n",
 		shellQuote(k.account), shellQuote(service),
