@@ -93,6 +93,7 @@ func applyRows(opts *Options, app *appContext, rows []tui.Row) error {
 		kept[r.Name] = true
 
 		v := app.Manifest.Vars[r.Name]
+		wasSecret := v.Secret
 		v.Secret = r.Secret
 		if r.Secret {
 			v.Value = nil
@@ -104,6 +105,18 @@ func applyRows(opts *Options, app *appContext, rows []tui.Row) error {
 		} else {
 			value := r.Value
 			v.Value = &value
+			if wasSecret {
+				// The variable just stopped being secret: its old keyring
+				// item is no longer referenced by the manifest at all, and
+				// leaving it behind is worse than a merely stale value — a
+				// later re-toggle to secret without setting a fresh value
+				// would (per the write-only-when-dirty guard above) silently
+				// resurrect it via a subsequent reveal.
+				if err := app.Store.Delete(app.service(r.Name)); err != nil &&
+					!errors.Is(err, store.ErrNotFound) {
+					return err
+				}
+			}
 		}
 		app.Manifest.Vars[r.Name] = v
 	}

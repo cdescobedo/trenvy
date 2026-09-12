@@ -21,9 +21,15 @@ func (h host) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return h, func() tea.Msg {
 			v, err := h.reveal(name)
 			if err != nil {
-				// Report absence rather than an error dialog; the row already
-				// says MISSING when there is nothing to show.
-				return RevealedMsg{Name: name, Value: ""}
+				// Send nothing on failure — including a genuinely missing
+				// secret (store.ErrNotFound). RevealedMsg unconditionally
+				// marks the row Revealed, and display() shows Revealed rows
+				// verbatim, so turning an error into RevealedMsg{Value: ""}
+				// would render a blank field instead of the true MISSING /
+				// dots state. A nil message is dropped by the event loop
+				// without reaching Update, so the row is left exactly as it
+				// was: un-revealed.
+				return nil
 			}
 			return RevealedMsg{Name: name, Value: v}
 		}
