@@ -64,7 +64,7 @@ func newImportCmd(opts *Options) *cobra.Command {
 			}
 
 			if targetName != "" {
-				tgt, err := targetFor(samplePath)
+				tgt, err := targetFor(samplePath, app.Worktree)
 				if err != nil {
 					return err
 				}
@@ -109,7 +109,7 @@ func newImportCmd(opts *Options) *cobra.Command {
 // such as main/. Using the wrong base bakes that worktree's own name into the
 // stored path, so a later render re-interprets it against a different
 // worktree root and doubles the segment (main/main/src/Api/.env).
-func targetFor(samplePath string) (manifest.Target, error) {
+func targetFor(samplePath, fallbackRoot string) (manifest.Target, error) {
 	abs, err := filepath.Abs(samplePath)
 	if err != nil {
 		abs = samplePath
@@ -118,11 +118,17 @@ func targetFor(samplePath string) (manifest.Target, error) {
 		abs = resolved
 	}
 
-	wt, err := resolve.WorktreeRoot(filepath.Dir(abs))
-	if err != nil {
-		return manifest.Target{}, fmt.Errorf("resolve the worktree for %s: %w", samplePath, err)
+	// Only a real repository root may serve as the base. resolve.WorktreeRoot
+	// would answer "the sample's own directory" for an unversioned project,
+	// which passes filepath.Rel happily and silently collapses the path to a
+	// bare basename -- a target written to the worktree root instead of
+	// src/Api/.env. An unversioned project falls back to the worktree the
+	// command is running in, which is what the project root is.
+	base, ok := resolve.GitWorktreeRoot(filepath.Dir(abs))
+	if !ok {
+		base = fallbackRoot
 	}
-	rel, err := filepath.Rel(wt, abs)
+	rel, err := filepath.Rel(base, abs)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return manifest.Target{}, fmt.Errorf(
 			"%s is not inside a worktree under the project root; "+

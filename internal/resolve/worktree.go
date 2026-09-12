@@ -17,19 +17,34 @@ import (
 // them separate is what lets one manifest serve every worktree, including ones
 // created long after the project was registered.
 func WorktreeRoot(dir string) (string, error) {
+	if root, ok := GitWorktreeRoot(dir); ok {
+		return root, nil
+	}
+	return cleanFallback(dir), nil
+}
+
+// GitWorktreeRoot returns the root of the worktree containing dir and true, or
+// false when dir is not inside a repository (or the tool is unavailable).
+//
+// WorktreeRoot folds that false into "dir itself", which is the right answer
+// when the job is to locate a project. Callers that must distinguish the two
+// cases need this instead: a directory that merely happens to hold a sample
+// file is not a worktree root, and treating it as one collapses every
+// relative path to a bare basename.
+func GitWorktreeRoot(dir string) (string, bool) {
 	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
-		// Not a repository, or git is unavailable. Neither is an error: a
-		// project need not be version controlled.
-		return cleanFallback(dir), nil
+		// Not a repository, or the tool is unavailable. Neither is an error:
+		// a project need not be version controlled.
+		return "", false
 	}
 	root := strings.TrimSpace(string(out))
 	if root == "" {
-		return cleanFallback(dir), nil
+		return "", false
 	}
-	return filepath.Clean(root), nil
+	return filepath.Clean(root), true
 }
 
 // cleanFallback resolves symlinks before cleaning, so that two spellings of

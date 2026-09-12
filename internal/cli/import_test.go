@@ -87,6 +87,40 @@ func TestImportCreatesAFileTargetForTheSamplesRealPath(t *testing.T) {
 	}
 }
 
+// A project need not be version controlled: resolve.WorktreeRoot says so
+// explicitly. When no repository contains the sample, the target path must
+// still be relative to the project root, not collapse to the sample's own
+// basename -- which is what happens if the sample's own directory is mistaken
+// for a worktree root.
+func TestImportTargetPathInANonGitProject(t *testing.T) {
+	h := newHarness(t)
+	if err := h.run("init", "--id", "vpb"); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(h.root, "src", "DemoApp.Api")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sample := filepath.Join(dir, ".env_example")
+	if err := os.WriteFile(sample, []byte("A=1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := h.run("import", sample, "--no-tui", "--target", "docker"); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+
+	m, _ := manifest.Load(config.ManifestPath("vpb"))
+	tgt, ok := m.Targets["docker"]
+	if !ok {
+		t.Fatal("import did not create the target")
+	}
+	want := filepath.Join("src", "DemoApp.Api", ".env")
+	if tgt.Path != want {
+		t.Errorf("target path = %q, want %q", tgt.Path, want)
+	}
+}
+
 // A directory whose name happens to contain one of the example suffixes must
 // survive intact: only the sample's own filename is stripped.
 func TestImportTargetPathLeavesDirectoryNamesIntact(t *testing.T) {
@@ -94,7 +128,6 @@ func TestImportTargetPathLeavesDirectoryNamesIntact(t *testing.T) {
 	if err := h.run("init", "--id", "vpb"); err != nil {
 		t.Fatal(err)
 	}
-	h.gitInit("")
 	dir := filepath.Join(h.root, "test_example_project")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -238,5 +271,33 @@ func TestImportRefusesToClobberExistingVariables(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "A") {
 		t.Errorf("error does not name the variable: %v", err)
+	}
+}
+
+// This rejection was unreachable before: resolve.WorktreeRoot never fails, and
+// for an unversioned project it answers "the sample's own directory", so
+// filepath.Rel always succeeded and the guard below could not trip. With a
+// real base it can -- a sample outside the project has no sensible rendered
+// path, and guessing one would write a credentials file somewhere unrelated.
+func TestImportTargetRejectsASampleOutsideTheProject(t *testing.T) {
+	h := newHarness(t)
+	if err := h.run("init", "--id", "vpb"); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "elsewhere")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sample := filepath.Join(outside, ".env_example")
+	if err := os.WriteFile(sample, []byte("A=1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := h.run("import", sample, "--no-tui", "--target", "docker")
+	if err == nil {
+		t.Fatal("import accepted a sample outside the project")
+	}
+	if !strings.Contains(err.Error(), "not inside a") {
+		t.Errorf("error = %v, want it to name the containment problem", err)
 	}
 }
