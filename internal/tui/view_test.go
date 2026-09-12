@@ -24,6 +24,25 @@ func TestViewMasksSecretsByDefault(t *testing.T) {
 	}
 }
 
+// TestViewShowsARevealedSecretValue covers the other half of the masking
+// constraint: once the user has genuinely revealed a secret (Revealed is set
+// only by the RevealedMsg handler in Update, never by direct construction),
+// the view must show it — a reveal key that reveals nothing would be worse
+// than the masking bug it replaces.
+func TestViewShowsARevealedSecretValue(t *testing.T) {
+	m := tui.New("vpb", []tui.Row{
+		{Name: "ALPHA_TOKEN", Secret: true, Present: true, Value: "s3cretvalue", Revealed: true},
+		{Name: "OTHER_SECRET", Secret: true, Present: true},
+	})
+	out := m.View()
+	if !strings.Contains(out, "s3cretvalue") {
+		t.Errorf("a revealed secret value is not shown:\n%s", out)
+	}
+	if !strings.Contains(out, "•") {
+		t.Errorf("the unrevealed secret row is not masked:\n%s", out)
+	}
+}
+
 func TestViewMarksAMissingSecret(t *testing.T) {
 	m := tui.New("vpb", []tui.Row{
 		{Name: "ALPHA_TOKEN", Secret: true, Present: false},

@@ -10,13 +10,14 @@ const (
 	valueWidth = 44
 )
 
-// View renders the table. A secret row is always masked: it shows either the
-// dots-in-keyring state or MISSING, never the plaintext value, even if the
-// row's Value happens to be populated (e.g. by a reveal fetch). Reveal exists
-// to make the value available to the state machine (and, from there, the
-// process that saves it), not to print it — see display below and the
-// masking tests in view_test.go, which are a hard constraint rather than a
-// formatting preference.
+// View renders the table. A secret row shows its plaintext value only when
+// Revealed is set — which happens only via the RevealedMsg handler in
+// Update, in response to the user pressing r on that row — and otherwise
+// shows the dots-in-keyring state or MISSING. Revealed, not a non-empty
+// Value, is what distinguishes "the user asked to see this" from a row that
+// simply happens to carry a value (e.g. one built directly by a caller): see
+// display below and the masking tests in view_test.go, which are a hard
+// constraint rather than a formatting preference.
 func (m Model) View() string {
 	var b strings.Builder
 
@@ -93,10 +94,13 @@ func addNameWarning(m Model) string {
 	return ""
 }
 
-// display decides what a row shows. A secret always shows dots or MISSING —
-// its Value is never printed, no matter how it got populated.
+// display decides what a row shows. A secret shows its Value only once the
+// user has explicitly revealed it (Revealed); otherwise dots or MISSING.
 func display(r Row) string {
 	if r.Secret {
+		if r.Revealed {
+			return truncate(r.Value, valueWidth)
+		}
 		if r.Present {
 			return "••••••••  (in the keyring)"
 		}

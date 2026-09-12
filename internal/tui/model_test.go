@@ -151,11 +151,17 @@ func TestRevealOnlyAffectsTheSelectedRow(t *testing.T) {
 	if got := m.Rows()[1].Value; got != "s3cret" {
 		t.Errorf("revealed value = %q", got)
 	}
+	if !m.Rows()[1].Revealed {
+		t.Error("revealing did not mark the row Revealed")
+	}
 	if m.Rows()[1].Dirty {
 		t.Error("revealing marked the row dirty; it changed nothing")
 	}
 	if m.Rows()[2].Value != "" {
 		t.Error("revealing one row revealed another")
+	}
+	if m.Rows()[2].Revealed {
+		t.Error("revealing one row marked another Revealed")
 	}
 }
 

@@ -21,6 +21,11 @@ type Row struct {
 	Source    string // where an imported row came from, shown during import
 	Dirty     bool
 	Deleted   bool
+	// Revealed records that the user explicitly revealed this secret's value
+	// in this session, so the view can show it. Value alone cannot carry
+	// that distinction: it is also how a caller may construct a row directly
+	// (e.g. in a test), which must not be treated as a reveal.
+	Revealed bool
 }
 
 // RevealedMsg carries a secret value fetched in response to r.
@@ -116,6 +121,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			if m.rows[i].Name == msg.Name {
 				// Revealing changes nothing, so the row must not become dirty.
 				m.rows[i].Value = msg.Value
+				m.rows[i].Revealed = true
 			}
 		}
 		return m, nil
