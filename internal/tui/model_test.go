@@ -21,6 +21,8 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyUp}
 	case "down":
 		return tea.KeyMsg{Type: tea.KeyDown}
+	case "ctrl+c":
+		return tea.KeyMsg{Type: tea.KeyCtrlC}
 	}
 	panic("unknown key " + s)
 }
@@ -237,6 +239,40 @@ func TestQuitWithUnsavedChangesAsksFirst(t *testing.T) {
 			t.Error("confirming did not cancel")
 		}
 	})
+}
+
+// Ctrl+C must cancel immediately no matter what mode the user is in.
+// bubbletea delivers it as an ordinary KeyMsg rather than SIGINT, so without
+// a handler in every mode, a user in the middle of typing a value has no way
+// out except knowing to press esc first.
+func TestCtrlCCancelsImmediatelyFromEditMode(t *testing.T) {
+	m := press(fixture(), "e", "x", "y") // mid-edit, nothing committed yet
+	if m.Mode() != tui.ModeEditValue {
+		t.Fatalf("Mode = %v, want edit (test setup)", m.Mode())
+	}
+
+	m = press(m, "ctrl+c")
+
+	if !m.Cancelled() {
+		t.Error("ctrl+c from edit mode did not cancel")
+	}
+}
+
+// Ctrl+C is an unconditional, immediate cancel, unlike q -- which asks first
+// when there are unsaved changes. Even from the quit confirmation itself,
+// ctrl+c must not fall through to "no" the way any other key does.
+func TestCtrlCCancelsImmediatelyFromQuitConfirmation(t *testing.T) {
+	m := press(fixture(), "e", "x", "enter") // dirty
+	m = press(m, "q")
+	if m.Mode() != tui.ModeConfirmQuit {
+		t.Fatalf("Mode = %v, want confirm-quit (test setup)", m.Mode())
+	}
+
+	m = press(m, "ctrl+c")
+
+	if !m.Cancelled() {
+		t.Error("ctrl+c from the quit confirmation did not cancel")
+	}
 }
 
 func TestQuitWithNoChangesLeavesImmediately(t *testing.T) {

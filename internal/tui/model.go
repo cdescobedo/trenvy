@@ -127,6 +127,16 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Ctrl+C is an immediate cancel in every mode. bubbletea's raw mode
+		// delivers it as an ordinary KeyMsg, not SIGINT, so without this a
+		// user in the middle of editing a value, adding a row, or filtering
+		// has no way out except knowing to press esc first, and in the quit
+		// confirmation it would fall through to "no" and refuse to quit at
+		// all.
+		if msg.Type == tea.KeyCtrlC {
+			m.cancelled = true
+			return m, tea.Quit
+		}
 		switch m.mode {
 		case ModeEditValue, ModeAddName, ModeFilter:
 			return m.updateInput(msg)
@@ -195,7 +205,9 @@ func (m Model) updateBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.filter = ""
 			m.cursor = 0
 		}
-	case "q", "ctrl+c":
+	case "q":
+		// Ctrl+C is handled once, up in Update, as an unconditional immediate
+		// cancel; q asks first when there are unsaved changes.
 		if m.dirty() {
 			m.mode = ModeConfirmQuit
 			return m, nil
