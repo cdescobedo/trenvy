@@ -128,10 +128,3 @@ func targetFor(worktree, samplePath string) manifest.Target {
 		Include: []string{"*"},
 	}
 }
-
-// reviewImport is replaced by the TUI in the tui task. Until then it passes
-// the guesses through so that --no-tui and the default behave identically.
-func reviewImport(opts *Options, projectID string, entries []sample.Entry) ([]sample.Entry, error) {
-	fmt.Fprintln(opts.Stderr, "note: interactive review is not wired up yet; accepting the guesses")
-	return entries, nil
-}

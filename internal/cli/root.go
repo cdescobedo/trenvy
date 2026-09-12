@@ -16,6 +16,7 @@ import (
 	"github.com/cdescobedo/envctl/internal/manifest"
 	"github.com/cdescobedo/envctl/internal/resolve"
 	"github.com/cdescobedo/envctl/internal/store"
+	"github.com/cdescobedo/envctl/internal/tui"
 )
 
 // Options are the seams that make the CLI testable: streams, the working
@@ -31,6 +32,10 @@ type Options struct {
 	// Run executes a prepared child process. Swappable so tests can assert on
 	// the environment and argv without spawning anything.
 	Run func(*exec.Cmd) error
+
+	// RunTUI drives the interactive table. Swappable so tests can supply a
+	// finished model instead of a terminal session.
+	RunTUI func(tui.Model, func(string) (string, error)) (tui.Model, error)
 }
 
 // Default returns Options wired to the real process.
@@ -55,6 +60,7 @@ func Default() Options {
 			c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
 			return c.Run()
 		},
+		RunTUI: tui.Run,
 	}
 }
 
@@ -162,6 +168,7 @@ func Execute(opts Options, args []string) error {
 		newProjectsCmd(&opts),
 		newStatusCmd(&opts),
 		newImportCmd(&opts),
+		newEditCmd(&opts),
 		newSetCmd(&opts),
 		newSecretCmd(&opts),
 		newUnsetCmd(&opts),

@@ -1,5 +1,7 @@
 package tui
 
+import tea "github.com/charmbracelet/bubbletea"
+
 // Mode is the state machine's current input mode.
 type Mode int
 
@@ -38,3 +40,7 @@ var Keys = []struct{ Key, Help string }{
 	{"w", "write"},
 	{"q", "quit"},
 }
+
+// KeyW returns the message for the write key, so callers can drive a model to
+// the saved state without depending on bubbletea's key types.
+func KeyW() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")} }
