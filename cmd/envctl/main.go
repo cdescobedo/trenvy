@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"syscall"
 
 	"github.com/cdescobedo/envctl/internal/cli"
 )
@@ -32,7 +33,19 @@ func report(err error, stderr io.Writer) int {
 	}
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
-		return ee.ExitCode()
+		if code := ee.ExitCode(); code >= 0 {
+			return code
+		}
+		// ExitCode is -1 when the child was killed by a signal rather than
+		// exiting. os.Exit(-1) surfaces as 255, which is indistinguishable
+		// from a real exit status of 255; shells report a signalled child as
+		// 128+signal, so match that.
+		if ws, ok := ee.Sys().(interface{ Signal() syscall.Signal }); ok {
+			if sig := ws.Signal(); sig > 0 {
+				return 128 + int(sig)
+			}
+		}
+		return 128
 	}
 	fmt.Fprintf(stderr, "envctl: %v\n", err)
 	return 1
