@@ -108,9 +108,8 @@ func (f *File) save(items map[string]string) error {
 		return fmt.Errorf("create %s: %w", filepath.Dir(f.path), err)
 	}
 	// A crash or a killed process mid-write must not destroy the only copy of
-	// these secrets, so this goes through the same temp-file-then-rename
-	// primitive render uses for rendered .env files, rather than truncating
-	// f.path in place.
+	// these secrets, so this goes through fsutil's temp-file-then-rename
+	// primitive rather than truncating f.path in place.
 	if err := fsutil.WriteAtomic(f.path, buf.Bytes()); err != nil {
 		return fmt.Errorf("write %s: %w", f.path, err)
 	}
