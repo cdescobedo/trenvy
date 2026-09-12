@@ -59,6 +59,14 @@ func (m Model) Cancelled() bool { return m.cancelled }
 func (m Model) Title() string   { return m.title }
 func (m Model) Buffer() string  { return m.buffer }
 
+// matchesFilter reports whether r passes the active filter. Rows and
+// realIndex must share this predicate: realIndex resolves the cursor by
+// counting matches in row order, so any divergence between the two would
+// mean an edit lands on a row the user cannot see selected.
+func (m Model) matchesFilter(r Row) bool {
+	return m.filter == "" || strings.Contains(strings.ToUpper(r.Name), strings.ToUpper(m.filter))
+}
+
 // Rows returns the visible rows, honouring the active filter.
 func (m Model) Rows() []Row {
 	if m.filter == "" {
@@ -66,7 +74,7 @@ func (m Model) Rows() []Row {
 	}
 	var out []Row
 	for _, r := range m.rows {
-		if strings.Contains(strings.ToUpper(r.Name), strings.ToUpper(m.filter)) {
+		if m.matchesFilter(r) {
 			out = append(out, r)
 		}
 	}
@@ -75,6 +83,18 @@ func (m Model) Rows() []Row {
 
 // AllRows returns every row including those hidden by the filter, for saving.
 func (m Model) AllRows() []Row { return m.rows }
+
+// nameExists reports whether name is already used by a row. Two rows sharing
+// a name would collapse into one on save, since the manifest stores
+// variables in a map, so add must never be allowed to create one.
+func (m Model) nameExists(name string) bool {
+	for _, r := range m.rows {
+		if r.Name == name {
+			return true
+		}
+	}
+	return false
+}
 
 func (m Model) dirty() bool {
 	for _, r := range m.rows {
@@ -138,10 +158,15 @@ func (m Model) updateBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.buffer = ""
 	case "s":
 		if i, ok := m.realIndex(); ok {
-			m.rows[i].Secret = !m.rows[i].Secret
-			// A value that has just become secret must not stay in the
-			// manifest, so it is dropped here rather than at save time.
-			m.rows[i].Value = ""
+			becomingSecret := !m.rows[i].Secret
+			m.rows[i].Secret = becomingSecret
+			if becomingSecret {
+				// A value that has just become secret must not stay in the
+				// manifest, so it is dropped here rather than at save time.
+				// Going the other way must not clear it: a revealed value
+				// (or a plain value restored from secret) has to survive.
+				m.rows[i].Value = ""
+			}
 			m.rows[i].Dirty = true
 		}
 	case "d":
@@ -194,7 +219,7 @@ func (m Model) updateInput(msg tea.KeyMsg) (Model, tea.Cmd) {
 				m.rows[i].Dirty = true
 			}
 		case ModeAddName:
-			if m.buffer != "" {
+			if m.buffer != "" && !m.nameExists(m.buffer) {
 				m.rows = append(m.rows, Row{Name: m.buffer, Dirty: true})
 			}
 		case ModeFilter:
@@ -233,17 +258,22 @@ func (m Model) updateConfirm(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 }
 
-// realIndex maps the cursor over the filtered view back to m.rows.
+// realIndex maps the cursor over the filtered view back to m.rows by
+// counting matches in row order rather than resolving by name, so two rows
+// sharing a name never resolve to the wrong one.
 func (m Model) realIndex() (int, bool) {
-	visible := m.Rows()
-	if m.cursor < 0 || m.cursor >= len(visible) {
+	if m.cursor < 0 {
 		return 0, false
 	}
-	name := visible[m.cursor].Name
-	for i := range m.rows {
-		if m.rows[i].Name == name {
+	n := m.cursor
+	for i, r := range m.rows {
+		if !m.matchesFilter(r) {
+			continue
+		}
+		if n == 0 {
 			return i, true
 		}
+		n--
 	}
 	return 0, false
 }

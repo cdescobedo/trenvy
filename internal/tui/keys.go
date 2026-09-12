@@ -31,7 +31,6 @@ func (m Mode) String() string {
 var Keys = []struct{ Key, Help string }{
 	{"e", "edit"},
 	{"s", "secret"},
-	{"t", "targets"},
 	{"r", "reveal"},
 	{"a", "add"},
 	{"d", "delete"},

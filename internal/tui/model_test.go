@@ -32,6 +32,15 @@ func press(m tui.Model, keys ...string) tui.Model {
 	return m
 }
 
+// chars splits s into single-rune key presses for press().
+func chars(s string) []string {
+	out := make([]string, 0, len(s))
+	for _, r := range s {
+		out = append(out, string(r))
+	}
+	return out
+}
+
 func fixture() tui.Model {
 	return tui.New("vpb", []tui.Row{
 		{Name: "APP_URL", Value: "http://+:8080"},
@@ -228,5 +237,61 @@ func TestQuitWithNoChangesLeavesImmediately(t *testing.T) {
 	m := press(fixture(), "q")
 	if !m.Cancelled() {
 		t.Error("q with a clean model did not quit")
+	}
+}
+
+// A duplicate name must never be creatable: the manifest stores variables in
+// a map, so two rows sharing a name would silently collapse on save.
+func TestAddRejectsADuplicateName(t *testing.T) {
+	keys := append([]string{"a"}, append(chars("ALPHA_TOKEN"), "enter")...)
+	m := press(fixture(), keys...)
+	rows := m.Rows()
+	if len(rows) != 3 {
+		t.Fatalf("len(Rows) = %d, want 3 (a duplicate name must be rejected)", len(rows))
+	}
+}
+
+// realIndex must resolve the cursor by filtered position, not by name.
+// Two rows sharing a name, both visible under a filter, must let an edit on
+// the second land on the second — resolving by name would always hit the
+// first match instead, silently corrupting the wrong row.
+func TestFilteredEditLandsOnTheCorrectRowWhenNamesCollide(t *testing.T) {
+	m := tui.New("t", []tui.Row{
+		{Name: "DUP", Value: "first"},
+		{Name: "OTHER", Value: "other"},
+		{Name: "DUP", Value: "second"},
+	})
+
+	keys := append([]string{"/"}, append(chars("DUP"), "enter", "j")...)
+	m = press(m, keys...)
+	m = press(m, "e", "X", "enter")
+
+	all := m.AllRows()
+	if all[2].Value != "X" {
+		t.Errorf("all[2].Value = %q, want X (the second DUP row, selected by position)", all[2].Value)
+	}
+	if all[0].Value != "first" {
+		t.Errorf("all[0].Value = %q, want unchanged; the edit landed on the wrong row", all[0].Value)
+	}
+}
+
+// Reveal deliberately does not mark a row dirty because it changes nothing.
+// Toggling secret off afterward must not destroy that revealed value: only
+// the plain-to-secret transition may clear Value, never the reverse.
+func TestToggleSecretOffPreservesARevealedValue(t *testing.T) {
+	m := press(fixture(), "j") // ALPHA_TOKEN: secret, present
+	m, cmd := m.Update(key("r"))
+	if cmd == nil {
+		t.Fatal("reveal issued no command to fetch the value")
+	}
+	m, _ = m.Update(tui.RevealedMsg{Name: "ALPHA_TOKEN", Value: "s3cret"})
+
+	m = press(m, "s") // toggle secret off
+	row := m.Rows()[1]
+	if row.Secret {
+		t.Fatal("the row is still marked secret")
+	}
+	if row.Value != "s3cret" {
+		t.Errorf("Value = %q, want the revealed value preserved", row.Value)
 	}
 }
