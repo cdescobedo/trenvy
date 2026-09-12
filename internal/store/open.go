@@ -32,14 +32,23 @@ func DefaultBackend() string {
 	return BackendFile
 }
 
+// ResolveBackendName returns the backend name Open would use for flag,
+// applying the same precedence Open does: the flag, then ENVCTL_BACKEND, then
+// the platform default. It exists so callers that only need the name (status,
+// for instance) do not have to duplicate that precedence.
+func ResolveBackendName(flag string) string {
+	if flag != "" {
+		return flag
+	}
+	if env := os.Getenv("ENVCTL_BACKEND"); env != "" {
+		return env
+	}
+	return DefaultBackend()
+}
+
 // Open returns the named backend, or the platform default when name is empty.
 func Open(name, account string) (Store, error) {
-	if name == "" {
-		name = os.Getenv("ENVCTL_BACKEND")
-	}
-	if name == "" {
-		name = DefaultBackend()
-	}
+	name = ResolveBackendName(name)
 
 	switch name {
 	case BackendMem:

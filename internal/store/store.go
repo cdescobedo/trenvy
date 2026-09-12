@@ -7,6 +7,14 @@ import "errors"
 // ErrNotFound is returned by Get and Delete when no item exists.
 var ErrNotFound = errors.New("secret not found")
 
+// MaxValueBytes is the Windows Credential Manager limit on a credential blob.
+// It is enforced on every backend, not just Windows, so that a value that
+// works on one machine does not mysteriously fail on a teammate's.
+const MaxValueBytes = 2560
+
+// ErrTooLong is returned by Set when a value exceeds MaxValueBytes.
+var ErrTooLong = errors.New("value exceeds the keyring size limit")
+
 // Store is a keyed secret store. Services are full names rendered from the
 // configured pattern, for example "envctl/demo-backend/ALPHA_TOKEN".
 //

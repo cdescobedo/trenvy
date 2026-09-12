@@ -138,6 +138,13 @@ func (f *File) Get(service string) (string, error) {
 }
 
 func (f *File) Set(service, value string) error {
+	if len(value) > MaxValueBytes {
+		// Name the variable and the limit, never the value. Enforced here too
+		// so a secret stored fine on this backend does not mysteriously fail
+		// once it round-trips through a platform keyring on another machine.
+		return fmt.Errorf("%s is %d bytes, over the %d-byte platform limit: %w",
+			service, len(value), MaxValueBytes, ErrTooLong)
+	}
 	items, err := f.load()
 	if err != nil {
 		return err

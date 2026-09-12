@@ -59,7 +59,7 @@ func (k *Keychain) Has(service string) (bool, error) {
 	cmd := exec.Command("security", "find-generic-password",
 		"-a", k.account, "-s", service)
 	if _, err := keychainRunner(cmd); err != nil {
-		if isAnyExit(err) {
+		if isNotFoundExit(err) {
 			return false, nil
 		}
 		return false, fmt.Errorf("keychain lookup for %s: %w", service, err)
@@ -72,7 +72,7 @@ func (k *Keychain) Get(service string) (string, error) {
 		"-a", k.account, "-s", service, "-w")
 	out, err := keychainRunner(cmd)
 	if err != nil {
-		if isAnyExit(err) {
+		if isNotFoundExit(err) {
 			return "", fmt.Errorf("%s: %w", service, ErrNotFound)
 		}
 		return "", fmt.Errorf("keychain read for %s: %w", service, err)
@@ -87,10 +87,18 @@ func (k *Keychain) Get(service string) (string, error) {
 // argv is a secret published to the box for the lifetime of the call.
 //
 // The value must not contain newlines or carriage returns, as security(1)
-// interprets them as command terminators in interactive mode.
+// interprets them as command terminators in interactive mode, nor a NUL byte:
+// security is a C program reading stdin, so a NUL could truncate the stored
+// secret silently, which is worse than the newline case since that fails
+// loudly instead.
 func (k *Keychain) Set(service, value string) error {
-	if strings.ContainsAny(value, "\n\r") {
+	if strings.ContainsAny(value, "\n\r\x00") {
 		return fmt.Errorf("%s: %w", service, ErrControlChar)
+	}
+	if len(value) > MaxValueBytes {
+		// Name the variable and the limit, never the value.
+		return fmt.Errorf("%s is %d bytes, over the %d-byte platform limit: %w",
+			service, len(value), MaxValueBytes, ErrTooLong)
 	}
 	script := fmt.Sprintf(
 		"add-generic-password -a %s -s %s -D %s -w %s -U\nquit\n",
@@ -109,7 +117,7 @@ func (k *Keychain) Delete(service string) error {
 	cmd := exec.Command("security", "delete-generic-password",
 		"-a", k.account, "-s", service)
 	if _, err := keychainRunner(cmd); err != nil {
-		if isAnyExit(err) {
+		if isNotFoundExit(err) {
 			return fmt.Errorf("%s: %w", service, ErrNotFound)
 		}
 		return fmt.Errorf("keychain delete for %s: %w", service, err)
@@ -132,9 +140,17 @@ func shellQuote(s string) string {
 	return b.String()
 }
 
-func isAnyExit(err error) bool {
+// keychainNotFoundExitCode is security(1)'s exit status for "no such item".
+// Every other non-zero status (authorization denied, user cancelled, and so
+// on) is a real failure and must not be read as the secret being absent.
+const keychainNotFoundExitCode = 44
+
+func isNotFoundExit(err error) bool {
 	var ee *exec.ExitError
-	return errors.As(err, &ee)
+	if !errors.As(err, &ee) {
+		return false
+	}
+	return ee.ExitCode() == keychainNotFoundExitCode
 }
 
 func openNative(account string) (Store, error) { return NewKeychain(account), nil }

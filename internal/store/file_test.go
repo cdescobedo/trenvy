@@ -89,6 +89,25 @@ func TestFileStoreWrongPassphraseFails(t *testing.T) {
 	}
 }
 
+// The file backend must enforce the same size limit as the platform
+// keyrings, so a value that fits here does not mysteriously fail once it
+// round-trips through a teammate's Windows Credential Manager.
+func TestFileStoreRejectsOversizedValues(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "secrets.age")
+	f := store.NewFile(path, "pw")
+
+	err := f.Set("envctl/p/BIG", strings.Repeat("x", store.MaxValueBytes+1))
+	if !errors.Is(err, store.ErrTooLong) {
+		t.Fatalf("Set over the size limit: got %v, want ErrTooLong", err)
+	}
+	if !strings.Contains(err.Error(), "BIG") {
+		t.Errorf("error does not name the variable: %v", err)
+	}
+	if strings.Contains(err.Error(), "xxxx") {
+		t.Errorf("error leaked the value: %v", err)
+	}
+}
+
 func TestFileStoreMissingKeyIsNotFound(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "secrets.age")
 	if err := store.NewFile(path, "pw").Set("a", "v"); err != nil {

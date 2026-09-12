@@ -9,14 +9,6 @@ import (
 	"github.com/zalando/go-keyring"
 )
 
-// MaxValueBytes is the Windows Credential Manager limit on a credential blob.
-// It is enforced on Linux too so that a value that works on one machine does
-// not mysteriously fail on another.
-const MaxValueBytes = 2560
-
-// ErrTooLong is returned by Set when a value exceeds MaxValueBytes.
-var ErrTooLong = errors.New("value exceeds the keyring size limit")
-
 // SystemKeyring is the Secret Service on Linux and Credential Manager on
 // Windows, both reached through go-keyring's pure-Go implementations.
 //
