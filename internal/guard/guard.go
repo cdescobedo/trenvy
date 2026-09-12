@@ -73,24 +73,32 @@ func Inspect(absPath, wantSum string, entry config.RenderEntry, haveEntry bool) 
 	return StatusFresh, nil
 }
 
-// CheckWritable refuses to overwrite a file envctl did not write, or one that
-// was hand edited after it did.
-func CheckWritable(st Status, absPath string, force bool) error {
+// CheckWritable refuses to touch a file envctl did not write, or one that was
+// hand edited after it did.
+//
+// verb names what the caller is about to do to the file ("overwrite" for
+// render, "delete" for clean). The distinction is not cosmetic: told to
+// "re-run with --force to overwrite" while running envctl clean, a user has
+// been given the wrong mental model of what they are about to lose.
+func CheckWritable(st Status, absPath, verb string, force bool) error {
 	if force {
 		return nil
+	}
+	if verb == "" {
+		verb = "overwrite"
 	}
 	switch st {
 	case StatusForeign:
 		return fmt.Errorf(
 			"%s exists and envctl has no record of writing it\n"+
-				"  inspect it first, then re-run with --force to overwrite\n"+
+				"  inspect it first, then re-run with --force to %s it\n"+
 				"  or seed a manifest from it:  envctl import %s",
-			absPath, absPath)
+			absPath, verb, absPath)
 	case StatusModified:
 		return fmt.Errorf(
 			"%s was modified after envctl wrote it\n"+
-				"  re-run with --force to discard those edits",
-			absPath)
+				"  re-run with --force to %s it and discard those edits",
+			absPath, verb)
 	}
 	return nil
 }

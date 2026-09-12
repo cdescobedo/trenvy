@@ -80,7 +80,7 @@ func newRenderCmd(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := guard.CheckWritable(status, abs, force); err != nil {
+			if err := guard.CheckWritable(status, abs, "overwrite", force); err != nil {
 				return err
 			}
 
@@ -151,7 +151,7 @@ func newCleanCmd(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := guard.CheckWritable(status, abs, force); err != nil {
+			if err := guard.CheckWritable(status, abs, "delete", force); err != nil {
 				return err
 			}
 

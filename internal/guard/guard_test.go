@@ -145,25 +145,25 @@ func TestCheckWritable(t *testing.T) {
 	const p = "/w/src/.env"
 
 	t.Run("Absent should be writable", func(t *testing.T) {
-		if err := guard.CheckWritable(guard.StatusAbsent, p, false); err != nil {
+		if err := guard.CheckWritable(guard.StatusAbsent, p, "overwrite", false); err != nil {
 			t.Errorf("Absent should be writable: %v", err)
 		}
 	})
 
 	t.Run("Fresh should be writable", func(t *testing.T) {
-		if err := guard.CheckWritable(guard.StatusFresh, p, false); err != nil {
+		if err := guard.CheckWritable(guard.StatusFresh, p, "overwrite", false); err != nil {
 			t.Errorf("Fresh should be writable: %v", err)
 		}
 	})
 
 	t.Run("Stale should be writable", func(t *testing.T) {
-		if err := guard.CheckWritable(guard.StatusStale, p, false); err != nil {
+		if err := guard.CheckWritable(guard.StatusStale, p, "overwrite", false); err != nil {
 			t.Errorf("Stale should be writable: %v", err)
 		}
 	})
 
 	t.Run("Foreign should be refused without --force", func(t *testing.T) {
-		err := guard.CheckWritable(guard.StatusForeign, p, false)
+		err := guard.CheckWritable(guard.StatusForeign, p, "overwrite", false)
 		if err == nil {
 			t.Fatal("Foreign should be refused without --force")
 		}
@@ -176,13 +176,13 @@ func TestCheckWritable(t *testing.T) {
 	})
 
 	t.Run("--force should permit overwriting a foreign file", func(t *testing.T) {
-		if err := guard.CheckWritable(guard.StatusForeign, p, true); err != nil {
+		if err := guard.CheckWritable(guard.StatusForeign, p, "overwrite", true); err != nil {
 			t.Errorf("--force should permit overwriting a foreign file: %v", err)
 		}
 	})
 
 	t.Run("Modified should be refused without --force", func(t *testing.T) {
-		err := guard.CheckWritable(guard.StatusModified, p, false)
+		err := guard.CheckWritable(guard.StatusModified, p, "overwrite", false)
 		if err == nil {
 			t.Error("Modified should be refused without --force")
 		}
