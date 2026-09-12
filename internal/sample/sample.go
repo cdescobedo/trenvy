@@ -81,9 +81,11 @@ func unquote(v string) string {
 	return v
 }
 
-var placeholderMarkers = []string{
+// placeholderPhrases are checked as substrings: each is specific enough to a
+// placeholder's phrasing that it does not collide with real data.
+var placeholderPhrases = []string{
 	"your-secret", "your_secret", "your value", "replace-with", "replace_with",
-	"changeme", "change-me", "todo", "xxxx", "placeholder", "<",
+	"changeme", "change-me", "placeholder",
 }
 
 var secretSuffixes = []string{"_KEY", "_SECRET", "_TOKEN", "_PASSWORD", "_PASSWD", "APIKEY"}
@@ -93,13 +95,24 @@ var secretSuffixes = []string{"_KEY", "_SECRET", "_TOKEN", "_PASSWORD", "_PASSWD
 // Placeholder text is the stronger signal: a sample file spells out the values
 // that are safe to publish and leaves the others as instructions to the reader,
 // so the file already encodes the distinction.
+//
+// A false positive here is worse than a false negative: a flagged variable
+// has its value discarded on import (see import.go), so a marker that is too
+// eager silently loses real data instead of merely mislabeling it. That is
+// why the markers below are split into two classes: phrases long and
+// specific enough to check as substrings, and short or generic markers that
+// are only trusted when they describe the entire value.
 func GuessSecret(name, value string) bool {
 	lower := strings.ToLower(value)
-	for _, marker := range placeholderMarkers {
+	for _, marker := range placeholderPhrases {
 		if strings.Contains(lower, marker) {
 			return true
 		}
 	}
+	if isWholeValuePlaceholder(lower) {
+		return true
+	}
+
 	upper := strings.ToUpper(name)
 	for _, suffix := range secretSuffixes {
 		if strings.HasSuffix(upper, suffix) {
@@ -107,4 +120,37 @@ func GuessSecret(name, value string) bool {
 		}
 	}
 	return false
+}
+
+// isWholeValuePlaceholder checks markers that collide with real data as bare
+// substrings and so are trusted only when they describe the entire trimmed
+// value: "todo" appears inside real names like Todoist, a run of "x"
+// characters appears inside hex ids and partially-masked real values, and a
+// bare "<" appears in comparisons and URLs. Requiring the whole value (or,
+// for angle brackets, both an opening and a closing one) is what tells a
+// genuine bracketed placeholder like "<your value here>" apart from an
+// unrelated value that merely contains one of these characters.
+func isWholeValuePlaceholder(lower string) bool {
+	trimmed := strings.TrimSpace(lower)
+	if trimmed == "todo" {
+		return true
+	}
+	if isAllOf(trimmed, 'x') {
+		return true
+	}
+	return strings.Contains(lower, "<") && strings.Contains(lower, ">")
+}
+
+// isAllOf reports whether s is non-empty, at least 4 runes long, and made up
+// entirely of r. Length 4 keeps a lone "x" or "xx" from matching by accident.
+func isAllOf(s string, r rune) bool {
+	if len(s) < 4 {
+		return false
+	}
+	for _, c := range s {
+		if c != r {
+			return false
+		}
+	}
+	return true
 }

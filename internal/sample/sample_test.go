@@ -118,3 +118,24 @@ func TestGuessSecretFalseForRealLookingValues(t *testing.T) {
 		})
 	}
 }
+
+// These markers only mean "placeholder" when they describe the entire value.
+// As bare substrings they collide with real data, and the consequence of a
+// false positive here is worse than a mislabel: a flagged variable has its
+// value discarded on import, so a false positive silently loses real data.
+func TestGuessSecretDoesNotMatchTheseMarkersAsSubstrings(t *testing.T) {
+	cases := map[string]struct {
+		name, value string
+	}{
+		"open angle bracket with no close": {"MAX_TEMP", "<100"},
+		"todo inside a longer word":        {"TASK_SERVICE_URL", "https://todoist.com/api"},
+		"xxxx inside a longer identifier":  {"TRACKING_ID", "GA-xxxx1234"},
+	}
+	for label, c := range cases {
+		t.Run(label, func(t *testing.T) {
+			if sample.GuessSecret(c.name, c.value) {
+				t.Errorf("GuessSecret(%q, %q) = true, want false", c.name, c.value)
+			}
+		})
+	}
+}

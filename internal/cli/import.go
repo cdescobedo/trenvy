@@ -110,10 +110,16 @@ func targetFor(worktree, samplePath string) manifest.Target {
 		format = manifest.FormatJSON
 	}
 
-	real := rel
+	// Strip the example suffix from the filename only: an earlier version
+	// used ReplaceAll over the whole relative path, which also mangled any
+	// directory segment that happened to contain the same substring (e.g.
+	// "test_example_project/.env_example" lost "_example" from the directory
+	// too). TrimSuffix on the base name alone cannot touch a directory name.
+	dir, base := filepath.Split(rel)
 	for _, suffix := range []string{".example", "_example", ".sample", ".dist"} {
-		real = strings.ReplaceAll(real, suffix, "")
+		base = strings.TrimSuffix(base, suffix)
 	}
+	real := filepath.Join(dir, base)
 
 	return manifest.Target{
 		Dest:    manifest.DestFile,

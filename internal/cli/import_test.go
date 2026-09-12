@@ -83,6 +83,37 @@ func TestImportCreatesAFileTargetForTheSamplesRealPath(t *testing.T) {
 	}
 }
 
+// A directory whose name happens to contain one of the example suffixes must
+// survive intact: only the sample's own filename is stripped.
+func TestImportTargetPathLeavesDirectoryNamesIntact(t *testing.T) {
+	h := newHarness(t)
+	if err := h.run("init", "--id", "vpb"); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(h.root, "test_example_project")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sample := filepath.Join(dir, ".env_example")
+	if err := os.WriteFile(sample, []byte("A=1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := h.run("import", sample, "--no-tui", "--target", "docker"); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+
+	m, _ := manifest.Load(config.ManifestPath("vpb"))
+	tgt, ok := m.Targets["docker"]
+	if !ok {
+		t.Fatal("import did not create the target")
+	}
+	want := filepath.Join("test_example_project", ".env")
+	if tgt.Path != want {
+		t.Errorf("target path = %q, want %q (directory name must survive intact)", tgt.Path, want)
+	}
+}
+
 func TestImportJSONSampleCreatesAJSONTarget(t *testing.T) {
 	h := newHarness(t)
 	if err := h.run("init", "--id", "fe"); err != nil {
