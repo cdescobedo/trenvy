@@ -32,7 +32,7 @@ go build -o /tmp/envctl ./cmd/envctl
 cd ~/workspace/demo/demo-backend
 
 /tmp/envctl init --id vpb-test
-/tmp/envctl import main/src/DemoApp.Api/.env_example --no-tui --target docker
+/tmp/envctl import main/src/DemoApp.Api/.env_example --target docker
 /tmp/envctl status                       # expect three MISSING secrets
 /tmp/envctl secret set BETA_TOKEN
 /tmp/envctl secret set GAMMA_TOKEN
@@ -47,9 +47,18 @@ diff <(grep -v '^#' src/DemoApp.Api/.env | sort) \
 /tmp/envctl clean docker
 ```
 
+The `import` command above opens the interactive table instead of skipping
+straight to the manifest. Review each row: confirm the three placeholder
+values (`BETA_TOKEN`, `GAMMA_TOKEN`,
+`ALPHA_TOKEN`) are marked secret (`s` toggles) and everything else is not,
+then press `w` to save. This is what actually exercises criterion 1 below —
+reviewing secret-ness is a TUI step, not something `--no-tui` can stand in
+for.
+
 Confirm, one criterion at a time:
 
-1. the imported manifest lists the same variables as `.env_example`, with the
+1. the table let you review each variable's secret-ness before saving, and
+   the saved manifest lists the same variables as `.env_example` with the
    three placeholders flagged secret
 2. `status` reports every secret present after the three `secret set` calls
 3. the rendered `.env` is `0600` and parses as the same key/value set

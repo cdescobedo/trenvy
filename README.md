@@ -55,7 +55,7 @@ Run `envctl <command> --help` for a command's flags.
 | path | holds |
 |---|---|
 | `~/.config/envctl/config.toml` | the keyring service pattern |
-| `~/.config/envctl/registry.toml` | project root -> project id |
+| `~/.config/envctl/registry.toml` | project id -> project root |
 | `~/.config/envctl/projects/<id>.toml` | variables and targets |
 | `~/.config/envctl/state/<id>.toml` | what was rendered where |
 | the OS keyring | secret values, under `envctl/<project>/<NAME>` |
@@ -78,13 +78,26 @@ ENVCTL_BACKEND=file ENVCTL_PASSPHRASE=… envctl render docker
 Pass `--backend` on any command, or set `ENVCTL_BACKEND`, to override the
 platform default (`keychain`, `system`, `file`, or `mem` for tests).
 
+The file backend has no inter-process locking: it re-encrypts and rewrites
+the whole secrets file on every `Set`/`Delete`, so two concurrent
+`envctl secret set` runs against a shared file backend can race, with the
+last writer winning.
+
+## Known v1 limitation: per-target overrides
+
+A variable's per-target override (`vars.<NAME>.targets` in the manifest) is
+authorable only by hand-editing the manifest in this version. There is no TUI
+drill-in for it and no `--target` flag on `envctl set` — editing an override
+means opening the manifest file directly.
+
 ## Guards
 
 `render` refuses to write a path git would track, refuses to overwrite a file
 envctl did not write or one edited since, always writes `0600` atomically, and
 `status` reports a rendered file as `fresh`, `STALE`, `MODIFIED`, or
-`FOREIGN`. `--allow-tracked` and `--force` opt out of the first two guards
-when you mean it.
+`FOREIGN`. `clean` runs the same overwrite guard before removing a file.
+`--allow-tracked` and `--force` opt out of the guards when you mean it (both
+`render --force` and `clean --force`).
 
 ## Acceptance walkthrough
 
