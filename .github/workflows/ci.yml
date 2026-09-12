@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+      - run: go vet ./...
+      - run: go test ./... -race
+      # The keyring integration test stays opt-in: CI runners have no unlocked
+      # login keychain, and the suite is designed to pass without one.
+
+  cross-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+      # Every backend was deliberately chosen to be cgo-free, so envctl builds
+      # for any target from any machine. This is not redundant with the test
+      # matrix above: the test matrix proves the suite passes on each OS's
+      # own toolchain, this proves cross-compilation with CGO_ENABLED=0 still
+      # works from a single Linux runner. If this job starts failing, a cgo
+      # dependency has crept in somewhere.
+      - run: |
+          for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64; do
+            GOOS=${target%/*} GOARCH=${target#*/} CGO_ENABLED=0 go build -o /dev/null ./cmd/envctl
+          done
