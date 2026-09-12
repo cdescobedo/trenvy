@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
+
+	"github.com/cdescobedo/envctl/internal/fsutil"
 )
 
 // ErrNoProject is returned when a directory belongs to no registered project.
@@ -98,11 +100,8 @@ func (r *Registry) Save() error {
 	if err := os.MkdirAll(Dir(), 0o700); err != nil {
 		return fmt.Errorf("create %s: %w", Dir(), err)
 	}
-	if err := os.WriteFile(RegistryPath(), data, 0o600); err != nil {
+	if err := fsutil.WriteAtomic(RegistryPath(), data); err != nil {
 		return fmt.Errorf("write %s: %w", RegistryPath(), err)
-	}
-	if err := os.Chmod(RegistryPath(), 0o600); err != nil {
-		return fmt.Errorf("chmod %s: %w", RegistryPath(), err)
 	}
 	return nil
 }

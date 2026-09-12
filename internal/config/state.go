@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/pelletier/go-toml/v2"
+
+	"github.com/cdescobedo/envctl/internal/fsutil"
 )
 
 // RenderEntry records one render: what was written, where, and from what.
@@ -98,11 +100,8 @@ func (s *State) Save() error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create %s: %w", filepath.Dir(path), err)
 	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	if err := fsutil.WriteAtomic(path, data); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		return fmt.Errorf("chmod %s: %w", path, err)
 	}
 	return nil
 }

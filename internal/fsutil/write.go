@@ -49,5 +49,14 @@ func WriteAtomic(path string, data []byte) error {
 	if err := os.Rename(tmpName, path); err != nil {
 		return fmt.Errorf("rename into place: %w", err)
 	}
+
+	// Fsync the directory too, or the rename itself is not crash-durable: a
+	// power loss right after Rename can leave the directory entry pointing at
+	// the old file, or at nothing, on some filesystems. Ignored on platforms
+	// (e.g. Windows) where syncing a directory handle is not supported.
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		_ = d.Close()
+	}
 	return nil
 }

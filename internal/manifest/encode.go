@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 
 	"github.com/pelletier/go-toml/v2"
+
+	"github.com/cdescobedo/envctl/internal/fsutil"
 )
 
 // Encode serialises the manifest to TOML. Map keys are emitted in sorted
@@ -21,23 +23,24 @@ func (m *Manifest) Encode() ([]byte, error) {
 	return data, nil
 }
 
-// Save writes the manifest to path, creating parent directories, with mode
-// 0600. The manifest holds no secret values, but it does describe a project's
-// shape, so it stays private. If the file already exists, its permissions are
-// tightened to 0o600 (WriteFile does not chmod existing files).
+// Save writes the manifest to path, creating parent directories, atomically
+// and with mode 0600. The manifest holds no secret values, but it does
+// describe a project's shape, so it stays private, and losing it to a crash
+// mid-write would be worse than losing a regenerable rendered file.
 func Save(path string, m *Manifest) error {
 	data, err := m.Encode()
 	if err != nil {
 		return err
 	}
+	// Pre-create the directory at the tighter 0o700: fsutil.WriteAtomic's own
+	// MkdirAll uses 0o755, which is looser than this directory should be.
+	// MkdirAll is a no-op once the directory exists, so this does not fight
+	// with WriteAtomic's own call below it.
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create %s: %w", filepath.Dir(path), err)
 	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	if err := fsutil.WriteAtomic(path, data); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		return fmt.Errorf("chmod %s: %w", path, err)
 	}
 	return nil
 }
