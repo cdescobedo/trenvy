@@ -64,6 +64,10 @@ func (m *Manifest) Validate() error {
 			add("var %q: a secret may not have per-target values; "+
 				"storing one credential under several keyring items invites silent drift", name)
 		}
+		if v.Secret && v.Value != nil {
+			add("var %q: a secret may not also carry a plain value; "+
+				"the manifest must never contain a secret value", name)
+		}
 		if !v.Secret && v.Value == nil && len(v.Targets) == 0 && !v.Optional {
 			add("var %q: needs value, targets, secret = true, or optional = true", name)
 		}

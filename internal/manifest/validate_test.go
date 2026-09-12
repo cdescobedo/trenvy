@@ -47,6 +47,32 @@ targets = { local = "nope" }
 	}
 }
 
+// The manifest must never contain a secret value: a hand edit that sets both
+// secret = true and a value leaves resolve.Values preferring the plaintext
+// while status reports the variable MISSING (it only checks the keyring).
+func TestValidateRejectsSecretWithAPlainValue(t *testing.T) {
+	m := parseOrFatal(t, `
+[project]
+id = "p"
+default_target = "local"
+[targets.local]
+dest = "process"
+[vars.TOKEN]
+secret = true
+value = "should-not-be-here"
+`)
+	err := m.Validate()
+	if err == nil {
+		t.Fatal("Validate accepted a secret with a plain value")
+	}
+	if !strings.Contains(err.Error(), "TOKEN") {
+		t.Errorf("error does not name the variable: %v", err)
+	}
+	if strings.Contains(err.Error(), "should-not-be-here") {
+		t.Errorf("error leaked the value: %v", err)
+	}
+}
+
 func TestValidateRejectsBadShape(t *testing.T) {
 	cases := map[string]struct {
 		src  string
