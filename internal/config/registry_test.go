@@ -172,3 +172,41 @@ func TestSaveCreatesDirWithCorrectMode(t *testing.T) {
 		t.Errorf("registry.toml mode = %o, want 0600", fileInfo.Mode().Perm())
 	}
 }
+
+func TestRegistrySaveTightensExistingFilePermissions(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("ENVCTL_CONFIG_DIR", tempDir)
+
+	// Pre-create the registry file at 0o644
+	registryPath := config.RegistryPath()
+	if err := os.WriteFile(registryPath, []byte(""), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Verify it's at 0o644
+	fi, err := os.Stat(registryPath)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if perm := fi.Mode().Perm(); perm != 0o644 {
+		t.Errorf("initial file mode = %#o, want 0644", perm)
+	}
+
+	// Save should tighten it to 0o600
+	r := &config.Registry{}
+	if err := r.Add(config.Entry{ID: "p", Root: "/w/vpb"}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := r.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Verify it's now 0o600
+	fi, err = os.Stat(registryPath)
+	if err != nil {
+		t.Fatalf("Stat after Save: %v", err)
+	}
+	if perm := fi.Mode().Perm(); perm != 0o600 {
+		t.Errorf("after Save file mode = %#o, want 0600", perm)
+	}
+}

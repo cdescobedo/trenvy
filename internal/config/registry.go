@@ -101,5 +101,8 @@ func (r *Registry) Save() error {
 	if err := os.WriteFile(RegistryPath(), data, 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", RegistryPath(), err)
 	}
+	if err := os.Chmod(RegistryPath(), 0o600); err != nil {
+		return fmt.Errorf("chmod %s: %w", RegistryPath(), err)
+	}
 	return nil
 }

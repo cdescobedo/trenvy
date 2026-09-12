@@ -101,5 +101,8 @@ func (s *State) Save() error {
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("chmod %s: %w", path, err)
+	}
 	return nil
 }

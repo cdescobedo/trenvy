@@ -1,6 +1,8 @@
 package config_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -102,5 +104,86 @@ func TestLoadStateOnMissingFileIsEmptyNotAnError(t *testing.T) {
 	}
 	if len(s.Renders) != 0 {
 		t.Errorf("Renders = %v, want empty", s.Renders)
+	}
+}
+
+func TestStateSaveWritesFileWith0600Mode(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("ENVCTL_CONFIG_DIR", tmpDir)
+	s, _ := config.LoadState("p")
+	s.Record(config.RenderEntry{Worktree: "/w", Target: "t", Sum: "abc"})
+	if err := s.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Stat the file that Save created
+	path := config.StatePath("p")
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat %s: %v", path, err)
+	}
+	if perm := fi.Mode().Perm(); perm != 0o600 {
+		t.Errorf("file mode = %#o, want 0600", perm)
+	}
+}
+
+func TestStateSaveCreatesDir0700(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("ENVCTL_CONFIG_DIR", tmpDir)
+	s, _ := config.LoadState("p")
+	s.Record(config.RenderEntry{Worktree: "/w", Target: "t", Sum: "abc"})
+	if err := s.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Stat the directory that Save created
+	path := config.StatePath("p")
+	dir := filepath.Dir(path)
+	fi, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("Stat %s: %v", dir, err)
+	}
+	if perm := fi.Mode().Perm(); perm != 0o700 {
+		t.Errorf("dir mode = %#o, want 0700", perm)
+	}
+}
+
+func TestStateSaveTightensExistingFilePermissions(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("ENVCTL_CONFIG_DIR", tmpDir)
+
+	// Pre-create the file at 0o644
+	stateDir := filepath.Join(tmpDir, "state")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	path := filepath.Join(stateDir, "p.toml")
+	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Verify it's at 0o644
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if perm := fi.Mode().Perm(); perm != 0o644 {
+		t.Errorf("initial file mode = %#o, want 0644", perm)
+	}
+
+	// Save should tighten it to 0o600
+	s, _ := config.LoadState("p")
+	s.Record(config.RenderEntry{Worktree: "/w", Target: "t", Sum: "abc"})
+	if err := s.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Verify it's now 0o600
+	fi, err = os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat after Save: %v", err)
+	}
+	if perm := fi.Mode().Perm(); perm != 0o600 {
+		t.Errorf("after Save file mode = %#o, want 0600", perm)
 	}
 }
