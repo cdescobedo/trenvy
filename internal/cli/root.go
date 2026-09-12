@@ -156,6 +156,8 @@ func Execute(opts Options, args []string) error {
 		newSetCmd(&opts),
 		newSecretCmd(&opts),
 		newUnsetCmd(&opts),
+		newRenderCmd(&opts),
+		newCleanCmd(&opts),
 	)
 
 	return root.Execute()
