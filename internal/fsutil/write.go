@@ -1,4 +1,8 @@
-package render
+// Package fsutil holds filesystem primitives shared across packages that
+// otherwise have no dependency on one another. It imports nothing from
+// within envctl, which is what lets both render and store depend on it
+// without creating a cycle.
+package fsutil
 
 import (
 	"fmt"

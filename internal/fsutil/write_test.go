@@ -1,18 +1,18 @@
-package render_test
+package fsutil_test
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/render"
+	"github.com/cdescobedo/envctl/internal/fsutil"
 )
 
 func TestWriteAtomicCreatesAPrivateFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sub", ".env")
 
-	if err := render.WriteAtomic(path, []byte("A=1\n")); err != nil {
+	if err := fsutil.WriteAtomic(path, []byte("A=1\n")); err != nil {
 		t.Fatalf("WriteAtomic: %v", err)
 	}
 
@@ -39,7 +39,7 @@ func TestWriteAtomicReplacesAndTightensPermissions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := render.WriteAtomic(path, []byte("new")); err != nil {
+	if err := fsutil.WriteAtomic(path, []byte("new")); err != nil {
 		t.Fatalf("WriteAtomic: %v", err)
 	}
 
@@ -58,7 +58,7 @@ func TestWriteAtomicReplacesAndTightensPermissions(t *testing.T) {
 
 func TestWriteAtomicLeavesNoTempFileBehind(t *testing.T) {
 	dir := t.TempDir()
-	if err := render.WriteAtomic(filepath.Join(dir, ".env"), []byte("x")); err != nil {
+	if err := fsutil.WriteAtomic(filepath.Join(dir, ".env"), []byte("x")); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := os.ReadDir(dir)

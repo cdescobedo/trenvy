@@ -98,3 +98,54 @@ func TestFileStoreMissingKeyIsNotFound(t *testing.T) {
 		t.Errorf("Get = %v, want ErrNotFound", err)
 	}
 }
+
+// TestFileStoreSaveIsAtomic proves save() routes through the shared atomic
+// write primitive rather than truncating the one copy of the secrets in
+// place: no leftover temp file, and a pre-existing world-readable file gets
+// tightened by the replace rather than left at its old mode (which a plain
+// os.WriteFile onto an existing file would do, since WriteFile only applies
+// its mode when creating a new file).
+func TestFileStoreSaveIsAtomic(t *testing.T) {
+	t.Run("leaves no temp file behind", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "secrets.age")
+		if err := store.NewFile(path, "pw").Set("a", "v"); err != nil {
+			t.Fatal(err)
+		}
+
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 1 {
+			names := make([]string, 0, len(entries))
+			for _, e := range entries {
+				names = append(names, e.Name())
+			}
+			t.Errorf("directory contains %v, want only the secrets file", names)
+		}
+	})
+
+	t.Run("tightens a preexisting world-readable file", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "secrets.age")
+		f := store.NewFile(path, "pw")
+		if err := f.Set("a", "v"); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := f.Set("b", "v2"); err != nil {
+			t.Fatal(err)
+		}
+
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0o600 {
+			t.Errorf("mode = %o, want 600 (a world-readable predecessor must be tightened)", got)
+		}
+	})
+}

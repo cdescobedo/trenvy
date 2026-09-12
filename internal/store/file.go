@@ -12,6 +12,8 @@ import (
 	"sort"
 
 	"filippo.io/age"
+
+	"github.com/cdescobedo/envctl/internal/fsutil"
 )
 
 // File is an age-encrypted store for machines with no OS keyring: containers,
@@ -30,6 +32,8 @@ func NewFile(path, passphrase string) *File {
 	return &File{path: path, passphrase: passphrase}
 }
 
+// load decrypts and parses the whole document. Every call pays the scrypt KDF
+// cost in full, since there is no per-item access: the document is one blob.
 func (f *File) load() (map[string]string, error) {
 	data, err := os.ReadFile(f.path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -59,6 +63,9 @@ func (f *File) load() (map[string]string, error) {
 	return items, nil
 }
 
+// save re-encrypts and writes the whole document. Every mutation (a single
+// Set or Delete) re-encrypts the entire set of items, so the scrypt KDF cost
+// is paid again on every call, the same as load.
 func (f *File) save(items map[string]string) error {
 	// Sorted keys keep the plaintext stable, so re-encrypting an unchanged set
 	// does not produce a gratuitously different file.
@@ -92,10 +99,19 @@ func (f *File) save(items map[string]string) error {
 		return fmt.Errorf("encrypt: %w", err)
 	}
 
+	// The secrets directory itself is created 0700, tighter than the 0755
+	// fsutil.WriteAtomic would use on its own: this file is the only copy of
+	// every secret it holds, unlike a rendered .env that can be regenerated.
+	// MkdirAll is a no-op once the directory exists, so this does not fight
+	// with WriteAtomic's own (looser) MkdirAll below it.
 	if err := os.MkdirAll(filepath.Dir(f.path), 0o700); err != nil {
 		return fmt.Errorf("create %s: %w", filepath.Dir(f.path), err)
 	}
-	if err := os.WriteFile(f.path, buf.Bytes(), 0o600); err != nil {
+	// A crash or a killed process mid-write must not destroy the only copy of
+	// these secrets, so this goes through the same temp-file-then-rename
+	// primitive render uses for rendered .env files, rather than truncating
+	// f.path in place.
+	if err := fsutil.WriteAtomic(f.path, buf.Bytes()); err != nil {
 		return fmt.Errorf("write %s: %w", f.path, err)
 	}
 	return nil
