@@ -25,7 +25,7 @@ type Options struct {
 	Stderr   io.Writer
 	Dir      string
 	Backend  string
-	NewStore func(*config.Config) (store.Store, error)
+	NewStore func(cfg *config.Config, backend string) (store.Store, error)
 }
 
 // Default returns Options wired to the real process.
@@ -39,8 +39,12 @@ func Default() Options {
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
 		Dir:    dir,
-		NewStore: func(cfg *config.Config) (store.Store, error) {
-			return store.Open(os.Getenv("ENVCTL_BACKEND"), currentAccount())
+		NewStore: func(cfg *config.Config, backend string) (store.Store, error) {
+			// store.Open falls back to ENVCTL_BACKEND and then the platform
+			// default when backend is empty, so the precedence here is
+			// simply flag > env var > platform default. Nothing else in the
+			// CLI reimplements that precedence.
+			return store.Open(backend, currentAccount())
 		},
 	}
 }
@@ -55,7 +59,6 @@ func currentAccount() string {
 // appContext is everything a command needs about the project it is operating
 // on. Commands that do not need a project never build one.
 type appContext struct {
-	Opts     Options
 	Cfg      *config.Config
 	Entry    config.Entry
 	Manifest *manifest.Manifest
@@ -96,13 +99,13 @@ func (o Options) resolveApp() (*appContext, error) {
 	if err != nil {
 		return nil, err
 	}
-	sec, err := o.NewStore(cfg)
+	sec, err := o.NewStore(cfg, o.Backend)
 	if err != nil {
 		return nil, err
 	}
 
 	return &appContext{
-		Opts: o, Cfg: cfg, Entry: entry, Manifest: m,
+		Cfg: cfg, Entry: entry, Manifest: m,
 		State: st, Worktree: wt, Store: sec,
 	}, nil
 }

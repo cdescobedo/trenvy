@@ -41,7 +41,7 @@ func newHarness(t *testing.T) *harness {
 		Stdout:   h.out,
 		Stderr:   h.errb,
 		Dir:      h.root,
-		NewStore: func(*config.Config) (store.Store, error) { return h.mem, nil },
+		NewStore: func(*config.Config, string) (store.Store, error) { return h.mem, nil },
 	}
 	return h
 }
@@ -156,6 +156,29 @@ func TestResolutionWorksFromASubdirectory(t *testing.T) {
 	}
 	if !strings.Contains(h.out.String(), "vpb") {
 		t.Errorf("status did not resolve the project:\n%s", h.out)
+	}
+}
+
+// The --backend flag is parsed before resolveApp runs, but the value only
+// reaches the store if it is threaded through NewStore explicitly: it is
+// bound into a copy of opts.Backend at Execute time, not observable via a
+// closure captured earlier.
+func TestBackendFlagReachesTheStoreFactory(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "k")
+
+	var gotBackend string
+	h.opts.NewStore = func(cfg *config.Config, backend string) (store.Store, error) {
+		gotBackend = backend
+		return h.mem, nil
+	}
+
+	if err := h.run("status", "--backend", "mem"); err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if gotBackend != "mem" {
+		t.Errorf("NewStore received backend %q, want %q", gotBackend, "mem")
 	}
 }
 
