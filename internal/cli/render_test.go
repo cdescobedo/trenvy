@@ -96,8 +96,32 @@ func TestRenderRefusesAPathGitWouldTrack(t *testing.T) {
 	if !strings.Contains(err.Error(), ".gitignore") {
 		t.Errorf("error does not explain the fix: %v", err)
 	}
+	if !strings.Contains(err.Error(), "src/.env") {
+		t.Errorf("error does not name the path to add: %v", err)
+	}
 	if _, statErr := os.Stat(filepath.Join(h.root, "src", ".env")); statErr == nil {
 		t.Error("the file was written despite the refusal")
+	}
+}
+
+// The escape hatch on the guard that matters most needs its own coverage: a
+// refactor that inverted the flag (skip GitIgnored's result rather than the
+// call) would otherwise still pass every other render test.
+func TestRenderAllowTrackedSkipsTheGitignoreGuard(t *testing.T) {
+	h := newHarness(t)
+	h.gitInit("node_modules/\n") // does not cover src/.env
+	h.register("vpb", fixtureManifest(t))
+	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "k")
+
+	if err := h.run("render", "docker"); err == nil {
+		t.Fatal("render wrote to a path git would track")
+	}
+
+	if err := h.run("render", "docker", "--allow-tracked"); err != nil {
+		t.Fatalf("render --allow-tracked: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(h.root, "src", ".env")); err != nil {
+		t.Errorf("--allow-tracked did not write the file: %v", err)
 	}
 }
 
@@ -177,7 +201,14 @@ func TestCleanRemovesTheFileAndForgetsTheState(t *testing.T) {
 		t.Error("the file is still there")
 	}
 	st, _ := config.LoadState("vpb")
-	if _, ok := st.Find(h.root, "docker"); ok {
+	// Same resolved-vs-raw path mismatch as TestRenderRecordsState: Record
+	// and Forget key off the git-resolved worktree root, so the lookup here
+	// must use the same resolved form or it is vacuously not-found.
+	root, err := filepath.EvalSymlinks(h.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := st.Find(root, "docker"); ok {
 		t.Error("the state entry was not forgotten")
 	}
 }
