@@ -1,0 +1,59 @@
+package store
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+
+	"github.com/cdescobedo/envctl/internal/config"
+)
+
+// Backend names.
+const (
+	BackendKeychain = "keychain"
+	BackendSystem   = "system"
+	BackendFile     = "file"
+	BackendMem      = "mem"
+)
+
+// ErrNoPassphrase is returned when the file backend has no passphrase.
+var ErrNoPassphrase = errors.New("no passphrase for the file backend")
+
+// DefaultBackend is the platform's native store.
+func DefaultBackend() string {
+	if runtime.GOOS == "darwin" {
+		return BackendKeychain
+	}
+	if runtime.GOOS == "linux" || runtime.GOOS == "windows" {
+		return BackendSystem
+	}
+	return BackendFile
+}
+
+// Open returns the named backend, or the platform default when name is empty.
+func Open(name, account string) (Store, error) {
+	if name == "" {
+		name = os.Getenv("ENVCTL_BACKEND")
+	}
+	if name == "" {
+		name = DefaultBackend()
+	}
+
+	switch name {
+	case BackendMem:
+		return NewMem(), nil
+	case BackendFile:
+		pass := os.Getenv("ENVCTL_PASSPHRASE")
+		if pass == "" {
+			return nil, fmt.Errorf(
+				"%w: set ENVCTL_PASSPHRASE, or use a platform keyring", ErrNoPassphrase)
+		}
+		return NewFile(filepath.Join(config.Dir(), "secrets.age"), pass), nil
+	case BackendKeychain, BackendSystem:
+		return openNative(account)
+	default:
+		return nil, fmt.Errorf("unknown backend %q; want one of keychain, system, file, mem", name)
+	}
+}

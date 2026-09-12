@@ -136,3 +136,5 @@ func isAnyExit(err error) bool {
 	var ee *exec.ExitError
 	return errors.As(err, &ee)
 }
+
+func openNative(account string) (Store, error) { return NewKeychain(account), nil }

@@ -76,3 +76,5 @@ func (k *SystemKeyring) Delete(service string) error {
 	}
 	return nil
 }
+
+func openNative(account string) (Store, error) { return NewSystemKeyring(account), nil }
