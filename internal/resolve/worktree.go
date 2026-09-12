@@ -23,11 +23,25 @@ func WorktreeRoot(dir string) (string, error) {
 	if err != nil {
 		// Not a repository, or git is unavailable. Neither is an error: a
 		// project need not be version controlled.
-		return filepath.Clean(dir), nil
+		return cleanFallback(dir), nil
 	}
 	root := strings.TrimSpace(string(out))
 	if root == "" {
-		return filepath.Clean(dir), nil
+		return cleanFallback(dir), nil
 	}
 	return filepath.Clean(root), nil
+}
+
+// cleanFallback resolves symlinks before cleaning, so that two spellings of
+// the same non-git directory (e.g. one through a symlinked ancestor) produce
+// the same worktree root and therefore the same config.State key. git itself
+// already returns a symlink-resolved path via rev-parse, so this keeps the
+// fallback consistent with the git-backed case. If the directory cannot be
+// resolved (it may not exist), the cleaned path is used as-is.
+func cleanFallback(dir string) string {
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return filepath.Clean(dir)
+	}
+	return filepath.Clean(resolved)
 }

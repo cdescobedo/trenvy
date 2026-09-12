@@ -92,6 +92,29 @@ func Values(m *manifest.Manifest, target string, secret SecretLookup) (Resolved,
 	return out, nil
 }
 
+// TargetHasSecret reports whether target selects at least one secret
+// variable, without reading any value. status uses this under --quick to
+// decide whether freshness for a target is even knowable without a read.
+func TargetHasSecret(m *manifest.Manifest, target string) (bool, error) {
+	t, ok := m.Targets[target]
+	if !ok {
+		return false, fmt.Errorf("%w: %q", ErrUnknownTarget, target)
+	}
+	for name, v := range m.Vars {
+		if !v.Secret {
+			continue
+		}
+		sel, err := selected(name, t.Include, t.Exclude)
+		if err != nil {
+			return false, fmt.Errorf("target %q: %w", target, err)
+		}
+		if sel {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // selected applies the target's include and exclude globs. An empty include
 // list means everything; exclude is subtracted afterwards.
 func selected(name string, include, exclude []string) (bool, error) {

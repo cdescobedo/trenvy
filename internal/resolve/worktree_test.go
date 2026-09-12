@@ -73,6 +73,29 @@ func TestWorktreeRootFallsBackToDirOutsideGit(t *testing.T) {
 	assertSamePath(t, got, dir)
 }
 
+// Two spellings of the same non-git directory must resolve to the same
+// worktree root, or staleness tracking silently splits into two
+// config.State keys for what is really one project.
+func TestWorktreeRootFallbackResolvesSymlinksToTheSameRoot(t *testing.T) {
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link-to-real")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unsupported here: %v", err)
+	}
+
+	gotReal, err := resolve.WorktreeRoot(real)
+	if err != nil {
+		t.Fatalf("WorktreeRoot(real): %v", err)
+	}
+	gotLink, err := resolve.WorktreeRoot(link)
+	if err != nil {
+		t.Fatalf("WorktreeRoot(link): %v", err)
+	}
+	if gotReal != gotLink {
+		t.Errorf("WorktreeRoot(real) = %q, WorktreeRoot(link) = %q, want equal", gotReal, gotLink)
+	}
+}
+
 // macOS resolves /var to /private/var, so paths must be compared after
 // EvalSymlinks or these tests fail for reasons unrelated to the logic.
 func assertSamePath(t *testing.T, got, want string) {
