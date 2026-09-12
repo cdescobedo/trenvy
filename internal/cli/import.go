@@ -10,6 +10,7 @@ import (
 
 	"github.com/cdescobedo/envctl/internal/config"
 	"github.com/cdescobedo/envctl/internal/manifest"
+	"github.com/cdescobedo/envctl/internal/resolve"
 	"github.com/cdescobedo/envctl/internal/sample"
 )
 
@@ -63,7 +64,11 @@ func newImportCmd(opts *Options) *cobra.Command {
 			}
 
 			if targetName != "" {
-				app.Manifest.Targets[targetName] = targetFor(app.Worktree, samplePath)
+				tgt, err := targetFor(samplePath)
+				if err != nil {
+					return err
+				}
+				app.Manifest.Targets[targetName] = tgt
 			}
 			if err := app.Manifest.Validate(); err != nil {
 				return err
@@ -95,14 +100,34 @@ func newImportCmd(opts *Options) *cobra.Command {
 
 // targetFor guesses a target from the sample's own location: a sample at
 // src/Api/.env_example is a sample of src/Api/.env.
-func targetFor(worktree, samplePath string) manifest.Target {
+//
+// The resulting path is stored relative to the worktree that will actually
+// render it: the worktree containing the sample itself, not the directory
+// import happened to be run from. In the documented workflow those two are
+// different — import is run from the project root, which holds every
+// worktree but is not itself one, while the sample lives inside a worktree
+// such as main/. Using the wrong base bakes that worktree's own name into the
+// stored path, so a later render re-interprets it against a different
+// worktree root and doubles the segment (main/main/src/Api/.env).
+func targetFor(samplePath string) (manifest.Target, error) {
 	abs, err := filepath.Abs(samplePath)
 	if err != nil {
 		abs = samplePath
 	}
-	rel, err := filepath.Rel(worktree, abs)
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+
+	wt, err := resolve.WorktreeRoot(filepath.Dir(abs))
 	if err != nil {
-		rel = filepath.Base(abs)
+		return manifest.Target{}, fmt.Errorf("resolve the worktree for %s: %w", samplePath, err)
+	}
+	rel, err := filepath.Rel(wt, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return manifest.Target{}, fmt.Errorf(
+			"%s is not inside a worktree under the project root; "+
+				"--target needs a sample checked into a worktree so it can guess the rendered path",
+			samplePath)
 	}
 
 	format := manifest.FormatDotenv
@@ -115,9 +140,17 @@ func targetFor(worktree, samplePath string) manifest.Target {
 	// directory segment that happened to contain the same substring (e.g.
 	// "test_example_project/.env_example" lost "_example" from the directory
 	// too). TrimSuffix on the base name alone cannot touch a directory name.
+	//
+	// Only the first matching suffix is stripped: trying every suffix in
+	// sequence on the shrinking base would, for a name like
+	// "app.dist.example", strip ".example" and then also ".dist" from what's
+	// left, over-stripping a name that only ever had one placeholder suffix.
 	dir, base := filepath.Split(rel)
 	for _, suffix := range []string{".example", "_example", ".sample", ".dist"} {
-		base = strings.TrimSuffix(base, suffix)
+		if strings.HasSuffix(base, suffix) {
+			base = strings.TrimSuffix(base, suffix)
+			break
+		}
 	}
 	real := filepath.Join(dir, base)
 
@@ -126,5 +159,5 @@ func targetFor(worktree, samplePath string) manifest.Target {
 		Format:  format,
 		Path:    real,
 		Include: []string{"*"},
-	}
+	}, nil
 }

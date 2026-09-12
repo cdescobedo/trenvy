@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -56,6 +57,9 @@ func TestImportCreatesAFileTargetForTheSamplesRealPath(t *testing.T) {
 	if err := h.run("init", "--id", "vpb"); err != nil {
 		t.Fatal(err)
 	}
+	// targetFor resolves the sample's path against the git worktree it is
+	// actually inside; real samples always live inside one.
+	h.gitInit("")
 	dir := filepath.Join(h.root, "src", "DemoApp.Api")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -90,6 +94,7 @@ func TestImportTargetPathLeavesDirectoryNamesIntact(t *testing.T) {
 	if err := h.run("init", "--id", "vpb"); err != nil {
 		t.Fatal(err)
 	}
+	h.gitInit("")
 	dir := filepath.Join(h.root, "test_example_project")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -114,11 +119,77 @@ func TestImportTargetPathLeavesDirectoryNamesIntact(t *testing.T) {
 	}
 }
 
+// This is the C2 regression: import is run from the project root (the
+// directory holding every worktree, itself not a git repository), while the
+// sample lives inside "main", a real worktree of its own. The stored target
+// path must be relative to "main", not to the project root import was run
+// from -- otherwise a later render against "main" doubles the segment into
+// main/main/src/Api/.env.
+func TestImportTargetIsRelativeToTheSamplesOwnWorktreeNotTheCurrentDirectory(t *testing.T) {
+	h := newHarness(t)
+	if err := h.run("init", "--id", "vpb"); err != nil {
+		t.Fatal(err)
+	}
+
+	mainDir := filepath.Join(h.root, "main")
+	if err := os.MkdirAll(mainDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("git", "init", "-q", "-b", "main")
+	cmd.Dir = mainDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(mainDir, ".gitignore"), []byte("src/Api/.env\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := filepath.Join(mainDir, "src", "Api")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sample := filepath.Join(dir, ".env_example")
+	if err := os.WriteFile(sample, []byte("A=1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// h.opts.Dir is still the project root: import is run from there, per the
+	// documented workflow.
+	if err := h.run("import", sample, "--no-tui", "--target", "docker"); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+
+	m, err := manifest.Load(config.ManifestPath("vpb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tgt, ok := m.Targets["docker"]
+	if !ok {
+		t.Fatal("import did not create the target")
+	}
+	want := filepath.Join("src", "Api", ".env")
+	if tgt.Path != want {
+		t.Errorf("target path = %q, want %q (relative to main/, not the project root)", tgt.Path, want)
+	}
+
+	// Rendering from inside main/ must then land the file exactly where the
+	// sample itself lives.
+	h.opts.Dir = mainDir
+	if err := h.run("render", "docker"); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	rendered := filepath.Join(mainDir, "src", "Api", ".env")
+	if _, err := os.Stat(rendered); err != nil {
+		t.Errorf("file was not rendered at %s: %v", rendered, err)
+	}
+}
+
 func TestImportJSONSampleCreatesAJSONTarget(t *testing.T) {
 	h := newHarness(t)
 	if err := h.run("init", "--id", "fe"); err != nil {
 		t.Fatal(err)
 	}
+	h.gitInit("")
 	dir := filepath.Join(h.root, "public")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
