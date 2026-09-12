@@ -13,10 +13,21 @@ Run it yourself, a step at a time, and confirm each numbered criterion before
 moving on. Nothing here needs root or sudo; it does need an unlocked login
 keychain (or platform equivalent) and network access to your `psql` target.
 
+**Stay in one shell for the whole walkthrough.** Every command below,
+including the Frontend section and Teardown, assumes `ENVCTL_CONFIG_DIR` is
+still exported from the first command. Criteria 4 and 5 start a long-lived
+`dotnet run` and an interactive `psql` session — natural moments to open a
+second terminal — but a fresh shell has no `ENVCTL_CONFIG_DIR`, and
+`envctl init` in that shell would register against your **real**
+`~/.config/envctl/registry.toml` instead of the scratch one. If you do need a
+new terminal at any point, note the path printed below and re-export it
+there first: `export ENVCTL_CONFIG_DIR=<that path>`.
+
 ## Backend
 
 ```bash
 export ENVCTL_CONFIG_DIR=$(mktemp -d)
+echo "$ENVCTL_CONFIG_DIR"   # note this path in case you open a new terminal
 go build -o /tmp/envctl ./cmd/envctl
 cd ~/workspace/demo/demo-backend
 
@@ -53,6 +64,8 @@ Confirm, one criterion at a time:
 ## Frontend
 
 ```bash
+# Same shell as above — confirm with: echo "$ENVCTL_CONFIG_DIR"
+# If it's empty (new terminal), re-export the path you noted earlier first.
 cd ~/workspace/demo/demo-frontend
 /tmp/envctl init --id vpfe-test
 /tmp/envctl import main/public/env.json.example --no-tui --target web
@@ -64,14 +77,38 @@ byte-clean flat JSON that `src/main.tsx` can load.
 
 ## Tear down
 
+The `secret set` calls in the Backend section wrote persistent entries into
+your **real** OS keychain — `ENVCTL_CONFIG_DIR` sandboxes only the config
+directory, not the keyring. Remove them, and the test worktree, before
+discarding the scratch config; once it's gone, so is the only envctl-mediated
+route back to those entries.
+
+Still in the same shell, with `ENVCTL_CONFIG_DIR` still exported:
+
 ```bash
+cd ~/workspace/demo/demo-backend
+/tmp/envctl secret rm BETA_TOKEN --yes
+/tmp/envctl secret rm GAMMA_TOKEN --yes
+/tmp/envctl secret rm ALPHA_TOKEN --yes
+
+cd main
+git worktree remove ../FEAT-TEST
+
 rm -rf "$ENVCTL_CONFIG_DIR"
 ```
 
-This removes only the scratch config directory created above; your real
-`~/.config/envctl` (if any) and your real keyring entries are untouched. Once
-you've confirmed all criteria above, the real `mise.toml` in these
-repositories is redundant and can be retired.
+If the scratch config is already gone or `secret rm` isn't an option, delete
+the entries directly instead: the service-name pattern is
+`envctl/{project}/{name}`, so for this walkthrough the exact keychain
+services are `envctl/vpb-test/BETA_TOKEN`,
+`envctl/vpb-test/GAMMA_TOKEN`, and
+`envctl/vpb-test/ALPHA_TOKEN` — find and remove these in Keychain Access
+(or your platform's Secret Service / Credential Manager UI).
+
+This leaves your real `~/.config/envctl` (if any) untouched, removes the
+scratch config directory, the `../FEAT-TEST` worktree, and the three keychain
+entries created above. Once you've confirmed all criteria above, the real
+`mise.toml` in these repositories is redundant and can be retired.
 
 If any criterion fails, do not paper over it: open the spec, decide whether
 the spec or the code is wrong, fix that one thing, and re-run the
