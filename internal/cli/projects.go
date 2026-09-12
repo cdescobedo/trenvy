@@ -20,7 +20,8 @@ func newProjectsCmd(opts *Options) *cobra.Command {
 				return err
 			}
 			if len(reg.Projects) == 0 {
-				fmt.Fprintln(opts.Stdout, "no projects registered\n  register one with: envctl init")
+				fmt.Fprintln(opts.Stdout, "no projects registered")
+				fmt.Fprintln(opts.Stdout, "  register one with: envctl init")
 				return nil
 			}
 			w := tabwriter.NewWriter(opts.Stdout, 0, 0, 2, ' ', 0)

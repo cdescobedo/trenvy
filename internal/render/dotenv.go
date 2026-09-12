@@ -42,7 +42,8 @@ func Dotenv(r resolve.Resolved) ([]byte, error) {
 // ValidateDotenvName rejects names that are not valid shell identifiers.
 //
 // Name validation belongs to the format, not the manifest: a json target's
-// keys are free-form (auth0ClientID), while a dotenv key must be sourceable.
+// keys are free-form (auth0ClientID), while a dotenv key must be a valid
+// shell identifier (letters, digits, underscore; no leading digit).
 func ValidateDotenvName(name string) error {
 	if name == "" {
 		return fmt.Errorf("dotenv: empty variable name")
