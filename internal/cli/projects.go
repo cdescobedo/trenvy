@@ -1,0 +1,34 @@
+package cli
+
+import (
+	"fmt"
+	"text/tabwriter"
+
+	"github.com/spf13/cobra"
+
+	"github.com/cdescobedo/envctl/internal/config"
+)
+
+func newProjectsCmd(opts *Options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "projects",
+		Short: "List registered projects and their roots",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			reg, err := config.LoadRegistry()
+			if err != nil {
+				return err
+			}
+			if len(reg.Projects) == 0 {
+				fmt.Fprintln(opts.Stdout, "no projects registered\n  register one with: envctl init")
+				return nil
+			}
+			w := tabwriter.NewWriter(opts.Stdout, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(w, "ID\tROOT")
+			for _, p := range reg.Projects {
+				fmt.Fprintf(w, "%s\t%s\n", p.ID, p.Root)
+			}
+			return w.Flush()
+		},
+	}
+}
