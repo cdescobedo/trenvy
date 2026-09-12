@@ -3,7 +3,6 @@ package render_test
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/cdescobedo/envctl/internal/render"
@@ -53,10 +52,19 @@ func TestSumDistinguishesAmbiguousSplits(t *testing.T) {
 	}
 }
 
-func TestSumNeverContainsAValue(t *testing.T) {
+// TestSumReturnsFixedWidthLowercaseHex verifies that Sum returns a fixed-width
+// lowercase hexadecimal digest. This encoding forecloses value leakage: a secret
+// cannot survive into an output whose alphabet is restricted to 0-9a-f, and the
+// fixed width proves the digest was not truncated or re-encoded.
+func TestSumReturnsFixedWidthLowercaseHex(t *testing.T) {
 	got := render.Sum("salt", resolved(map[string]string{"A": "s3cretvalue"}))
-	if strings.Contains(got, "s3cret") {
-		t.Errorf("Sum leaked a value: %q", got)
+	if len(got) != 64 {
+		t.Errorf("Sum returned %d characters, want 64 (SHA256 hex)", len(got))
+	}
+	for i, ch := range got {
+		if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f')) {
+			t.Errorf("Sum[%d] = %q, not a lowercase hex digit", i, ch)
+		}
 	}
 }
 

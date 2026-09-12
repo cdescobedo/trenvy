@@ -24,6 +24,9 @@ func WriteAtomic(path string, data []byte) error {
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName) // no-op once the rename succeeds
 
+	// Set mode explicitly so the 0600 guarantee is visible at the call site.
+	// (os.CreateTemp hardcodes 0600 regardless of umask, but making it explicit
+	// aids code review and future readers.)
 	if err := tmp.Chmod(0o600); err != nil {
 		tmp.Close()
 		return fmt.Errorf("chmod temp file: %w", err)
