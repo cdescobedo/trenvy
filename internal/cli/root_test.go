@@ -183,3 +183,12 @@ func TestBackendFlagReachesTheStoreFactory(t *testing.T) {
 }
 
 func mkdirAll(p string) error { return os.MkdirAll(p, 0o755) }
+
+func mustReadFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}

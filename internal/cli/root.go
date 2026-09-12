@@ -153,6 +153,9 @@ func Execute(opts Options, args []string) error {
 		newProjectsCmd(&opts),
 		newStatusCmd(&opts),
 		newImportCmd(&opts),
+		newSetCmd(&opts),
+		newSecretCmd(&opts),
+		newUnsetCmd(&opts),
 	)
 
 	return root.Execute()
