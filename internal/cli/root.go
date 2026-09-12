@@ -149,6 +149,7 @@ func Execute(opts Options, args []string) error {
 		"secret backend: keychain, system, file, mem")
 
 	root.AddCommand(
+		newInitCmd(&opts),
 		newProjectsCmd(&opts),
 		newStatusCmd(&opts),
 	)
