@@ -251,3 +251,11 @@ func TestKeychainGetRemovesOnlyOneTrailingNewline(t *testing.T) {
 		t.Errorf("Get returned %q, want %q", got, "value\n")
 	}
 }
+
+// security(1) without -w answers presence without an authorization prompt,
+// which is the whole reason completion may probe the Keychain per variable.
+func TestKeychainIsCheapToProbe(t *testing.T) {
+	if _, ok := store.Store(store.NewKeychain("u")).(store.CheapPresence); !ok {
+		t.Error("Keychain does not implement CheapPresence; completion loses its presence tags on macOS")
+	}
+}

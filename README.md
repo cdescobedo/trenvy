@@ -50,6 +50,36 @@ root, so it inherits the manifest.
 
 Run `envctl <command> --help` for a command's flags.
 
+## Shell completion
+
+```bash
+envctl completion zsh > ~/.local/share/zsh/completions/_envctl   # or your fpath
+envctl completion bash > /usr/local/etc/bash_completion.d/envctl
+```
+
+The generated script is a thin forwarder: it asks the binary for candidates on
+every TAB, so it never goes stale and does not need regenerating when commands
+change.
+
+Variable names complete from this project's manifest, filtered to what the
+command can actually act on:
+
+| command | offers |
+|---|---|
+| `envctl set <TAB>` | plain variables (`secret set` handles the rest) |
+| `envctl secret set <TAB>` | secret variables |
+| `envctl secret rm <TAB>` | secret variables |
+| `envctl unset <TAB>` | every variable |
+
+Secrets are tagged `stored` or `MISSING` where the backend can answer that
+cheaply, which on macOS it can -- the Keychain reports presence without an
+authorization prompt. The file and system backends answer only by decrypting
+or reading, so there the tag is dropped rather than making TAB stall or raise
+a dialog. Values are never read, and never shown.
+
+Outside a registered project, or on a backend that will not open, completion
+is silent rather than an error.
+
 ## Where things live
 
 | path | holds |

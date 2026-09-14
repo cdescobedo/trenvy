@@ -29,3 +29,20 @@ type Store interface {
 	Set(service, value string) error
 	Delete(service string) error
 }
+
+// CheapPresence is a Store whose Has is fast and cannot raise a prompt, so a
+// caller on a latency budget may probe every variable it knows about. Shell
+// completion is that caller: it runs on every TAB, and a backend that takes a
+// second or opens a dialog to answer "does this exist?" would make completion
+// worse than useless.
+//
+// The method is unexported, so only a backend in this package can make the
+// claim, and making it is a deliberate act rather than an accident of shape.
+// Keychain qualifies: security(1) without -w answers presence silently. Mem
+// qualifies: it is a map. File does not: its Has scrypt-decrypts the whole
+// store. SystemKeyring does not: go-keyring answers Has with a read, which
+// can raise an unlock prompt.
+type CheapPresence interface {
+	Store
+	cheapPresence()
+}

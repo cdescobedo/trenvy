@@ -17,9 +17,10 @@ import (
 
 func newSetCmd(opts *Options) *cobra.Command {
 	return &cobra.Command{
-		Use:   "set <NAME> <VALUE>",
-		Short: "Set a plain (non-secret) variable",
-		Args:  cobra.ExactArgs(2),
+		Use:               "set <NAME> <VALUE>",
+		Short:             "Set a plain (non-secret) variable",
+		Args:              cobra.ExactArgs(2),
+		ValidArgsFunction: opts.completeVarNames(isPlain),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app, err := opts.resolveApp()
 			if err != nil {
@@ -60,9 +61,10 @@ func newSecretSetCmd(opts *Options) *cobra.Command {
 	var fromStdin bool
 
 	c := &cobra.Command{
-		Use:   "set <NAME>",
-		Short: "Store or rotate a secret in the keyring",
-		Args:  cobra.ExactArgs(1),
+		Use:               "set <NAME>",
+		Short:             "Store or rotate a secret in the keyring",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: opts.completeVarNames(isSecret),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app, err := opts.resolveApp()
 			if err != nil {
@@ -149,9 +151,10 @@ func newSecretRmCmd(opts *Options) *cobra.Command {
 	var yes bool
 
 	c := &cobra.Command{
-		Use:   "rm <NAME>",
-		Short: "Delete a secret's value from the keyring, keeping the variable",
-		Args:  cobra.ExactArgs(1),
+		Use:               "rm <NAME>",
+		Short:             "Delete a secret's value from the keyring, keeping the variable",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: opts.completeVarNames(isSecret),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app, err := opts.resolveApp()
 			if err != nil {
@@ -186,9 +189,10 @@ func newUnsetCmd(opts *Options) *cobra.Command {
 	var yes bool
 
 	c := &cobra.Command{
-		Use:   "unset <NAME>",
-		Short: "Remove a variable from the manifest and its secret from the keyring",
-		Args:  cobra.ExactArgs(1),
+		Use:               "unset <NAME>",
+		Short:             "Remove a variable from the manifest and its secret from the keyring",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: opts.completeVarNames(anyVar),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app, err := opts.resolveApp()
 			if err != nil {

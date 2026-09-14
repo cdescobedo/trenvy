@@ -67,6 +67,10 @@ func (k *Keychain) Has(service string) (bool, error) {
 	return true, nil
 }
 
+// cheapPresence marks Has as safe to call per variable: see the no--w note
+// above, and store.CheapPresence.
+func (k *Keychain) cheapPresence() {}
+
 func (k *Keychain) Get(service string) (string, error) {
 	cmd := exec.Command("security", "find-generic-password",
 		"-a", k.account, "-s", service, "-w")

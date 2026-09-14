@@ -33,3 +33,10 @@ func TestSystemKeyringRejectsOversizedValues(t *testing.T) {
 		t.Errorf("error leaked the value: %v", err)
 	}
 }
+
+// go-keyring answers Has with a read, which can raise an unlock prompt.
+func TestSystemKeyringIsNotCheapToProbe(t *testing.T) {
+	if _, ok := store.Store(store.NewSystemKeyring("u")).(store.CheapPresence); ok {
+		t.Error("SystemKeyring claims CheapPresence, but its Has reads the value")
+	}
+}

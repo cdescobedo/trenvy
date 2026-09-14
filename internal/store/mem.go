@@ -74,3 +74,5 @@ func (m *Mem) Delete(service string) error {
 	delete(m.items, service)
 	return nil
 }
+
+func (m *Mem) cheapPresence() {}
