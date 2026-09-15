@@ -124,9 +124,11 @@ wrote .env  (3 vars, 1 from the keyring, 0600)
 Two things worth noticing. `import` normally opens an interactive table so you
 can review which variables are secret before anything is saved — `--no-tui`
 above skips it only so the block is pasteable; drop the flag and you get the
-review, or run `trenvy edit` later. And `--output local` is what creates an
-output named `local` pointing at the sample file's real path; without it you
-get variables and nowhere to put them.
+review, or run `trenvy edit` later. And `--output local` names the output
+import creates, pointing at the sample file's real path; drop the flag and
+import still creates one, named from the sample's directory (`root` for a
+sample at the worktree root) — only `--no-output` gets you variables and
+nowhere to put them.
 
 From here, a second worktree needs **no setup at all**:
 
@@ -300,6 +302,19 @@ Every description below is the command's own `Short` text. Run
 
 `profile rm` takes `--yes`.
 
+### Outputs
+
+| command | does |
+|---|---|
+| `trenvy output list` | List the project's outputs and which is the default |
+| `trenvy output add <name> --format <f> --path <p>` | Define a new output |
+| `trenvy output rename <old> <new>` | Rename it, keeping its render records |
+| `trenvy output default <name>` | Set the output bare `render` uses |
+| `trenvy output rm <name>` | Remove it |
+
+`output add` also takes `--include` and `--exclude` globs. `output rm` takes
+`--yes` and `--force`.
+
 ### Values
 
 | command | does |
@@ -313,9 +328,10 @@ Every description below is the command's own `Short` text. Run
 | `trenvy unset <NAME>` | Remove a variable from the manifest and its secret from every profile's keyring |
 | `trenvy edit` | Edit this project's variables interactively |
 
-Flags: `import` takes `--output <name>`, `--no-tui` and `--force`; `set` takes
-`--shared`; `show` takes `--reveal` and `--format dotenv|json`; `secret set`
-takes `--stdin`; `secret rm` and `unset` take `--yes`.
+Flags: `import` takes `--output <name>`, `--no-output`, `--no-tui` and
+`--force`; `set` takes `--shared`; `show` takes `--reveal` and `--format
+dotenv|json`; `secret set` takes `--stdin`; `secret rm` and `unset` take
+`--yes`.
 
 ### Delivery
 
@@ -331,10 +347,11 @@ Flags: `render` takes `--allow-tracked` and `--force`; `clean` takes `--force`;
 `status` takes `--quick`.
 
 Omitting `[output]` uses `project.output` from the manifest. `project init`
-creates no outputs and so sets none; `import --output <name>` claims the first
-output it creates as the default, unless one is already set. Name the output
-explicitly, or set `output = '<name>'` under `[project]` yourself, if neither
-of those gives you the default you want.
+creates no outputs and so sets none; the first output any `import` creates —
+named or not, unless run with `--no-output` — claims the default, unless one
+is already set. `trenvy output default <name>` changes it afterwards. Name
+the output explicitly, or set `output = '<name>'` under `[project]` yourself,
+if neither of those gives you the default you want.
 
 ### Reading values back
 
@@ -552,11 +569,12 @@ the one that would fix it, so the error names the escape hatch:
 `unset TRENVY_PROFILE`.
 
 **`no output given and project.output is not set`**
-`import --output <name>` sets the default the first time it creates an output,
-so this usually means no output was ever created that way — an `import` run
-without `--output`, or a manifest built up with `trenvy edit`. Name the output
-— `trenvy render local` — or set `output = 'local'` under `[project]` in the
-manifest to make it the default.
+The first output any `import` creates claims the default, so this usually
+means either no output was ever created that way — every `import` ran with
+`--no-output`, or the manifest was built up with `trenvy edit` — or the output
+that held the default was removed with `trenvy output rm`. Name the output —
+`trenvy render local` — or run `trenvy output default local` to make it the
+default again.
 
 **`no passphrase for the file backend`**
 Set `TRENVY_PASSPHRASE`, or use a platform keyring.

@@ -82,6 +82,11 @@ the verb, not a configured destination. An output's include list
 describes a file's audience, and a process wants its whole environment — so
 those two commands call `resolve.All`, not `resolve.Values`.
 
+`trenvy output` manages the outputs themselves: `list`, `add`, `rename`,
+`default` and `rm`. An output's name is what render records key on, so
+`output rename` moves a manifest entry and its render records together — the
+render guards, below, cover what those records hold.
+
 ## The precedence rule
 
 One rule, in one function: `resolve.Value`. Everything else defers to it.

@@ -12,26 +12,6 @@ the command surface may still move under you.
 
 ## [Unreleased]
 
-### Fixed
-
-- **Output names are validated.** An output name must be letters, digits, `-`
-  or `_`, and may not begin with `-` — the rule profile names already followed.
-  A manifest whose output name does not conform, `[outputs.my.app]` for
-  instance, now fails to load instead of being accepted and behaving oddly
-  later. Rename an existing output with `trenvy output rename <old> <new>`
-  rather than by hand -- it updates the manifest and the render state
-  together, so an already-rendered file does not start reading as `FOREIGN`.
-- **Project ids are validated.** An id is both a segment of the keyring service
-  name and a path segment of the manifest and state files, so `--id 'a/b'`
-  reshaped the keyring namespace and `--id '../../x'` wrote outside the config
-  directory. `trenvy project init` now refuses an id that is not letters,
-  digits, `.`, `-` or `_`, that begins with `.` or `-`, or that is a Windows
-  device name (`con`, `aux`, `nul`, `com1`-`com9`, `lpt1`-`lpt9`, which Win32
-  opens as devices even with a `.toml` extension), and refuses it before
-  registering or writing anything. When the id is defaulted from the
-  root directory's name, the error points at `--id`. Profile names already had
-  this rule; project ids did not.
-
 ### Breaking
 
 - **The tool is now `trenvy`, not `envctl`.** The binary, the module path
@@ -219,8 +199,26 @@ the command surface may still move under you.
   printing nothing and passing through security(1)'s exit code — which,
   combined with the `quit`-command bug above, could leave the keyring and the
   manifest silently diverged.
-- `import --output <name>` now sets `project.output` when the manifest has no
-  default yet, so a fresh project's first output becomes the one `render`,
-  `clean` and `show` use with no argument. `project init` still sets no
-  output — it creates none to default to — and an output a user already chose
-  as the default is never replaced by a later `import --output`.
+- `import` now sets `project.output` when the manifest has no default yet, so a
+  fresh project's first output becomes the one `render`, `clean` and `show` use
+  with no argument. This applies whether the output was named with `--output` or
+  derived from the sample's directory. `project init` still sets no output — it
+  creates none to default to — and an output a user already chose as the default
+  is never replaced by a later import.
+- **Output names are validated.** An output name must be letters, digits, `-`
+  or `_`, and may not begin with `-` — the rule profile names already followed.
+  A manifest whose output name does not conform, `[outputs.my.app]` for
+  instance, now fails to load instead of being accepted and behaving oddly
+  later. Rename an existing output with `trenvy output rename <old> <new>`
+  rather than by hand -- it updates the manifest and the render state
+  together, so an already-rendered file does not start reading as `FOREIGN`.
+- **Project ids are validated.** An id is both a segment of the keyring service
+  name and a path segment of the manifest and state files, so `--id 'a/b'`
+  reshaped the keyring namespace and `--id '../../x'` wrote outside the config
+  directory. `trenvy project init` now refuses an id that is not letters,
+  digits, `.`, `-` or `_`, that begins with `.` or `-`, or that is a Windows
+  device name (`con`, `aux`, `nul`, `com1`-`com9`, `lpt1`-`lpt9`, which Win32
+  opens as devices even with a `.toml` extension), and refuses it before
+  registering or writing anything. When the id is defaulted from the
+  root directory's name, the error points at `--id`. Profile names already had
+  this rule; project ids did not.
