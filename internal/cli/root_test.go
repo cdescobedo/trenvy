@@ -98,32 +98,6 @@ secret = true
 	return m
 }
 
-func TestProjectsListsRegisteredProjects(t *testing.T) {
-	h := newHarness(t)
-	h.register("vpb", fixtureManifest(t))
-
-	if err := h.run("projects"); err != nil {
-		t.Fatalf("projects: %v", err)
-	}
-	out := h.out.String()
-	if !strings.Contains(out, "vpb") {
-		t.Errorf("output does not list the project:\n%s", out)
-	}
-	if !strings.Contains(out, h.root) {
-		t.Errorf("output does not show the root:\n%s", out)
-	}
-}
-
-func TestProjectsOnAnEmptyRegistry(t *testing.T) {
-	h := newHarness(t)
-	if err := h.run("projects"); err != nil {
-		t.Fatalf("projects: %v", err)
-	}
-	if !strings.Contains(h.out.String(), "envctl init") {
-		t.Errorf("output does not suggest how to register one:\n%s", h.out)
-	}
-}
-
 // Every command that needs a project must fail clearly outside one, rather
 // than with a confusing missing-file error.
 func TestCommandsOutsideAProjectExplainThemselves(t *testing.T) {

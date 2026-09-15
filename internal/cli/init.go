@@ -70,6 +70,7 @@ func newInitCmd(opts *Options) *cobra.Command {
 			fmt.Fprintf(opts.Stdout, "registered %s\n  root      %s\n  manifest  %s\n",
 				id, abs, config.ManifestPath(id))
 			fmt.Fprintf(opts.Stdout, "\nnext: envctl import <sample .env or .json>, or envctl edit\n")
+			fmt.Fprintf(opts.Stdout, "add a second value set with: envctl profile add <name>\n")
 			return nil
 		},
 	}

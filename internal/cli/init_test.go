@@ -13,7 +13,7 @@ import (
 func TestInitRegistersTheProjectAndWritesAManifest(t *testing.T) {
 	h := newHarness(t)
 
-	if err := h.run("init", "--id", "vpb"); err != nil {
+	if err := h.run("project", "init", "--id", "vpb"); err != nil {
 		t.Fatalf("init: %v", err)
 	}
 
@@ -49,7 +49,7 @@ func TestInitRegistersTheProjectRootNotTheWorktree(t *testing.T) {
 	}
 	h.opts.Dir = worktree
 
-	if err := h.run("init", "--id", "vpb", "--root", h.root); err != nil {
+	if err := h.run("project", "init", "--id", "vpb", "--root", h.root); err != nil {
 		t.Fatalf("init: %v", err)
 	}
 
@@ -62,7 +62,7 @@ func TestInitRegistersTheProjectRootNotTheWorktree(t *testing.T) {
 
 func TestInitDefaultsTheIDToTheRootDirectoryName(t *testing.T) {
 	h := newHarness(t)
-	if err := h.run("init"); err != nil {
+	if err := h.run("project", "init"); err != nil {
 		t.Fatalf("init: %v", err)
 	}
 	reg, _ := config.LoadRegistry()
@@ -74,10 +74,10 @@ func TestInitDefaultsTheIDToTheRootDirectoryName(t *testing.T) {
 
 func TestInitRefusesToRegisterTwice(t *testing.T) {
 	h := newHarness(t)
-	if err := h.run("init", "--id", "vpb"); err != nil {
+	if err := h.run("project", "init", "--id", "vpb"); err != nil {
 		t.Fatal(err)
 	}
-	err := h.run("init", "--id", "other")
+	err := h.run("project", "init", "--id", "other")
 	if err == nil {
 		t.Fatal("init succeeded on an already-registered root")
 	}
@@ -88,13 +88,13 @@ func TestInitRefusesToRegisterTwice(t *testing.T) {
 
 func TestInitGivesEachProjectADifferentSalt(t *testing.T) {
 	h1 := newHarness(t)
-	if err := h1.run("init", "--id", "a"); err != nil {
+	if err := h1.run("project", "init", "--id", "a"); err != nil {
 		t.Fatal(err)
 	}
 	ma, _ := manifest.Load(config.ManifestPath("a"))
 
 	h2 := newHarness(t) // fresh config dir
-	if err := h2.run("init", "--id", "b"); err != nil {
+	if err := h2.run("project", "init", "--id", "b"); err != nil {
 		t.Fatal(err)
 	}
 	mb, _ := manifest.Load(config.ManifestPath("b"))
@@ -109,7 +109,7 @@ func TestInitGivesEachProjectADifferentSalt(t *testing.T) {
 // must therefore produce a manifest that validates with no outputs at all.
 func TestInitCreatesAManifestWithNoOutputs(t *testing.T) {
 	h := newHarness(t)
-	if err := h.run("init", "--id", "vpb"); err != nil {
+	if err := h.run("project", "init", "--id", "vpb"); err != nil {
 		t.Fatalf("init: %v", err)
 	}
 

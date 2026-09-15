@@ -13,7 +13,7 @@ import (
 
 func TestImportSeedsTheManifestFromADotenvSample(t *testing.T) {
 	h := newHarness(t)
-	if err := h.run("init", "--id", "vpb"); err != nil {
+	if err := h.run("project", "init", "--id", "vpb"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -54,7 +54,7 @@ func TestImportSeedsTheManifestFromADotenvSample(t *testing.T) {
 
 func TestImportCreatesAnOutputForTheSamplesRealPath(t *testing.T) {
 	h := newHarness(t)
-	if err := h.run("init", "--id", "vpb"); err != nil {
+	if err := h.run("project", "init", "--id", "vpb"); err != nil {
 		t.Fatal(err)
 	}
 	// outputFor resolves the sample's path against the git worktree it is
@@ -94,7 +94,7 @@ func TestImportCreatesAnOutputForTheSamplesRealPath(t *testing.T) {
 // for a worktree root.
 func TestImportOutputPathInANonGitProject(t *testing.T) {
 	h := newHarness(t)
-	if err := h.run("init", "--id", "vpb"); err != nil {
+	if err := h.run("project", "init", "--id", "vpb"); err != nil {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(h.root, "src", "DemoApp.Api")
@@ -125,7 +125,7 @@ func TestImportOutputPathInANonGitProject(t *testing.T) {
 // survive intact: only the sample's own filename is stripped.
 func TestImportOutputPathLeavesDirectoryNamesIntact(t *testing.T) {
 	h := newHarness(t)
-	if err := h.run("init", "--id", "vpb"); err != nil {
+	if err := h.run("project", "init", "--id", "vpb"); err != nil {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(h.root, "test_example_project")
@@ -160,7 +160,7 @@ func TestImportOutputPathLeavesDirectoryNamesIntact(t *testing.T) {
 // main/main/src/Api/.env.
 func TestImportOutputIsRelativeToTheSamplesOwnWorktreeNotTheCurrentDirectory(t *testing.T) {
 	h := newHarness(t)
-	if err := h.run("init", "--id", "vpb"); err != nil {
+	if err := h.run("project", "init", "--id", "vpb"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -219,7 +219,7 @@ func TestImportOutputIsRelativeToTheSamplesOwnWorktreeNotTheCurrentDirectory(t *
 
 func TestImportJSONSampleCreatesAJSONOutput(t *testing.T) {
 	h := newHarness(t)
-	if err := h.run("init", "--id", "fe"); err != nil {
+	if err := h.run("project", "init", "--id", "fe"); err != nil {
 		t.Fatal(err)
 	}
 	h.gitInit("")
@@ -251,7 +251,7 @@ func TestImportJSONSampleCreatesAJSONOutput(t *testing.T) {
 
 func TestImportRefusesToClobberExistingVariables(t *testing.T) {
 	h := newHarness(t)
-	if err := h.run("init", "--id", "vpb"); err != nil {
+	if err := h.run("project", "init", "--id", "vpb"); err != nil {
 		t.Fatal(err)
 	}
 	sample := filepath.Join(h.root, ".env_example")
@@ -281,7 +281,7 @@ func TestImportRefusesToClobberExistingVariables(t *testing.T) {
 // path, and guessing one would write a credentials file somewhere unrelated.
 func TestImportOutputRejectsASampleOutsideTheProject(t *testing.T) {
 	h := newHarness(t)
-	if err := h.run("init", "--id", "vpb"); err != nil {
+	if err := h.run("project", "init", "--id", "vpb"); err != nil {
 		t.Fatal(err)
 	}
 	outside := filepath.Join(t.TempDir(), "elsewhere")

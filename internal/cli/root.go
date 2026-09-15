@@ -207,8 +207,7 @@ func Execute(opts Options, args []string) error {
 		"value set to use: overrides ENVCTL_PROFILE and the manifest default")
 
 	root.AddCommand(
-		newInitCmd(&opts),
-		newProjectsCmd(&opts),
+		newProjectCmd(&opts),
 		newStatusCmd(&opts),
 		newImportCmd(&opts),
 		newEditCmd(&opts),
