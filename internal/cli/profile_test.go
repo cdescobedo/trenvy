@@ -89,6 +89,30 @@ func TestProfileListMarksActiveAndDefaultSeparately(t *testing.T) {
 	}
 }
 
+// A row with no note (the common case: neither active nor default) must not
+// leave trailing whitespace behind -- tabwriter pads a tab-terminated empty
+// cell to the column width, and an earlier version of this command asked for
+// exactly that cell.
+func TestProfileListRendersNoTrailingWhitespace(t *testing.T) {
+	h := profileHarness(t)
+	t.Setenv("TRENVY_PROFILE", "prod")
+
+	if err := h.run("profile", "list"); err != nil {
+		t.Fatalf("profile list: %v", err)
+	}
+
+	want := "  dev  (default)\n* prod\n"
+	if got := h.out.String(); got != want {
+		t.Errorf("profile list =\n%q\nwant\n%q", got, want)
+	}
+
+	for _, line := range strings.Split(strings.TrimRight(h.out.String(), "\n"), "\n") {
+		if strings.TrimRight(line, " \t") != line {
+			t.Errorf("line has trailing whitespace: %q", line)
+		}
+	}
+}
+
 func TestProfileAddDeclaresANewProfile(t *testing.T) {
 	h := profileHarness(t)
 

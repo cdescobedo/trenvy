@@ -62,7 +62,14 @@ func newProfileListCmd(opts *Options) *cobra.Command {
 				if n == app.Manifest.Project.DefaultProfile {
 					note = "(default)"
 				}
-				fmt.Fprintf(w, "%s %s\t%s\n", marker, n, note)
+				// A row with no note omits the tab entirely -- a trailing tab
+				// before an empty cell would still be padded to the column
+				// width by tabwriter, leaving trailing whitespace on the line.
+				if note == "" {
+					fmt.Fprintf(w, "%s %s\n", marker, n)
+				} else {
+					fmt.Fprintf(w, "%s %s\t%s\n", marker, n, note)
+				}
 			}
 			return w.Flush()
 		},
