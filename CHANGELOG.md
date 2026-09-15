@@ -116,11 +116,46 @@ the command surface may still move under you.
   `profile use`, the one that would fix it — validates the variable before its
   body runs.
 - `profile list` no longer pads empty notes into trailing whitespace.
-- The "not in the keyring" hint now always includes `-p <profile>`. It used to
-  suggest a bare `trenvy secret set <NAME>`, which stored the value under
-  whichever profile happened to be active rather than the one the error was
-  actually about — a paste-and-rerun that silently left a credential in the
-  wrong keyring namespace and the original render still failing.
+- `resolve.Value`'s "not in the keyring" hint now always includes
+  `-p <profile>`. It used to suggest a bare `trenvy secret set <NAME>`, which
+  stored the value under whichever profile happened to be active rather than
+  the one the error was actually about — a paste-and-rerun that silently left
+  a credential in the wrong keyring namespace and the original render still
+  failing. (`status`, `set` and `import` had the same bug in their own hints;
+  fixed below.)
+- `status`'s `MISSING` hint, `set`'s secret-vs-plain refusal, and `import`'s
+  post-import hint now include `-p <profile>` too, matching `resolve.Value`
+  and `profile add`. Every command that suggests `secret set` now reproduces
+  the invocation that actually works, instead of leaving three siblings
+  behind the fix above.
+- `set --shared` reported "set %s for every profile", but `resolve.Value`
+  checks a profile's own override before the shared default it writes, so any
+  profile holding one was unaffected. The success line now matches
+  `--shared`'s own help text ("the default used by every profile without its
+  own value") and names any profiles left unaffected by their own override.
+- `unset` and `secret rm` now say what they actually did rather than what a
+  fixed-text success line implies. `unset` reports how many profiles' secrets
+  it cleared, matching the count `profile rm` and `project rm` already
+  report. `secret rm` distinguishes a real deletion from finding nothing
+  stored for the active profile — previously both printed the same "deleted"
+  line, which in a tool whose headline hazard is acting on the wrong profile
+  told a user who ran it against the wrong one that a secret was gone when it
+  never existed there. `profile rm`'s partial-failure error now also names the
+  full keyring service (matching `unset` and `project rm`) and states how many
+  secrets were already deleted by the time it failed.
+- The Keychain backend's `Set` sent a trailing `quit` line to `security -i`,
+  which has no such command and terminates on EOF instead. `security` printed
+  `unknown command "quit"` and exited 1 after the write had already
+  succeeded, so every real Keychain write was reported as a failure.
+- `report()`'s exit-code passthrough now matches only `*cli.ChildExitError`,
+  the type `exec` and `shell` wrap around the error from running the user's
+  own command, instead of any error that unwrapped to a bare
+  `*exec.ExitError` anywhere in its chain. The Keychain backend also shells
+  out to `security(1)` internally, so a bare-`*exec.ExitError` match treated a
+  Keychain write failure as if it were the user's own command exiting —
+  printing nothing and passing through security(1)'s exit code — which,
+  combined with the `quit`-command bug above, could leave the keyring and the
+  manifest silently diverged.
 - `import --output <name>` now sets `project.output` when the manifest has no
   default yet, so a fresh project's first output becomes the one `render`,
   `clean` and `show` use with no argument. `project init` still sets no

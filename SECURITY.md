@@ -16,9 +16,14 @@ commit, and include it in your report.
 
 **Do not open a public issue for a security problem.**
 
-Use GitHub's private vulnerability reporting on the repository: the **Security**
-tab, then **Report a vulnerability**. That channel is private to the maintainer
-until an advisory is published.
+**trenvy is not published.** There is no repository to file against: no
+remote, no tags, no releases, no advisories.
+
+Report by email to `cescobedo@complecti.io`, subject line `trenvy security`.
+
+When the project is published at `github.com/cdescobedo/trenvy`, reporting
+will move to GitHub's private vulnerability reporting — the **Security** tab,
+then **Report a vulnerability** — and email will remain a fallback.
 
 Please include:
 

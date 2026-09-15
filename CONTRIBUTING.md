@@ -10,8 +10,10 @@ suggests, and they are the point.
 You need Go 1.27 or newer. That is the whole toolchain; there is no Makefile,
 no code generation, and no build tags to remember.
 
+trenvy is not published yet — there is no remote to clone from. Work from
+your existing copy of the source:
+
 ```bash
-git clone https://github.com/cdescobedo/trenvy
 cd trenvy
 go build ./...
 go test ./...
@@ -127,7 +129,7 @@ wrong. The codebase does this consistently and a change that regresses it will
 be sent back:
 
 ```
-API_TOKEN is not in the keyring for profile "dev"; run: trenvy secret set API_TOKEN
+API_TOKEN is not in the keyring for profile "dev"; run: trenvy -p dev secret set API_TOKEN
 ```
 
 ```

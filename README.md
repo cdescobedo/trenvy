@@ -50,31 +50,22 @@ outputs
 
 ## Install
 
-```bash
-go install github.com/cdescobedo/trenvy/cmd/trenvy@latest
-```
-
-Requires Go 1.27 or newer, and puts `trenvy` in `$(go env GOPATH)/bin`.
-
-**Be aware of what you are installing.** There are no tagged releases, no
-Homebrew formula, no `.deb`, no published binaries, and no checksums — this is
-a personal project and `@latest` resolves to the current default branch. Pin a
-commit if you want a stable footing:
+**trenvy is not published yet.** There is no module to `go install` from, no
+tagged releases, no Homebrew formula, no binaries and no checksums. Build it
+from your copy of the source:
 
 ```bash
-go install github.com/cdescobedo/trenvy/cmd/trenvy@<commit-sha>
+cd /path/to/trenvy
+go build -o ~/.local/bin/trenvy ./cmd/trenvy
 ```
 
-There is also no `trenvy --version`; the commit you built is the version.
+Requires Go 1.27 or newer. trenvy is cgo-free on every platform, so it
+cross-compiles anywhere Go does. There is no `trenvy --version`; the commit
+you built is the version.
 
-Building from a clone works the same way:
-
-```bash
-git clone https://github.com/cdescobedo/trenvy && cd trenvy
-go build -o /tmp/trenvy ./cmd/trenvy
-```
-
-trenvy is cgo-free on every platform, so it cross-compiles anywhere Go does.
+Once it is published this becomes
+`go install github.com/cdescobedo/trenvy/cmd/trenvy@latest`, and the warning
+about `@latest` tracking the default branch will apply.
 
 ## Quickstart
 
@@ -170,7 +161,7 @@ profile, as `trenvy/{project}/{profile}/{name}`, so a variable's `dev` and
 $ trenvy status | grep API_TOKEN
   present  API_TOKEN
 $ trenvy -p prod status | grep API_TOKEN
-  MISSING  API_TOKEN  -> trenvy secret set API_TOKEN
+  MISSING  API_TOKEN  -> trenvy -p prod secret set API_TOKEN
 ```
 
 Same variable, same project, same command — a different profile, so a
@@ -524,7 +515,9 @@ actually act on:
 | `trenvy unset <TAB>` | every variable |
 | `trenvy render\|clean\|show <TAB>` | defined outputs, tagged with their path |
 | `trenvy -p <TAB>` | declared profiles |
+| `trenvy profile use\|default\|rm <TAB>` | declared profiles |
 | `trenvy project move\|rm <TAB>` | registered project ids |
+| `trenvy project move <id> <TAB>` | left to the shell (directories) |
 
 The `stored`/`MISSING` tag appears only where the backend can answer presence
 cheaply and without a prompt — on macOS it can. The file and system backends
