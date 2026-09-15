@@ -113,6 +113,16 @@ the command surface may still move under you.
   except X, Y`, or an explicit list) -- and marks the one `project.output`
   points at. A project with none, because it only ever feeds `exec` or
   `shell`, gets a hint instead of an error or a bare header.
+- **`trenvy output add <name> --format <dotenv|json> --path <path>`** defines a
+  new output, with `--include`/`--exclude` globs to narrow what it selects. It
+  refuses a name that fails validation, a second output on a path another
+  output already renders to, and always validates the whole manifest before
+  writing, so a bad `add` leaves the manifest untouched. It deliberately does
+  not claim `project.output` -- `add` is explicit, so `output default` is how
+  a user says which output is the default.
+- **`trenvy output default <name>`** sets `project.output`, the output
+  `render` and `show` use when given no argument. It refuses a name that is
+  not a defined output.
 
 ### Changed
 
