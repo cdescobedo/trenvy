@@ -16,9 +16,11 @@ import (
 )
 
 func newSetCmd(opts *Options) *cobra.Command {
-	return &cobra.Command{
+	var shared bool
+
+	c := &cobra.Command{
 		Use:               "set <NAME> <VALUE>",
-		Short:             "Set a plain (non-secret) variable",
+		Short:             "Set a plain value for the active profile",
 		Args:              cobra.ExactArgs(2),
 		ValidArgsFunction: opts.completeVarNames(isPlain),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -31,12 +33,24 @@ func newSetCmd(opts *Options) *cobra.Command {
 			if existing, ok := app.Manifest.Vars[name]; ok && existing.Secret {
 				// Naming the value here would print a secret-adjacent string to
 				// the terminal and the shell history; the name is enough.
+				// This holds for --shared too: the hazard is the channel (argv
+				// and shell history), not which destination the value lands in.
 				return fmt.Errorf(
 					"%s is a secret; set its value with: envctl secret set %s", name, name)
 			}
 
 			v := app.Manifest.Vars[name]
-			v.Value = &value
+			if shared {
+				v.Value = &value
+			} else {
+				// A value written while standing on a profile belongs to that
+				// profile. Writing Value instead would silently change every
+				// other profile that has no override of its own.
+				if v.Profiles == nil {
+					v.Profiles = map[string]string{}
+				}
+				v.Profiles[app.Profile.Name] = value
+			}
 			app.Manifest.Vars[name] = v
 
 			if err := app.Manifest.Validate(); err != nil {
@@ -45,10 +59,17 @@ func newSetCmd(opts *Options) *cobra.Command {
 			if err := manifest.Save(config.ManifestPath(app.Entry.ID), app.Manifest); err != nil {
 				return err
 			}
-			fmt.Fprintf(opts.Stdout, "set %s\n", name)
+			if shared {
+				fmt.Fprintf(opts.Stdout, "set %s for every profile\n", name)
+			} else {
+				fmt.Fprintf(opts.Stdout, "set %s for profile %s\n", name, app.Profile.Name)
+			}
 			return nil
 		},
 	}
+	c.Flags().BoolVar(&shared, "shared", false,
+		"write the default used by every profile without its own value")
+	return c
 }
 
 func newSecretCmd(opts *Options) *cobra.Command {
@@ -163,7 +184,10 @@ func newSecretRmCmd(opts *Options) *cobra.Command {
 			}
 			name := args[0]
 			if !yes {
-				ok, err := confirm(opts, fmt.Sprintf("Delete %s from the keyring?", name))
+				// secret rm only ever touches the active profile's item, so the
+				// prompt names it -- unlike unset, which clears every profile.
+				ok, err := confirm(opts, fmt.Sprintf(
+					"Delete %s from the keyring for profile %q?", name, app.Profile.Name))
 				if err != nil {
 					return err
 				}
@@ -204,8 +228,18 @@ func newUnsetCmd(opts *Options) *cobra.Command {
 			if !ok {
 				return fmt.Errorf("%s is not in the manifest", name)
 			}
+			profiles := app.Manifest.Project.Profiles
 			if !yes {
-				ok, err := confirm(opts, fmt.Sprintf("Remove %s from %s?", name, app.Entry.ID))
+				// unset drops the variable and every profile's keyring item,
+				// not just the active one -- the prompt says so, because
+				// nothing in the name "unset" tells you that.
+				question := fmt.Sprintf("Remove %s from %s?", name, app.Entry.ID)
+				if v.Secret {
+					question = fmt.Sprintf(
+						"Remove %s from %s and delete its secret in %d profiles?",
+						name, app.Entry.ID, len(profiles))
+				}
+				ok, err := confirm(opts, question)
 				if err != nil {
 					return err
 				}
@@ -219,8 +253,18 @@ func newUnsetCmd(opts *Options) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if err := s.Delete(app.service(name)); err != nil && !errors.Is(err, store.ErrNotFound) {
-					return err
+				// Every profile, not just the active one: the variable is
+				// leaving the manifest, so no profile's item may stay
+				// reachable behind it. app.service is deliberately not used
+				// here -- it binds the ACTIVE profile, so calling it inside
+				// this loop would delete that one profile's item len(profiles)
+				// times while leaving the rest untouched (the same hazard
+				// caught in profile rm and project rm).
+				for _, p := range profiles {
+					svc := app.Cfg.Keyring.ServiceName(app.Manifest.Project.ID, p, name)
+					if err := s.Delete(svc); err != nil && !errors.Is(err, store.ErrNotFound) {
+						return err
+					}
 				}
 			}
 			delete(app.Manifest.Vars, name)
