@@ -25,6 +25,7 @@ func newOutputCmd(opts *Options) *cobra.Command {
 		newOutputListCmd(opts),
 		newOutputAddCmd(opts),
 		newOutputDefaultCmd(opts),
+		newOutputRenameCmd(opts),
 	)
 	return cmd
 }
@@ -152,6 +153,60 @@ func newOutputAddCmd(opts *Options) *cobra.Command {
 	_ = c.MarkFlagRequired("format")
 	_ = c.MarkFlagRequired("path")
 	return c
+}
+
+func newOutputRenameCmd(opts *Options) *cobra.Command {
+	return &cobra.Command{
+		Use:               "rename <old> <new>",
+		Short:             "Rename an output, keeping its render records",
+		Args:              cobra.ExactArgs(2),
+		ValidArgsFunction: opts.completeOutputNames(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			app, err := opts.resolveApp()
+			if err != nil {
+				return err
+			}
+			old, name := args[0], args[1]
+			o, ok := app.Manifest.Outputs[old]
+			if !ok {
+				return fmt.Errorf("no output named %q; list them with: trenvy output list", old)
+			}
+			if _, taken := app.Manifest.Outputs[name]; taken {
+				return fmt.Errorf("output %q is already defined", name)
+			}
+			if err := requireValidOutputName(name); err != nil {
+				return err
+			}
+
+			// State first, then the manifest. Either order leaves the files
+			// FOREIGN if the second write fails, but only this one is
+			// recoverable by re-running the same command: the old name is
+			// still defined, so a second run rebases zero records, renames
+			// the key, and the two files agree again. Manifest-first leaves
+			// the old name undefined and this command can no longer find it.
+			moved := app.State.RenameOutput(old, name)
+			if err := app.State.Save(); err != nil {
+				return err
+			}
+			delete(app.Manifest.Outputs, old)
+			app.Manifest.Outputs[name] = o
+			if app.Manifest.Project.Output == old {
+				app.Manifest.Project.Output = name
+			}
+			if err := app.Manifest.Validate(); err != nil {
+				return err
+			}
+			if err := manifest.Save(config.ManifestPath(app.Entry.ID), app.Manifest); err != nil {
+				return err
+			}
+
+			fmt.Fprintf(opts.Stdout, "renamed output %s to %s\n", old, name)
+			if moved > 0 {
+				fmt.Fprintf(opts.Stdout, "  %d render record(s) repointed\n", moved)
+			}
+			return nil
+		},
+	}
 }
 
 func newOutputDefaultCmd(opts *Options) *cobra.Command {

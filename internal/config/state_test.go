@@ -191,6 +191,28 @@ func TestRebaseWorktreesLeavesASiblingPathAlone(t *testing.T) {
 	}
 }
 
+func TestRenameOutputMovesOnlyMatchingRecords(t *testing.T) {
+	s := &config.State{Renders: []config.RenderEntry{
+		{Worktree: "/w/main", Output: "app", Path: "a.env"},
+		{Worktree: "/w/feat", Output: "app", Path: "a.env"},
+		{Worktree: "/w/main", Output: "web", Path: "e.json"},
+	}}
+
+	moved := s.RenameOutput("app", "docker")
+
+	if moved != 2 {
+		t.Errorf("moved = %d, want 2", moved)
+	}
+	for _, e := range s.Renders {
+		if e.Output == "app" {
+			t.Errorf("a record still names the old output: %+v", e)
+		}
+	}
+	if s.Renders[2].Output != "web" {
+		t.Errorf("an unrelated record was rewritten: %+v", s.Renders[2])
+	}
+}
+
 func TestStateSaveTightensExistingFilePermissions(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("TRENVY_CONFIG_DIR", tmpDir)

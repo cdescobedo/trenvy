@@ -315,6 +315,27 @@ func (h *harness) setOutputs(t *testing.T, id string, outputs map[string]manifes
 	}
 }
 
+// state loads the render state for a registered project id.
+func (h *harness) state(t *testing.T, id string) *config.State {
+	t.Helper()
+	s, err := config.LoadState(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// recordRender writes a render record directly, standing in for an actual
+// `render` run when a test only needs the record to exist.
+func (h *harness) recordRender(t *testing.T, id, worktree, output, path string) {
+	t.Helper()
+	s := h.state(t, id)
+	s.Record(config.RenderEntry{Worktree: worktree, Output: output, Path: path})
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func mkdirAll(p string) error { return os.MkdirAll(p, 0o755) }
 
 func mustReadFile(t *testing.T, path string) string {

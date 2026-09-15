@@ -138,3 +138,51 @@ func TestOutputDefaultRefusesAnUnknownName(t *testing.T) {
 		t.Errorf("error = %v, want it to name the unknown output", err)
 	}
 }
+
+// The manifest and the state file must move together. A test that checked
+// only the manifest would pass against the exact bug this command prevents.
+func TestOutputRenameMovesTheManifestAndTheStateRecord(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+	h.setOutputs(t, "p", map[string]manifest.Output{
+		"app": {Format: "dotenv", Path: ".env", Include: []string{"*"}},
+	}, "app")
+	h.recordRender(t, "p", h.root, "app", ".env")
+
+	if err := h.run("output", "rename", "app", "docker"); err != nil {
+		t.Fatal(err)
+	}
+
+	m := h.manifest(t, "p")
+	if _, gone := m.Outputs["app"]; gone {
+		t.Error("the old name is still defined")
+	}
+	if _, ok := m.Outputs["docker"]; !ok {
+		t.Error("the new name was not created")
+	}
+	if m.Project.Output != "docker" {
+		t.Errorf("project.output = %q, want docker", m.Project.Output)
+	}
+	st := h.state(t, "p")
+	if _, ok := st.Find(h.root, "docker"); !ok {
+		t.Error("the render record was not repointed; the file would read FOREIGN")
+	}
+}
+
+func TestOutputRenameRefusesAnExistingName(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+	h.setOutputs(t, "p", map[string]manifest.Output{
+		"a": {Format: "dotenv", Path: "a.env"},
+		"b": {Format: "dotenv", Path: "b.env"},
+	}, "a")
+
+	err := h.run("output", "rename", "a", "b")
+
+	if err == nil || !strings.Contains(err.Error(), "b") {
+		t.Errorf("error = %v, want it to name the collision", err)
+	}
+	if _, ok := h.manifest(t, "p").Outputs["a"]; !ok {
+		t.Error("the refused rename removed the original anyway")
+	}
+}

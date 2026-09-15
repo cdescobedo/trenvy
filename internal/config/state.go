@@ -107,6 +107,25 @@ func (s *State) RebaseWorktrees(oldRoot, newRoot string) int {
 	return moved
 }
 
+// RenameOutput repoints every render record from one output name to another,
+// returning how many moved.
+//
+// Render records key on the output's name, so renaming it in the manifest
+// alone makes State.Find miss and guard.Inspect classify every already
+// rendered file as FOREIGN -- render then refuses to touch a file it wrote
+// itself. This is the same coupling RebaseWorktrees exists for.
+func (s *State) RenameOutput(old, replacement string) int {
+	moved := 0
+	for i, e := range s.Renders {
+		if e.Output != old {
+			continue
+		}
+		s.Renders[i].Output = replacement
+		moved++
+	}
+	return moved
+}
+
 // Forget removes a record, used when a rendered file is cleaned.
 func (s *State) Forget(worktree, output string) {
 	worktree = filepath.Clean(worktree)

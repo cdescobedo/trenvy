@@ -18,12 +18,9 @@ the command surface may still move under you.
   or `_`, and may not begin with `-` — the rule profile names already followed.
   A manifest whose output name does not conform, `[outputs.my.app]` for
   instance, now fails to load instead of being accepted and behaving oddly
-  later. No command renames an output yet, so repair it by hand in
-  `~/.config/trenvy/projects/<id>.toml`: rename the `[outputs.…]` key, and
-  update `project.output` if it named the old one. Render records key on the
-  output name too, so change `output = '…'` in
-  `~/.config/trenvy/state/<id>.toml` to match, or the already-rendered file
-  will read as `FOREIGN` and `render` will refuse to overwrite it.
+  later. Rename an existing output with `trenvy output rename <old> <new>`
+  rather than by hand -- it updates the manifest and the render state
+  together, so an already-rendered file does not start reading as `FOREIGN`.
 - **Project ids are validated.** An id is both a segment of the keyring service
   name and a path segment of the manifest and state files, so `--id 'a/b'`
   reshaped the keyring namespace and `--id '../../x'` wrote outside the config
@@ -123,6 +120,14 @@ the command surface may still move under you.
 - **`trenvy output default <name>`** sets `project.output`, the output
   `render` and `show` use when given no argument. It refuses a name that is
   not a defined output.
+- **`trenvy output rename <old> <new>`** renames an output in the manifest and
+  repoints its render records in the same operation, so a file already
+  rendered under the old name keeps reading as fresh instead of `FOREIGN`.
+  Render records key on `(worktree, output name)`; renaming the manifest key
+  alone -- the only option before this command -- left the state file
+  pointing at a name that no longer existed. It refuses a `<new>` that is
+  already defined, and updates `project.output` when it named the output
+  being renamed.
 
 ### Changed
 
