@@ -18,8 +18,10 @@ the command surface may still move under you.
   name and a path segment of the manifest and state files, so `--id 'a/b'`
   reshaped the keyring namespace and `--id '../../x'` wrote outside the config
   directory. `trenvy project init` now refuses an id that is not letters,
-  digits, `.`, `-` or `_`, or that begins with `.` or `-`, and refuses it
-  before registering or writing anything. When the id is defaulted from the
+  digits, `.`, `-` or `_`, that begins with `.` or `-`, or that is a Windows
+  device name (`con`, `aux`, `nul`, `com1`-`com9`, `lpt1`-`lpt9`, which Win32
+  opens as devices even with a `.toml` extension), and refuses it before
+  registering or writing anything. When the id is defaulted from the
   root directory's name, the error points at `--id`. Profile names already had
   this rule; project ids did not.
 

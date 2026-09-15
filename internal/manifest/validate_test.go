@@ -303,17 +303,45 @@ default_profile = "dev"
 	}
 }
 
-func TestValidProjectID(t *testing.T) {
+func TestValidateProjectID(t *testing.T) {
 	ok := []string{"trenvy", "verity-portal-backend", "my.app", "site.v2", "a_b", "x1"}
 	for _, s := range ok {
-		if !manifest.ValidProjectID(s) {
-			t.Errorf("ValidProjectID(%q) = false, want true", s)
+		if err := manifest.ValidateProjectID(s); err != nil {
+			t.Errorf("ValidateProjectID(%q) = %v, want nil", s, err)
 		}
 	}
 	bad := []string{"", ".", "..", "../../etc", "team/app", `team\app`, ".hidden", "-lead", "a b", "a:b"}
 	for _, s := range bad {
-		if manifest.ValidProjectID(s) {
-			t.Errorf("ValidProjectID(%q) = true, want false", s)
+		if err := manifest.ValidateProjectID(s); err == nil {
+			t.Errorf("ValidateProjectID(%q) = nil, want a rejection", s)
+		}
+	}
+}
+
+// Win32 resolves CON, PRN, AUX, NUL, COM1-9 and LPT1-9 as devices even when
+// the name carries an extension, and trenvy writes the manifest as <id>.toml.
+// An id of "con" therefore looks fine on macOS and is unusable on Windows, so
+// it is refused everywhere: a config directory should survive being carried
+// between machines.
+func TestValidateProjectIDRejectsWindowsDeviceNames(t *testing.T) {
+	reserved := []string{"con", "CON", "Con", "prn", "aux", "nul",
+		"com1", "COM9", "lpt1", "LPT9", "con.app"}
+	for _, s := range reserved {
+		err := manifest.ValidateProjectID(s)
+		if err == nil {
+			t.Errorf("ValidateProjectID(%q) = nil, want a rejection", s)
+			continue
+		}
+		if !strings.Contains(err.Error(), "Windows") {
+			t.Errorf("ValidateProjectID(%q) = %v, want it to say why", s, err)
+		}
+	}
+	// Merely containing a device name is not reserved, and the numbered
+	// devices stop at 9.
+	fine := []string{"console", "conf", "com0", "com10", "lpt", "my.con", "auxiliary"}
+	for _, s := range fine {
+		if err := manifest.ValidateProjectID(s); err != nil {
+			t.Errorf("ValidateProjectID(%q) = %v, want nil", s, err)
 		}
 	}
 }

@@ -1,6 +1,7 @@
 package manifest
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -29,11 +30,10 @@ func (m *Manifest) Validate() error {
 
 	if m.Project.ID == "" {
 		add("project.id is required")
-	} else if !ValidProjectID(m.Project.ID) {
-		add("project.id %q: ids may use letters, digits, '.', '-' and '_', and may "+
-			"not begin with '.' or '-'; the id is both a segment of the keyring "+
-			"service name and a path segment of the manifest and state files",
-			m.Project.ID)
+	} else if err := ValidateProjectID(m.Project.ID); err != nil {
+		add("project.id %q: %v; the id is both a segment of the keyring service "+
+			"name and a path segment of the manifest and state files",
+			m.Project.ID, err)
 	}
 	if len(m.Project.Profiles) == 0 {
 		add("project.profiles must name at least one profile")
@@ -154,7 +154,7 @@ func sortedKeys[V any](m map[string]V) []string {
 	return out
 }
 
-// ValidProjectID reports whether s is safe to use as a project id.
+// ValidateProjectID reports why s cannot be a project id, or nil if it can.
 //
 // An id is interpolated into two namespaces and each constrains it. It is a
 // segment of the keyring service name, where a "/" would silently reshape the
@@ -167,17 +167,52 @@ func sortedKeys[V any](m map[string]V) []string {
 // unambiguous because the service name's separator is "/", which an id may not
 // contain. A leading "-" is refused so that an id always reads as an argument
 // in the command hints trenvy prints, never as a flag.
-func ValidProjectID(s string) bool {
-	if s == "" || s[0] == '.' || s[0] == '-' {
-		return false
+func ValidateProjectID(s string) error {
+	if s == "" {
+		return errors.New("an id may not be empty")
+	}
+	if s[0] == '.' || s[0] == '-' {
+		return errors.New("an id may not begin with '.' or '-'")
 	}
 	for _, c := range s {
 		switch {
 		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
 		case c == '-', c == '_', c == '.':
 		default:
-			return false
+			return fmt.Errorf("an id may use letters, digits, '.', '-' and '_' only, not %q", c)
 		}
 	}
-	return true
+	if dev := windowsDevice(s); dev != "" {
+		return fmt.Errorf("%q is a device name on Windows; the manifest is written "+
+			"as %s.toml, which Win32 opens as the device rather than as a file", dev, s)
+	}
+	return nil
+}
+
+// windowsDevice returns the reserved Win32 device name s begins with, or "".
+//
+// The match is case-insensitive and made against the name up to its first dot,
+// because Win32 resolves the device before the extension: CreateFile of
+// "con.toml" opens the console, not a file. trenvy writes <id>.toml, so an id
+// of "con" is unusable on Windows while looking perfectly ordinary on macOS
+// and Linux. Refusing it on every platform is what keeps a config directory
+// portable between machines.
+//
+// The numbered devices stop at 9: COM10 is reachable only as \\.\COM10 and is
+// an ordinary filename.
+func windowsDevice(s string) string {
+	stem := s
+	if i := strings.IndexByte(stem, '.'); i >= 0 {
+		stem = stem[:i]
+	}
+	switch strings.ToUpper(stem) {
+	case "CON", "PRN", "AUX", "NUL":
+		return stem
+	}
+	if len(stem) == 4 && stem[3] >= '1' && stem[3] <= '9' {
+		if p := strings.ToUpper(stem[:3]); p == "COM" || p == "LPT" {
+			return stem
+		}
+	}
+	return ""
 }

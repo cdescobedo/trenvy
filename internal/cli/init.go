@@ -32,13 +32,12 @@ func newInitCmd(opts *Options) *cobra.Command {
 			if derived {
 				id = filepath.Base(abs)
 			}
-			if !manifest.ValidProjectID(id) {
+			if err := manifest.ValidateProjectID(id); err != nil {
 				if derived {
-					return fmt.Errorf(
-						"the directory name %q cannot be a project id; pass one with --id", id)
+					return fmt.Errorf("the directory name %q cannot be a project id: "+
+						"%v; pass one with --id", id, err)
 				}
-				return fmt.Errorf("--id %q: an id may use letters, digits, '.', '-' "+
-					"and '_', and may not begin with '.' or '-'", id)
+				return fmt.Errorf("--id %q: %v", id, err)
 			}
 
 			reg, err := config.LoadRegistry()
