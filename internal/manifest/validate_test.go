@@ -224,3 +224,30 @@ func TestValidateRejectsAProfileNameWithASlash(t *testing.T) {
 		t.Errorf("error = %v, want it to reject the name", err)
 	}
 }
+
+func TestValidateRejectsAnOverrideForAnUndeclaredProfile(t *testing.T) {
+	m := parseOrFatal(t, profileTOML)
+	v := m.Vars["A"]
+	v.Profiles = map[string]string{"staging": "x"}
+	m.Vars["A"] = v
+
+	err := m.Validate()
+
+	if err == nil || !strings.Contains(err.Error(), "staging") {
+		t.Errorf("error = %v, want it to name the undeclared profile", err)
+	}
+}
+
+// A secret's value lives in the keyring and nowhere else. A per-profile plain
+// value would put it in the manifest, which is the leak `set` refusing a
+// secret exists to prevent, only slower.
+func TestValidateRejectsAPlainProfileValueOnASecret(t *testing.T) {
+	m := parseOrFatal(t, profileTOML)
+	m.Vars["S"] = manifest.Var{Secret: true, Profiles: map[string]string{"dev": "dummy"}}
+
+	err := m.Validate()
+
+	if err == nil || !strings.Contains(err.Error(), "S") {
+		t.Errorf("error = %v, want it to reject the plain value on a secret", err)
+	}
+}

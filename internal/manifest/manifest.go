@@ -50,7 +50,11 @@ type Target struct {
 // Var is one variable. Value is a pointer so that an empty string (a legal
 // value) is distinguishable from no value at all.
 type Var struct {
-	Value    *string           `toml:"value,omitempty"`
+	Value *string `toml:"value,omitempty"`
+	// Profiles holds per-profile values, consulted before Value. It is sparse
+	// on purpose: most variables do not vary, and a dense table would grow a
+	// row per variable per profile and stop being readable.
+	Profiles map[string]string `toml:"profiles,omitempty"`
 	Targets  map[string]string `toml:"targets,omitempty"`
 	Secret   bool              `toml:"secret,omitempty"`
 	Optional bool              `toml:"optional,omitempty"`

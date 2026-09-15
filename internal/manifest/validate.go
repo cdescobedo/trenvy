@@ -87,8 +87,17 @@ func (m *Manifest) Validate() error {
 			add("var %q: a secret may not also carry a plain value; "+
 				"the manifest must never contain a secret value", name)
 		}
-		if !v.Secret && v.Value == nil && len(v.Targets) == 0 && !v.Optional {
+		if v.Secret && len(v.Profiles) > 0 {
+			add("var %q: a secret may not carry a plain per-profile value; "+
+				"its value belongs in the keyring, per profile", name)
+		}
+		if !v.Secret && v.Value == nil && len(v.Profiles) == 0 && len(v.Targets) == 0 && !v.Optional {
 			add("var %q: needs value, targets, secret = true, or optional = true", name)
+		}
+		for _, pname := range sortedKeys(v.Profiles) {
+			if !seen[pname] {
+				add("var %q: override names undeclared profile %q", name, pname)
+			}
 		}
 		for _, tname := range sortedKeys(v.Targets) {
 			if _, ok := m.Targets[tname]; !ok {

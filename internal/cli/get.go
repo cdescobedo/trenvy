@@ -56,7 +56,7 @@ func newGetCmd(opts *Options) *cobra.Command {
 				return fmt.Errorf("%s is not included in target %q", name, target)
 			}
 
-			value, ok, err := resolve.Value(app.Manifest, target, name, app.secretLookup())
+			value, ok, err := resolve.Value(app.Manifest, app.Profile.Name, name, app.secretLookup())
 			if err != nil {
 				return err
 			}
@@ -161,22 +161,24 @@ func showMasked(opts *Options, app *appContext, target string) error {
 
 	w := tabwriter.NewWriter(opts.Stdout, 0, 0, 2, ' ', 0)
 	for _, name := range names {
-		fmt.Fprintf(w, "%s\t%s\n", name, maskedDisplay(app, target, name))
+		fmt.Fprintf(w, "%s\t%s\n", name, maskedDisplay(app, name))
 	}
 	return w.Flush()
 }
 
-// maskedDisplay is what one variable looks like with secrets withheld.
-func maskedDisplay(app *appContext, target, name string) string {
+// maskedDisplay is what one variable looks like with secrets withheld. It
+// resolves under the active profile, not the target: a target only decides
+// which variables are selected, never which value a selected one gets.
+func maskedDisplay(app *appContext, name string) string {
 	v := app.Manifest.Vars[name]
 	if v.Secret {
 		return maskedSecret
 	}
-	// Secrets are handled above and both the target and the name are known
+	// Secrets are handled above and both the profile and the name are known
 	// good here, so the only error resolve.Value can still return for a plain
 	// variable is "required and unset" -- which is a row to print, not a
 	// reason to hide every other variable.
-	value, ok, err := resolve.Value(app.Manifest, target, name, nil)
+	value, ok, err := resolve.Value(app.Manifest, app.Profile.Name, name, nil)
 	if err != nil || !ok {
 		return unsetValue
 	}

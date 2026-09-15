@@ -98,18 +98,6 @@ func TestGetPrintsASecretValue(t *testing.T) {
 	}
 }
 
-func TestGetHonoursAPerTargetOverride(t *testing.T) {
-	h := getHarness(t)
-
-	if err := h.run("get", "PUBLIC_API", "web"); err != nil {
-		t.Fatalf("get: %v", err)
-	}
-
-	if got := h.out.String(); got != "https://api.example.test\n" {
-		t.Errorf("stdout = %q, want the web override", got)
-	}
-}
-
 func TestGetFallsBackToTheDefaultTarget(t *testing.T) {
 	h := getHarness(t)
 

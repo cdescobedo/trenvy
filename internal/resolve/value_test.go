@@ -49,7 +49,7 @@ optional = true
 func TestValueUsesTheDefaultValue(t *testing.T) {
 	m := mustParse(t, oneValueTOML)
 
-	got, ok, err := resolve.Value(m, "local", "DB", lookupFrom(nil))
+	got, ok, err := resolve.Value(m, "dev", "DB", lookupFrom(nil))
 
 	if err != nil {
 		t.Fatalf("Value: %v", err)
@@ -59,23 +59,10 @@ func TestValueUsesTheDefaultValue(t *testing.T) {
 	}
 }
 
-func TestValuePrefersAPerTargetOverride(t *testing.T) {
-	m := mustParse(t, oneValueTOML)
-
-	got, _, err := resolve.Value(m, "docker", "DB", lookupFrom(nil))
-
-	if err != nil {
-		t.Fatalf("Value: %v", err)
-	}
-	if got != "Server=host.docker.internal" {
-		t.Errorf("Value = %q, want the docker override", got)
-	}
-}
-
 func TestValueReadsASecretFromTheLookup(t *testing.T) {
 	m := mustParse(t, oneValueTOML)
 
-	got, ok, err := resolve.Value(m, "local", "TOKEN", lookupFrom(map[string]string{"TOKEN": "t0p"}))
+	got, ok, err := resolve.Value(m, "dev", "TOKEN", lookupFrom(map[string]string{"TOKEN": "t0p"}))
 
 	if err != nil {
 		t.Fatalf("Value: %v", err)
@@ -95,7 +82,7 @@ func TestValueReadsOnlyTheNamedSecret(t *testing.T) {
 		return "v", nil
 	}
 
-	if _, _, err := resolve.Value(m, "local", "TOKEN", lookup); err != nil {
+	if _, _, err := resolve.Value(m, "dev", "TOKEN", lookup); err != nil {
 		t.Fatalf("Value: %v", err)
 	}
 
@@ -111,7 +98,7 @@ func TestValueOnAPlainVarNeverReadsASecret(t *testing.T) {
 		return "", nil
 	}
 
-	if _, _, err := resolve.Value(m, "local", "DB", lookup); err != nil {
+	if _, _, err := resolve.Value(m, "dev", "DB", lookup); err != nil {
 		t.Fatalf("Value: %v", err)
 	}
 }
@@ -119,7 +106,7 @@ func TestValueOnAPlainVarNeverReadsASecret(t *testing.T) {
 func TestValueReportsAnOptionalSecretWithNoValueAsAbsent(t *testing.T) {
 	m := mustParse(t, oneValueTOML)
 
-	got, ok, err := resolve.Value(m, "local", "SPARE", lookupFrom(nil))
+	got, ok, err := resolve.Value(m, "dev", "SPARE", lookupFrom(nil))
 
 	if err != nil {
 		t.Fatalf("Value: %v", err)
@@ -132,7 +119,7 @@ func TestValueReportsAnOptionalSecretWithNoValueAsAbsent(t *testing.T) {
 func TestValueSaysHowToStoreAMissingSecret(t *testing.T) {
 	m := mustParse(t, oneValueTOML)
 
-	_, _, err := resolve.Value(m, "local", "TOKEN", lookupFrom(nil))
+	_, _, err := resolve.Value(m, "dev", "TOKEN", lookupFrom(nil))
 
 	if err == nil {
 		t.Fatal("Value succeeded with the secret absent from the keyring")
@@ -142,20 +129,10 @@ func TestValueSaysHowToStoreAMissingSecret(t *testing.T) {
 	}
 }
 
-func TestValueRejectsAnUnknownTarget(t *testing.T) {
-	m := mustParse(t, oneValueTOML)
-
-	_, _, err := resolve.Value(m, "nope", "DB", lookupFrom(nil))
-
-	if !errors.Is(err, resolve.ErrUnknownTarget) {
-		t.Errorf("error = %v, want ErrUnknownTarget", err)
-	}
-}
-
 func TestValueRejectsAnUnknownVariable(t *testing.T) {
 	m := mustParse(t, oneValueTOML)
 
-	_, _, err := resolve.Value(m, "local", "NOPE", lookupFrom(nil))
+	_, _, err := resolve.Value(m, "dev", "NOPE", lookupFrom(nil))
 
 	if !errors.Is(err, resolve.ErrUnknownVar) {
 		t.Errorf("error = %v, want ErrUnknownVar", err)
@@ -190,5 +167,51 @@ func TestSelectsRejectsAnUnknownTarget(t *testing.T) {
 
 	if !errors.Is(err, resolve.ErrUnknownTarget) {
 		t.Errorf("error = %v, want ErrUnknownTarget", err)
+	}
+}
+
+const profileValueTOML = `
+[project]
+id = "p"
+profiles = ["dev", "prod"]
+default_profile = "dev"
+default_target = "local"
+
+[targets.local]
+dest = "process"
+include = ["*"]
+
+[vars.DB]
+value = "Server=localhost"
+[vars.DB.profiles]
+prod = "Server=db.prod.internal"
+
+[vars.TOKEN]
+secret = true
+`
+
+func TestValuePrefersTheProfileOverride(t *testing.T) {
+	m := mustParse(t, profileValueTOML)
+
+	got, ok, err := resolve.Value(m, "prod", "DB", lookupFrom(nil))
+
+	if err != nil {
+		t.Fatalf("Value: %v", err)
+	}
+	if !ok || got != "Server=db.prod.internal" {
+		t.Errorf("Value = %q, %v; want the prod override", got, ok)
+	}
+}
+
+func TestValueFallsBackToTheSharedDefault(t *testing.T) {
+	m := mustParse(t, profileValueTOML)
+
+	got, _, err := resolve.Value(m, "dev", "DB", lookupFrom(nil))
+
+	if err != nil {
+		t.Fatalf("Value: %v", err)
+	}
+	if got != "Server=localhost" {
+		t.Errorf("Value = %q, want the shared default", got)
 	}
 }

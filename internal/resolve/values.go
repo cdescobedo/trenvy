@@ -31,9 +31,9 @@ type Resolved struct {
 
 // Values resolves every variable selected by target.
 //
-// For each variable the order is: per-target override, then default value,
-// then the keyring for secrets. A variable with no value is an error unless it
-// is optional, in which case it is omitted.
+// For each variable the order is: per-target override, then per-profile
+// override, then default value, then the keyring for secrets. A variable with
+// no value is an error unless it is optional, in which case it is omitted.
 func Values(m *manifest.Manifest, target string, secret SecretLookup) (Resolved, error) {
 	t, ok := m.Targets[target]
 	if !ok {
@@ -58,9 +58,24 @@ func Values(m *manifest.Manifest, target string, secret SecretLookup) (Resolved,
 		if !sel {
 			continue
 		}
-		val, ok, err := Value(m, target, name, secret)
-		if err != nil {
-			return Resolved{}, err
+
+		// Scaffolding for Task 5-7: Values still resolves by target, not by
+		// profile, so it cannot yet delegate the per-target override to
+		// Value (whose second parameter is now a profile, not a target).
+		// Checking v.Targets here directly keeps
+		// TestValuesPrefersPerTargetOverride green in the interim. Task 8
+		// deletes this block along with Var.Targets, once Values itself
+		// takes a profile parameter and callers have moved to
+		// output-shaped targets.
+		var val string
+		var ok bool
+		if override, has := m.Vars[name].Targets[target]; has {
+			val, ok = override, true
+		} else {
+			val, ok, err = Value(m, m.Project.DefaultProfile, name, secret)
+			if err != nil {
+				return Resolved{}, err
+			}
 		}
 		if !ok {
 			continue
@@ -72,27 +87,25 @@ func Values(m *manifest.Manifest, target string, secret SecretLookup) (Resolved,
 	return out, nil
 }
 
-// Value resolves one variable for one target, applying the same precedence as
-// Values: per-target override, then default value, then the keyring.
+// Value resolves one variable under one profile, applying the precedence:
+// per-profile value, then the shared default, then the keyring.
 //
 // ok is false when the variable resolves to nothing at all, which only an
 // optional variable may do. Resolving one name reads at most one secret, so
 // asking for a plain variable costs nothing and asking for a secret costs one
-// authorization rather than one per variable in the target.
+// authorization rather than one per variable in an output.
 //
-// Selection is deliberately not applied here: a caller asking for a name it
-// already chose wants that name's value, and a caller iterating a target has
-// already filtered. Use Selects to ask whether a target covers a name.
-func Value(m *manifest.Manifest, target, name string, secret SecretLookup) (string, bool, error) {
-	if _, ok := m.Targets[target]; !ok {
-		return "", false, fmt.Errorf("%w: %q", ErrUnknownTarget, target)
-	}
+// Value deliberately does not validate that profile is declared: the CLI
+// already validates the active profile (Task 4), and a manifest-internal
+// caller like Values passes m.Project.DefaultProfile, which Validate already
+// guarantees is declared.
+func Value(m *manifest.Manifest, profile, name string, secret SecretLookup) (string, bool, error) {
 	v, ok := m.Vars[name]
 	if !ok {
 		return "", false, fmt.Errorf("%w: %q", ErrUnknownVar, name)
 	}
 
-	if override, ok := v.Targets[target]; ok {
+	if override, ok := v.Profiles[profile]; ok {
 		return override, true, nil
 	}
 	if v.Value != nil {
@@ -105,7 +118,8 @@ func Value(m *manifest.Manifest, target, name string, secret SecretLookup) (stri
 				return "", false, nil
 			}
 			return "", false, fmt.Errorf(
-				"%s is not in the keyring; run: envctl secret set %s", name, name)
+				"%s is not in the keyring for profile %q; run: envctl secret set %s",
+				name, profile, name)
 		}
 		if err != nil {
 			return "", false, fmt.Errorf("read secret %s: %w", name, err)
@@ -115,7 +129,7 @@ func Value(m *manifest.Manifest, target, name string, secret SecretLookup) (stri
 	if v.Optional {
 		return "", false, nil
 	}
-	return "", false, fmt.Errorf("%s has no value for target %q", name, target)
+	return "", false, fmt.Errorf("%s has no value for profile %q", name, profile)
 }
 
 // Selects reports whether target's include and exclude globs cover name.
