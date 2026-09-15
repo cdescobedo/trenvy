@@ -78,8 +78,14 @@ func newShowCmd(opts *Options) *cobra.Command {
 
 	c := &cobra.Command{
 		Use:   "show [output]",
-		Short: "List an output's variables, with secrets masked unless revealed",
-		Args:  cobra.MaximumNArgs(1),
+		Short: "List the profile's variables, or one output's subset, secrets masked",
+		Long: "List variables and their values, with secrets masked unless --reveal.\n\n" +
+			"With no argument, show lists every variable the active profile resolves.\n" +
+			"\"What are my values\" is a question about the profile; an output is a\n" +
+			"filter on that answer, not a precondition for asking it, so a project\n" +
+			"with no outputs at all can still be inspected.\n\n" +
+			"Naming an output restricts the list to what that output selects.",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Reject a bad format before anything is resolved, so the message
 			// is about the flag rather than about the first variable that
@@ -94,9 +100,15 @@ func newShowCmd(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			output, err := app.outputOrDefault(firstOrEmpty(args))
-			if err != nil {
-				return err
+			// Deliberately not outputOrDefault: project.output says where
+			// render's bytes land, and show writes nothing. Inheriting that
+			// narrowing would make a bare `show` answer for one file rather
+			// than for the project. An empty output means the whole profile.
+			output := firstOrEmpty(args)
+			if output != "" {
+				if _, ok := app.Manifest.Outputs[output]; !ok {
+					return fmt.Errorf("%w: %q", resolve.ErrUnknownOutput, output)
+				}
 			}
 
 			// A masked dotenv file is a file full of bullets, so asking for a
@@ -108,7 +120,7 @@ func newShowCmd(opts *Options) *cobra.Command {
 				return showMasked(opts, app, output)
 			}
 
-			values, err := resolve.Values(app.Manifest, app.Profile.Name, output, app.secretLookup())
+			values, err := resolveForShow(app, output)
 			if err != nil {
 				return err
 			}
@@ -142,20 +154,34 @@ func newShowCmd(opts *Options) *cobra.Command {
 	return c
 }
 
-// showMasked lists the output's variables without reading a single secret.
-// The store is never opened: a masked table has no use for a value, and on a
-// prompting backend reading one per secret just to print bullets would make
-// `envctl show` cost more than `envctl render`.
+// resolveForShow resolves the whole profile when no output was named, or just
+// that output's subset otherwise. It is the read half of show's rule that an
+// output filters the answer rather than gating the question.
+func resolveForShow(app *appContext, output string) (resolve.Resolved, error) {
+	if output == "" {
+		return resolve.All(app.Manifest, app.Profile.Name, app.secretLookup())
+	}
+	return resolve.Values(app.Manifest, app.Profile.Name, output, app.secretLookup())
+}
+
+// showMasked lists the variables without reading a single secret, narrowed to
+// one output only when one was named. The store is never opened: a masked
+// table has no use for a value, and on a prompting backend reading one per
+// secret just to print bullets would make `envctl show` cost more than
+// `envctl render`.
 func showMasked(opts *Options, app *appContext, output string) error {
 	names := make([]string, 0, len(app.Manifest.Vars))
 	for name := range app.Manifest.Vars {
-		sel, err := resolve.Selects(app.Manifest, output, name)
-		if err != nil {
-			return err
+		if output != "" {
+			sel, err := resolve.Selects(app.Manifest, output, name)
+			if err != nil {
+				return err
+			}
+			if !sel {
+				continue
+			}
 		}
-		if sel {
-			names = append(names, name)
-		}
+		names = append(names, name)
 	}
 	sort.Strings(names)
 

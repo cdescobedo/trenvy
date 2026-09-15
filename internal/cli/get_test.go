@@ -378,3 +378,137 @@ func TestShowRejectsAnUnknownFormat(t *testing.T) {
 		t.Errorf("error does not name the format: %v", err)
 	}
 }
+
+// noOutputFixture is the shape `init` now creates: one profile, no outputs at
+// all, because exec and shell are the verb.
+func noOutputFixture(t *testing.T) *manifest.Manifest {
+	t.Helper()
+	m, err := manifest.Parse([]byte(`
+[project]
+id = "proc"
+profiles = ["dev"]
+default_profile = "dev"
+salt = "abc123"
+
+[vars.APP_MODE]
+value = "development"
+
+[vars.API_KEY]
+secret = true
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// show answers "what are my values", which is a question about the profile.
+// An output is a filter on that answer, not a precondition for asking it -- so
+// a project with no outputs, which is exactly what `init` produces, must still
+// be able to see its own variables. Otherwise the one command you reach for
+// when confused is the one that cannot run.
+func TestShowWithNoOutputsListsTheWholeProfile(t *testing.T) {
+	h := newHarness(t)
+	h.register("proc", noOutputFixture(t))
+	h.mem.Seed("envctl/proc/dev/API_KEY", "k3y")
+
+	if err := h.run("show"); err != nil {
+		t.Fatalf("show on a project with no outputs: %v", err)
+	}
+
+	out := h.out.String()
+	if !strings.Contains(out, "APP_MODE") || !strings.Contains(out, "development") {
+		t.Errorf("show omitted the plain variable:\n%s", out)
+	}
+	if !strings.Contains(out, "API_KEY") {
+		t.Errorf("show omitted the secret's row:\n%s", out)
+	}
+	if !strings.Contains(out, "•") {
+		t.Errorf("show did not mask the secret:\n%s", out)
+	}
+	if strings.Contains(out, "k3y") {
+		t.Errorf("show printed a secret without --reveal:\n%s", out)
+	}
+}
+
+// The masked path must stay free on a no-output project too: listing every
+// variable is still a table of bullets, and on a prompting backend opening the
+// store just to print them would make `envctl show` cost more than a render.
+func TestShowWithNoOutputsStillNeverTouchesTheStore(t *testing.T) {
+	h := newHarness(t)
+	h.register("proc", noOutputFixture(t))
+	opened := false
+	h.opts.NewStore = func(*config.Config, string) (store.Store, error) {
+		opened = true
+		return h.mem, nil
+	}
+
+	if err := h.run("show"); err != nil {
+		t.Fatalf("show: %v", err)
+	}
+	if opened {
+		t.Error("a masked show opened the secret store")
+	}
+}
+
+// --reveal and --format have to reach the same whole-profile set: formatting
+// everything to stdout is render-to-stdout of the profile, and a project with
+// no outputs is exactly the one that has no other way to get it.
+func TestShowWithNoOutputsRevealsAndFormatsTheWholeProfile(t *testing.T) {
+	h := newHarness(t)
+	h.register("proc", noOutputFixture(t))
+	h.mem.Seed("envctl/proc/dev/API_KEY", "k3y")
+
+	if err := h.run("show", "--format", "json"); err != nil {
+		t.Fatalf("show --format json: %v", err)
+	}
+	var got map[string]string
+	if err := json.Unmarshal(h.out.Bytes(), &got); err != nil {
+		t.Fatalf("output is not a json object: %v\n%s", err, h.out)
+	}
+	if got["APP_MODE"] != "development" || got["API_KEY"] != "k3y" {
+		t.Errorf("json output = %v, want the whole profile", got)
+	}
+}
+
+// project.output says where render's bytes land. show writes nothing, so it
+// must not inherit that narrowing: a bare `show` on a project whose default
+// output is a narrow one still answers for the whole profile.
+func TestShowWithNoArgumentIgnoresTheDefaultOutput(t *testing.T) {
+	h := newHarness(t)
+	m, err := manifest.Parse([]byte(`
+[project]
+id = "fe"
+profiles = ["dev"]
+default_profile = "dev"
+output = "web"
+salt = "abc123"
+
+[outputs.web]
+format = "json"
+path = "public/env.json"
+include = ["PUBLIC_*"]
+
+[vars.APP_MODE]
+value = "development"
+
+[vars.PUBLIC_API]
+value = "/"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.register("fe", m)
+
+	if err := h.run("show"); err != nil {
+		t.Fatalf("show: %v", err)
+	}
+
+	out := h.out.String()
+	if !strings.Contains(out, "PUBLIC_API") {
+		t.Errorf("show omitted a variable:\n%s", out)
+	}
+	if !strings.Contains(out, "APP_MODE") {
+		t.Errorf("a bare show was narrowed by project.output:\n%s", out)
+	}
+}
