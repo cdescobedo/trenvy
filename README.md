@@ -577,15 +577,6 @@ removes the file.
 tool when it was called `envctl`, the keyring namespace changed with the name.
 See [CHANGELOG.md](CHANGELOG.md).
 
-## Acceptance walkthrough
-
-The project's acceptance criteria are written as a manual walkthrough against
-your own repositories and your own OS keyring — see
-[`docs/acceptance.md`](docs/acceptance.md). It is deliberately not part of CI:
-it writes real secrets to your real keyring and files into your real working
-repositories, so it is meant to be run by a person, deliberately, not as a
-build step.
-
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to build, test and what a good

@@ -84,11 +84,6 @@ It is skipped by default and is not part of CI. If you touch
 `internal/store/darwin.go`, run it locally on a Mac and say so in the pull
 request.
 
-`docs/acceptance.md` is a separate, manual, end-to-end walkthrough against real
-repositories and a real keyring. It is deliberately not automated. It is worth
-running when you change the render guards or the profile resolution, and not
-otherwise.
-
 ## What a good change looks like here
 
 ### Comments explain why, not what
