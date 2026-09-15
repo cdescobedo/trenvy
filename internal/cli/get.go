@@ -24,13 +24,17 @@ const unsetValue = "(unset)"
 
 func newGetCmd(opts *Options) *cobra.Command {
 	return &cobra.Command{
-		Use:   "get <NAME> [output]",
+		Use:   "get <NAME>",
 		Short: "Print one variable's value",
 		Long: "Print one variable's value, secret or plain, and nothing else.\n\n" +
 			"Only the named variable is resolved, so reading one value costs at most\n" +
-			"one keyring read and does not depend on the output's other secrets\n" +
-			"being stored.",
-		Args:              cobra.RangeArgs(1, 2),
+			"one keyring read and does not depend on any other secret being stored.\n\n" +
+			"An output decides a file's format, path and audience -- none of which\n" +
+			"mean anything for a single value printed to stdout, and naming a\n" +
+			"variable explicitly makes an output's subset irrelevant. The profile\n" +
+			"is the only axis left that affects what a value resolves to, so get\n" +
+			"takes exactly one argument.",
+		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: opts.completeVarNames(anyVar),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app, err := opts.resolveApp()
@@ -38,24 +42,13 @@ func newGetCmd(opts *Options) *cobra.Command {
 				return err
 			}
 			name := args[0]
-			output, err := app.outputOrDefault(cmd, secondOrEmpty(args))
-			if err != nil {
-				return err
-			}
 
-			// Three ways to have no value, each with its own fix: the name is
-			// unknown, the output does not select it, or it is optional and
-			// unset under the active profile. Collapsing them into one
-			// message would send the reader looking in the wrong place.
+			// Two ways to have no value, each with its own fix: the name is
+			// unknown, or it is optional and unset under the active profile.
+			// Collapsing them into one message would send the reader looking
+			// in the wrong place.
 			if _, ok := app.Manifest.Vars[name]; !ok {
 				return fmt.Errorf("%s is not in the manifest of %s", name, app.Entry.ID)
-			}
-			sel, err := resolve.Selects(app.Manifest, output, name)
-			if err != nil {
-				return err
-			}
-			if !sel {
-				return fmt.Errorf("%s is not included in output %q", name, output)
 			}
 
 			value, ok, err := resolve.Value(app.Manifest, app.Profile.Name, name, app.secretLookup())
@@ -212,11 +205,4 @@ func maskedDisplay(app *appContext, profile, name string) string {
 		return unsetValue
 	}
 	return value
-}
-
-func secondOrEmpty(args []string) string {
-	if len(args) > 1 {
-		return args[1]
-	}
-	return ""
 }

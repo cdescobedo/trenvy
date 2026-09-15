@@ -111,7 +111,7 @@ func TestGetHonoursAProfileOverride(t *testing.T) {
 	}
 }
 
-func TestGetFallsBackToTheDefaultOutput(t *testing.T) {
+func TestGetPrintsTheBaseValueWhenNoProfileOverrideApplies(t *testing.T) {
 	h := getHarness(t)
 
 	if err := h.run("get", "PUBLIC_API"); err != nil {
@@ -119,7 +119,36 @@ func TestGetFallsBackToTheDefaultOutput(t *testing.T) {
 	}
 
 	if got := h.out.String(); got != "/\n" {
-		t.Errorf("stdout = %q, want the value the default output selects", got)
+		t.Errorf("stdout = %q, want the var's base value", got)
+	}
+}
+
+// An output decides a file's audience, not a value. Naming a variable
+// explicitly makes any subset irrelevant, so get takes no output at all.
+func TestGetTakesNoOutputArgument(t *testing.T) {
+	h := getHarness(t)
+
+	err := h.run("get", "APP_MODE", "public")
+
+	if err == nil {
+		t.Fatal("get accepted a second positional argument")
+	}
+}
+
+// Ruling 15: init now creates a project with no outputs at all, and get used
+// to call outputOrDefault, which fails whenever project.output is unset. That
+// made the most basic loop -- init, set, get -- broken from the moment a
+// fresh project existed. get must resolve a name from the profile alone,
+// with no output configuration of any kind.
+func TestGetWorksWithNoOutputsConfigured(t *testing.T) {
+	h := newHarness(t)
+	h.register("proc", noOutputFixture(t))
+
+	if err := h.run("get", "APP_MODE"); err != nil {
+		t.Fatalf("get on a project with no outputs: %v", err)
+	}
+	if got := h.out.String(); got != "development\n" {
+		t.Errorf("stdout = %q, want the plain value", got)
 	}
 }
 
@@ -178,21 +207,6 @@ func TestGetRejectsAnUnknownName(t *testing.T) {
 	}
 }
 
-// PUBLIC_* is all the web output selects, so APP_MODE is not in it and the
-// error has to say which output refused it rather than claim it is unset.
-func TestGetSaysWhenAnOutputDoesNotSelectTheName(t *testing.T) {
-	h := getHarness(t)
-
-	err := h.run("get", "APP_MODE", "web")
-
-	if err == nil {
-		t.Fatal("get succeeded for a name the output excludes")
-	}
-	if !strings.Contains(err.Error(), "web") {
-		t.Errorf("error does not name the output: %v", err)
-	}
-}
-
 func TestGetSaysHowToStoreAMissingSecret(t *testing.T) {
 	h := getHarness(t)
 
@@ -239,16 +253,6 @@ func TestGetOptionalMissingValueNamesTheProfileNotTheOutput(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "output") {
 		t.Errorf("error still names the output, which never decides the value: %v", err)
-	}
-}
-
-func TestGetRejectsAnUnknownOutput(t *testing.T) {
-	h := getHarness(t)
-
-	err := h.run("get", "APP_MODE", "nope")
-
-	if err == nil {
-		t.Fatal("get succeeded for an unknown output")
 	}
 }
 
