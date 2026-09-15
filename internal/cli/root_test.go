@@ -270,6 +270,39 @@ func TestProfileFlagHelpNamesTheProfile(t *testing.T) {
 	}
 }
 
+// initProject registers a fresh project at the harness root via the real
+// `project init` command, rather than hand-rolling a registry entry.
+func (h *harness) initProject(t *testing.T, id string) {
+	t.Helper()
+	if err := h.run("project", "init", "--id", id); err != nil {
+		t.Fatalf("project init: %v", err)
+	}
+}
+
+// writeSample writes a sample file under the harness root and returns its
+// absolute path, creating any parent directories it needs.
+func (h *harness) writeSample(t *testing.T, relPath, body string) string {
+	t.Helper()
+	path := filepath.Join(h.root, relPath)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// manifest loads the manifest for a registered project id.
+func (h *harness) manifest(t *testing.T, id string) *manifest.Manifest {
+	t.Helper()
+	m, err := manifest.Load(config.ManifestPath(id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
 func mkdirAll(p string) error { return os.MkdirAll(p, 0o755) }
 
 func mustReadFile(t *testing.T, path string) string {

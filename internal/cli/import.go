@@ -16,7 +16,7 @@ import (
 
 func newImportCmd(opts *Options) *cobra.Command {
 	var outputName string
-	var noTUI, force bool
+	var noTUI, force, noOutput bool
 
 	cmd := &cobra.Command{
 		Use:   "import <sample file>",
@@ -47,11 +47,8 @@ func newImportCmd(opts *Options) *cobra.Command {
 				}
 			}
 
+			var created string
 			for _, e := range entries {
-				if _, exists := app.Manifest.Vars[e.Name]; exists && !force {
-					return fmt.Errorf(
-						"%s is already in the manifest; re-run with --force to overwrite", e.Name)
-				}
 				v := manifest.Var{Secret: e.GuessSecret}
 				if !e.GuessSecret {
 					// Only a plain value is carried over. A placeholder is not
@@ -60,21 +57,41 @@ func newImportCmd(opts *Options) *cobra.Command {
 					value := e.Value
 					v.Value = &value
 				}
+				if existing, exists := app.Manifest.Vars[e.Name]; exists && !force && !sameVar(existing, v) {
+					return fmt.Errorf(
+						"%s is already in the manifest; re-run with --force to overwrite", e.Name)
+				}
 				app.Manifest.Vars[e.Name] = v
 			}
 
-			if outputName != "" {
-				out, err := outputFor(samplePath, app.Worktree)
+			if noOutput && outputName != "" {
+				return fmt.Errorf("--output and --no-output cannot both be given")
+			}
+			if !noOutput {
+				o, err := outputFor(samplePath, app.Worktree)
 				if err != nil {
 					return err
 				}
-				app.Manifest.Outputs[outputName] = out
-				// project init creates no outputs, so it has nothing to
-				// default to; this is the first moment an output exists at
-				// all. Claim it as the default only when nothing already
-				// holds that role -- a user who picked one keeps it.
+				name := outputName
+				if existing, ok := outputAtPath(app.Manifest, o.Path); ok {
+					// Two outputs on one path clobber each other on render,
+					// and the newcomer's state record would make the
+					// incumbent look MODIFIED.
+					name = existing
+				} else {
+					if name == "" {
+						name = deriveOutputName(o.Path, o.Format, app.Manifest.Outputs)
+					}
+					if app.Manifest.Outputs == nil {
+						app.Manifest.Outputs = map[string]manifest.Output{}
+					}
+					app.Manifest.Outputs[name] = o
+					created = name
+				}
+				// Claim the default only when nothing already holds that
+				// role -- a user who picked one keeps it.
 				if app.Manifest.Project.Output == "" {
-					app.Manifest.Project.Output = outputName
+					app.Manifest.Project.Output = name
 				}
 			}
 			if err := app.Manifest.Validate(); err != nil {
@@ -97,14 +114,44 @@ func newImportCmd(opts *Options) *cobra.Command {
 					"next: trenvy -p %s secret set <NAME> for each secret, then trenvy status\n",
 					app.Profile.Name)
 			}
+			if created != "" {
+				o := app.Manifest.Outputs[created]
+				fmt.Fprintf(opts.Stdout, "created output %q  %s -> %s\n", created, o.Format, o.Path)
+				fmt.Fprintf(opts.Stdout, "  rename it with: trenvy output rename %s <name>\n", created)
+			}
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVar(&outputName, "output", "", "also create an output rendering to the sample's real path")
+	cmd.Flags().StringVar(&outputName, "output", "", "name the output import creates (default: derived from the sample's directory)")
+	cmd.Flags().BoolVar(&noOutput, "no-output", false, "import the variables only, creating no output")
 	cmd.Flags().BoolVar(&noTUI, "no-tui", false, "skip the interactive review")
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite variables already in the manifest")
 	return cmd
+}
+
+// outputAtPath returns the name of the output already rendering to path.
+func outputAtPath(m *manifest.Manifest, path string) (string, bool) {
+	for name, o := range m.Outputs {
+		if o.Path == path {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+// sameVar reports whether importing incoming would change nothing about an
+// existing variable. Re-running import against a sample that has not changed
+// must not demand --force: there is nothing to overwrite, only the same
+// value written back.
+func sameVar(existing, incoming manifest.Var) bool {
+	if existing.Secret != incoming.Secret {
+		return false
+	}
+	if existing.Value == nil || incoming.Value == nil {
+		return existing.Value == incoming.Value
+	}
+	return *existing.Value == *incoming.Value
 }
 
 // outputFor guesses an output from the sample's own location: a sample at

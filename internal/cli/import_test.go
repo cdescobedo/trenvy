@@ -274,6 +274,89 @@ func TestImportJSONSampleCreatesAJSONOutput(t *testing.T) {
 	}
 }
 
+// A sample with no output left the user with variables and nowhere to put
+// them, which is the state both migrated projects landed in.
+func TestImportCreatesAnOutputByDefault(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+	sample := h.writeSample(t, "src/Demo.Api/.env_example", "A=1\nB=2\n")
+
+	if err := h.run("import", sample, "--no-tui"); err != nil {
+		t.Fatal(err)
+	}
+
+	m := h.manifest(t, "p")
+	o, ok := m.Outputs["api"]
+	if !ok {
+		t.Fatalf("no output named api; got %v", m.Outputs)
+	}
+	if o.Path != "src/Demo.Api/.env" {
+		t.Errorf("Path = %q, want src/Demo.Api/.env", o.Path)
+	}
+	if o.Format != manifest.FormatDotenv {
+		t.Errorf("Format = %q, want dotenv", o.Format)
+	}
+	if m.Project.Output != "api" {
+		t.Errorf("project.output = %q, want api", m.Project.Output)
+	}
+}
+
+func TestImportNoOutputCreatesNone(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+	sample := h.writeSample(t, "src/Demo.Api/.env_example", "A=1\n")
+
+	if err := h.run("import", sample, "--no-tui", "--no-output"); err != nil {
+		t.Fatal(err)
+	}
+
+	m := h.manifest(t, "p")
+	if len(m.Outputs) != 0 {
+		t.Errorf("Outputs = %v, want none", m.Outputs)
+	}
+	if len(m.Vars) == 0 {
+		t.Error("--no-output suppressed the variables too")
+	}
+}
+
+func TestImportRefusesOutputAndNoOutputTogether(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+	sample := h.writeSample(t, "a/.env_example", "A=1\n")
+
+	err := h.run("import", sample, "--no-tui", "--output", "x", "--no-output")
+
+	if err == nil {
+		t.Fatal("import accepted both flags")
+	}
+	if !strings.Contains(err.Error(), "--no-output") {
+		t.Errorf("error does not name the conflict: %v", err)
+	}
+}
+
+// Two outputs on one path clobber each other on render, and the second one's
+// record would make the first look MODIFIED.
+func TestImportReusesAnExistingOutputAtTheSamePath(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+	sample := h.writeSample(t, "src/Demo.Api/.env_example", "A=1\n")
+	if err := h.run("import", sample, "--no-tui", "--output", "chosen"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := h.run("import", sample, "--no-tui"); err != nil {
+		t.Fatal(err)
+	}
+
+	m := h.manifest(t, "p")
+	if len(m.Outputs) != 1 {
+		t.Errorf("Outputs = %v, want exactly one", m.Outputs)
+	}
+	if _, ok := m.Outputs["chosen"]; !ok {
+		t.Error("the second import replaced the user's chosen name")
+	}
+}
+
 func TestImportRefusesToClobberExistingVariables(t *testing.T) {
 	h := newHarness(t)
 	if err := h.run("project", "init", "--id", "vpb"); err != nil {
@@ -296,6 +379,37 @@ func TestImportRefusesToClobberExistingVariables(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "A") {
 		t.Errorf("error does not name the variable: %v", err)
+	}
+}
+
+// sameVar treats {Secret:false, Value:nil} as equal to any other nil-Value
+// var only when Secret also matches. An optional plain variable with no
+// default has exactly that shape, and a sample placeholder for the same name
+// parses to {Secret:true, Value:nil} -- same Value, different Secret. Without
+// the Secret comparison, sameVar would call that "unchanged" and import would
+// silently flip the user's optional plain variable into a secret.
+func TestImportRefusesToFlipAnOptionalVariableToSecret(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+
+	m := h.manifest(t, "p")
+	m.Vars["A"] = manifest.Var{Optional: true}
+	if err := manifest.Save(config.ManifestPath("p"), m); err != nil {
+		t.Fatal(err)
+	}
+
+	sample := h.writeSample(t, ".env_example", "A=changeme\n")
+	err := h.run("import", sample, "--no-tui")
+	if err == nil {
+		t.Fatal("import silently flipped an optional variable to secret")
+	}
+	if !strings.Contains(err.Error(), "--force") {
+		t.Errorf("error does not name --force: %v", err)
+	}
+
+	after := h.manifest(t, "p")
+	if after.Vars["A"].Secret {
+		t.Error("A was flipped to secret despite the refusal")
 	}
 }
 

@@ -123,6 +123,17 @@ the command surface may still move under you.
   it reaches every backend.
 - Outputs are optional: a project that only ever feeds `exec` and `shell` needs
   none, and the manifest no longer requires one.
+- **`trenvy import` now creates an output by default.** It used to import
+  variables and no destination, leaving nothing to render. The name is derived
+  from the sample's directory (`src/Demo.Api/.env_example` becomes `api`), and
+  `import` prints it along with the `output rename` command. `--no-output`
+  restores the old behaviour; `--output <name>` still names it explicitly.
+- **Re-importing an unchanged sample no longer needs `--force`.** `trenvy import`
+  refused whenever a variable already existed in the manifest, even when the
+  sample's value was identical and the import would have changed nothing. It now
+  refuses only when a value or a secret flag actually differs, so picking up a
+  newly added variable from a sample no longer means re-confirming every
+  variable that was already there.
 
 ### Fixed
 
