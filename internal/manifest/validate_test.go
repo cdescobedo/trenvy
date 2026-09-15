@@ -266,24 +266,39 @@ func TestValidateRejectsADefaultOutputThatIsNotDefined(t *testing.T) {
 
 // A pre-profile manifest must be refused by name rather than silently
 // half-read: toml ignores unknown keys, so without this a [targets.*] block
-// would vanish and the project would look empty.
+// would vanish and the project would look empty -- which is now a legal shape,
+// so nothing downstream would complain either.
+//
+// The two halves are tested apart as well as together. A manifest can carry
+// either one alone -- a project with targets but no default, or a default
+// naming a target block someone already deleted -- and a single combined
+// fixture would let one half of the check rot away unnoticed.
 func TestValidateRejectsAPreProfileManifest(t *testing.T) {
-	m := parseOrFatal(t, `
+	const head = `
 [project]
 id = "p"
 profiles = ["dev"]
 default_profile = "dev"
-default_target = "local"
-
-[targets.local]
-dest = "process"
-`)
-	err := m.Validate()
-
-	if err == nil {
-		t.Fatal("Validate accepted a pre-profile manifest")
+`
+	cases := map[string]string{
+		"a targets block alone": head + "\n[targets.local]\ndest = \"process\"\n",
+		"default_target alone":  head + "default_target = \"local\"\n",
+		"both, as a real old manifest has them": head +
+			"default_target = \"local\"\n\n[targets.local]\ndest = \"process\"\n",
 	}
-	if !strings.Contains(err.Error(), "envctl project init") {
-		t.Errorf("error does not say how to recover: %v", err)
+
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			m := parseOrFatal(t, src)
+
+			err := m.Validate()
+
+			if err == nil {
+				t.Fatal("Validate accepted a pre-profile manifest")
+			}
+			if !strings.Contains(err.Error(), "envctl project init") {
+				t.Errorf("error does not say how to recover: %v", err)
+			}
+		})
 	}
 }

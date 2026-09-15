@@ -107,6 +107,11 @@ func TestExecRequiresTheDashSeparator(t *testing.T) {
 	if err == nil {
 		t.Fatal("exec ran a command given without --")
 	}
+	// A command WAS given here -- it just had no separator -- so "no command
+	// given" would be telling the user something they can see is false.
+	if !strings.Contains(err.Error(), "a command must follow --") {
+		t.Errorf("error misdescribes the problem as a missing command: %v", err)
+	}
 	if !strings.Contains(err.Error(), "envctl exec -- <command>") {
 		t.Errorf("error does not give the usage: %v", err)
 	}
@@ -320,5 +325,140 @@ func TestExecRejectsAnArgumentBeforeTheDash(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "envctl exec -- <command>") {
 		t.Errorf("error does not give the new spelling: %v", err)
+	}
+}
+
+// twoOutputManifest has two file outputs, only one of which any given test
+// renders. "zeta" is deliberately neither first in sorted order nor the
+// project's default output, so an implementation that checks a single output
+// -- the first one, or project.output, as the pre-output code checked the one
+// target the invocation named -- cannot accidentally pass.
+func twoOutputManifest(t *testing.T) *manifest.Manifest {
+	t.Helper()
+	m, err := manifest.Parse([]byte(`
+[project]
+id = "multi"
+profiles = ["dev"]
+default_profile = "dev"
+output = "alpha"
+salt = "abc123"
+
+[outputs.alpha]
+format = "dotenv"
+path = "src/.env"
+include = ["*"]
+
+[outputs.zeta]
+format = "json"
+path = "public/env.json"
+include = ["*"]
+
+[vars.APP_MODE]
+value = "development"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// exec has no output argument, so there is no longer "the output being run" to
+// scope the staleness check to. Every output this worktree actually holds a
+// rendered file for can shadow the injected environment, so every one of them
+// is checked -- not just the default, and not just the first.
+func TestExecWarnsAboutAnyStaleOutputNotJustTheDefault(t *testing.T) {
+	h := newHarness(t)
+	h.gitInit("src/.env\npublic/env.json\n")
+	h.register("multi", twoOutputManifest(t))
+
+	// Render only zeta, then move the manifest ahead of it.
+	if err := h.run("render", "zeta"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.run("set", "APP_MODE", "production"); err != nil {
+		t.Fatal(err)
+	}
+
+	h.opts.Run = func(*exec.Cmd) error { return nil }
+	if err := h.run("exec", "--", "true"); err != nil {
+		t.Fatal(err)
+	}
+
+	errOut := h.errb.String()
+	if !strings.Contains(errOut, "STALE") {
+		t.Errorf("no stale warning for a rendered output that is not the default:\n%s", errOut)
+	}
+	if !strings.Contains(errOut, "public/env.json") {
+		t.Errorf("the warning does not name the stale file:\n%s", errOut)
+	}
+	if !strings.Contains(errOut, "envctl render zeta") {
+		t.Errorf("the warning does not name the output to re-render:\n%s", errOut)
+	}
+	// alpha is the default output but was never rendered here, so there is no
+	// file of its to be stale and nothing to say about it.
+	if strings.Contains(errOut, "src/.env") {
+		t.Errorf("exec warned about an output it never rendered here:\n%s", errOut)
+	}
+}
+
+// A script run under exec may itself call envctl -- `envctl -p prod exec --
+// ./deploy.sh`, where deploy.sh runs `envctl get`. Without the profile in the
+// child's environment that nested call silently falls back to
+// default_profile and reads a different keyring namespace than the one its
+// parent was told to use. Nothing errors; it just reads the wrong secret.
+func TestExecExportsTheActiveProfileToTheChild(t *testing.T) {
+	h := newHarness(t)
+	m := fixtureManifest(t)
+	m.Project.Profiles = []string{"dev", "prod"}
+	h.register("vpb", m)
+	h.mem.Seed("envctl/vpb/prod/ALPHA_TOKEN", "k")
+
+	var captured *exec.Cmd
+	h.opts.Run = func(c *exec.Cmd) error { captured = c; return nil }
+
+	if err := h.run("--profile", "prod", "exec", "--", "true"); err != nil {
+		t.Fatalf("exec: %v", err)
+	}
+
+	var got string
+	for _, kv := range captured.Env {
+		if v, ok := strings.CutPrefix(kv, "ENVCTL_PROFILE="); ok {
+			got = v
+		}
+	}
+	if got != "prod" {
+		t.Errorf("ENVCTL_PROFILE = %q, want the profile exec actually resolved under", got)
+	}
+}
+
+// The inherited value must lose to the resolved one, or `ENVCTL_PROFILE=dev
+// envctl -p prod exec -- ...` would hand the child a profile that contradicts
+// the values it was given.
+func TestExecOverridesAnInheritedProfileInTheChild(t *testing.T) {
+	h := newHarness(t)
+	m := fixtureManifest(t)
+	m.Project.Profiles = []string{"dev", "prod"}
+	h.register("vpb", m)
+	h.mem.Seed("envctl/vpb/prod/ALPHA_TOKEN", "k")
+	t.Setenv("ENVCTL_PROFILE", "dev")
+
+	var captured *exec.Cmd
+	h.opts.Run = func(c *exec.Cmd) error { captured = c; return nil }
+
+	if err := h.run("--profile", "prod", "exec", "--", "true"); err != nil {
+		t.Fatalf("exec: %v", err)
+	}
+
+	// Go's os/exec deduplicates Env on Start, keeping the last occurrence, so
+	// the resolved value appended after the inherited one is what the child
+	// actually sees. Assert on the last occurrence for the same reason.
+	var got string
+	for _, kv := range captured.Env {
+		if v, ok := strings.CutPrefix(kv, "ENVCTL_PROFILE="); ok {
+			got = v
+		}
+	}
+	if got != "prod" {
+		t.Errorf("ENVCTL_PROFILE = %q, want the --profile flag to win over the inherited value", got)
 	}
 }

@@ -17,7 +17,9 @@ import (
 // from a plain value that happens to look like bullets.
 const maskedSecret = "••••••••  (keyring)"
 
-// unsetValue marks a variable the output selects but that resolves to nothing.
+// unsetValue marks a variable that is listed but resolves to nothing under
+// the active profile. With no output named nothing does any selecting, so the
+// row belongs to the profile, not to an output.
 const unsetValue = "(unset)"
 
 func newGetCmd(opts *Options) *cobra.Command {
@@ -36,7 +38,7 @@ func newGetCmd(opts *Options) *cobra.Command {
 				return err
 			}
 			name := args[0]
-			output, err := app.outputOrDefault(secondOrEmpty(args))
+			output, err := app.outputOrDefault(cmd, secondOrEmpty(args))
 			if err != nil {
 				return err
 			}

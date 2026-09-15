@@ -30,7 +30,7 @@ func newRenderCmd(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			name, err := app.outputOrDefault(firstOrEmpty(args))
+			name, err := app.outputOrDefault(cmd, firstOrEmpty(args))
 			if err != nil {
 				return err
 			}
@@ -124,7 +124,7 @@ func newCleanCmd(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			name, err := app.outputOrDefault(firstOrEmpty(args))
+			name, err := app.outputOrDefault(cmd, firstOrEmpty(args))
 			if err != nil {
 				return err
 			}

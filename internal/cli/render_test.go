@@ -298,3 +298,48 @@ value = "development"
 		t.Errorf("error does not say how to name one: %v", err)
 	}
 }
+
+// noOutputProject is a manifest of the shape `init` produces: one profile and
+// no outputs, so any command reaching outputOrDefault has nothing to fall back
+// to.
+func noOutputProject(t *testing.T) *manifest.Manifest {
+	t.Helper()
+	m, err := manifest.Parse([]byte(`
+[project]
+id = "proc"
+profiles = ["dev"]
+default_profile = "dev"
+salt = "abc123"
+
+[vars.APP_MODE]
+value = "development"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// outputOrDefault is shared by render and clean, so one hard-coded hint is a
+// hint that is wrong for all but one of them. Telling someone who ran
+// `envctl clean` to run `envctl render` hands them the opposite of what they
+// asked for -- and on a project with no outputs, running it would fail again
+// with the same message.
+func TestTheNoOutputHintNamesTheCommandThatFailed(t *testing.T) {
+	for _, command := range []string{"render", "clean"} {
+		t.Run(command, func(t *testing.T) {
+			h := newHarness(t)
+			h.register("proc", noOutputProject(t))
+
+			err := h.run(command)
+
+			if err == nil {
+				t.Fatalf("%s succeeded with no output named and none configured", command)
+			}
+			want := "envctl " + command + " <output>"
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("hint does not name %s: %v", command, err)
+			}
+		})
+	}
+}

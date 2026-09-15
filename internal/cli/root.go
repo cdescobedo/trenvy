@@ -4,7 +4,6 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -171,13 +170,18 @@ func (a *appContext) service(name string) string {
 // An empty result is its own error rather than a lookup miss: a project that
 // only ever feeds exec and shell legitimately declares no outputs at all, so
 // "" here means nothing was configured, not that something was misspelled.
-func (a *appContext) outputOrDefault(name string) (string, error) {
+//
+// cmd supplies its own path for the hint. Several commands share this, so a
+// hard-coded example is wrong for all but one of them -- and telling someone
+// who ran `envctl clean` to run `envctl render` hands them the opposite of
+// what they asked for.
+func (a *appContext) outputOrDefault(cmd *cobra.Command, name string) (string, error) {
 	if name == "" {
 		name = a.Manifest.Project.Output
 	}
 	if name == "" {
-		return "", errors.New("no output given and project.output is not set;\n" +
-			"  define one in the manifest, or name it: envctl render <output>")
+		return "", fmt.Errorf("no output given and project.output is not set;\n"+
+			"  define one in the manifest, or name it: %s <output>", cmd.CommandPath())
 	}
 	if _, ok := a.Manifest.Outputs[name]; !ok {
 		return "", fmt.Errorf("%w: %q", resolve.ErrUnknownOutput, name)

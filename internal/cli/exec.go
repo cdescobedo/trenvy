@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/cdescobedo/envctl/internal/guard"
+	"github.com/cdescobedo/envctl/internal/manifest"
 	"github.com/cdescobedo/envctl/internal/render"
 	"github.com/cdescobedo/envctl/internal/resolve"
 )
@@ -63,14 +64,14 @@ func newShellCmd(opts *Options) *cobra.Command {
 					sh = "cmd.exe"
 				}
 			}
-			// A marker the user's prompt can pick up, so a shell carrying
-			// secrets is visibly different from a clean one. ENVCTL_PROFILE
-			// is the same variable resolve.Profile reads, so an envctl run
-			// from inside the subshell stays on the profile the subshell was
-			// loaded with rather than silently falling back to the default.
-			env = append(env,
-				resolve.ProfileEnvVar+"="+app.Profile.Name,
-				"ENVCTL_PROJECT="+app.Entry.ID)
+			// ENVCTL_PROFILE is already in env: prepareEnv exports it for
+			// every child, because it is functional -- resolve.Profile reads
+			// it, so an envctl run inside the subshell stays on the profile
+			// the subshell was loaded with. ENVCTL_PROJECT is added only here
+			// because it is purely cosmetic: a marker the user's prompt can
+			// pick up, so a shell carrying secrets looks different from a
+			// clean one. A one-shot exec has no prompt to mark.
+			env = append(env, "ENVCTL_PROJECT="+app.Entry.ID)
 
 			child := exec.Command(sh)
 			child.Env = env
@@ -114,6 +115,16 @@ func prepareEnv(opts *Options) (*appContext, []string, error) {
 	for _, n := range values.Names {
 		env = append(env, n+"="+values.Values[n])
 	}
+	// The profile the child inherits must be the one these values came from.
+	// A script run under exec may itself call envctl -- deploy.sh running
+	// `envctl get` -- and without this that nested call falls back to
+	// default_profile and reads a different keyring namespace than its parent
+	// was told to use. It does not fail; it quietly reads the wrong secret.
+	//
+	// Appended last on purpose: an inherited ENVCTL_PROFILE is already in env
+	// above, and os/exec deduplicates on Start keeping the last occurrence, so
+	// a --profile flag beats a stale export rather than losing to it.
+	env = append(env, resolve.ProfileEnvVar+"="+app.Profile.Name)
 	return app, env, nil
 }
 
@@ -122,9 +133,13 @@ func prepareEnv(opts *Options) (*appContext, []string, error) {
 //
 // A stale .env silently beats an injected environment in frameworks that load
 // dotenv files over the process environment, which makes this the single most
-// confusing failure this tool can have. Only outputs envctl has actually
-// rendered into this worktree are checked -- one that was never rendered here
-// cannot shadow anything.
+// confusing failure this tool can have. Every output is considered, not just
+// one: exec names no output, so there is no "the output being run" to scope
+// this to, and any rendered file in the worktree can do the shadowing.
+//
+// The State.Find gate is a cost guard rather than a correctness one -- with no
+// entry, Inspect answers Absent or Foreign, neither of which warns -- but it
+// skips the stat and the digest for outputs this worktree never rendered.
 //
 // The comparison costs no extra secret read: each output's set is the already
 // resolved full set narrowed by that output's own globs, which is exactly
@@ -136,7 +151,7 @@ func warnStaleRenders(opts *Options, app *appContext, all resolve.Resolved) {
 			continue
 		}
 		o := app.Manifest.Outputs[name]
-		subset, err := narrow(app, name, all)
+		subset, err := narrow(app.Manifest, name, all)
 		if err != nil {
 			continue
 		}
@@ -154,15 +169,17 @@ func warnStaleRenders(opts *Options, app *appContext, all resolve.Resolved) {
 	}
 }
 
-// narrow restricts an already-resolved set to what one output selects.
-func narrow(app *appContext, output string, all resolve.Resolved) (resolve.Resolved, error) {
+// narrow restricts an already-resolved set to what one output selects. It
+// takes the manifest rather than the appContext it is always called with, so
+// that it is a pure function of its arguments and testable without a project.
+func narrow(m *manifest.Manifest, output string, all resolve.Resolved) (resolve.Resolved, error) {
 	out := resolve.Resolved{
 		Profile: all.Profile,
 		Output:  output,
 		Values:  map[string]string{},
 	}
 	for _, name := range all.Names {
-		sel, err := resolve.Selects(app.Manifest, output, name)
+		sel, err := resolve.Selects(m, output, name)
 		if err != nil {
 			return resolve.Resolved{}, err
 		}
@@ -186,7 +203,7 @@ func narrow(app *appContext, output string, all resolve.Resolved) (resolve.Resol
 func commandAfterDash(cmd *cobra.Command, args []string) ([]string, error) {
 	at := cmd.ArgsLenAtDash()
 	if at < 0 {
-		return nil, fmt.Errorf("no command given; usage: envctl exec -- <command>")
+		return nil, fmt.Errorf("a command must follow --; usage: envctl exec -- <command>")
 	}
 	if at > 0 {
 		return nil, fmt.Errorf(
@@ -195,7 +212,7 @@ func commandAfterDash(cmd *cobra.Command, args []string) ([]string, error) {
 				"  usage: envctl exec -- <command>", args[0])
 	}
 	if len(args) == 0 {
-		return nil, fmt.Errorf("no command given; usage: envctl exec -- <command>")
+		return nil, fmt.Errorf("a command must follow --; usage: envctl exec -- <command>")
 	}
 	return args, nil
 }
