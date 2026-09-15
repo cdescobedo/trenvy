@@ -116,3 +116,13 @@ the command surface may still move under you.
   `profile use`, the one that would fix it — validates the variable before its
   body runs.
 - `profile list` no longer pads empty notes into trailing whitespace.
+- The "not in the keyring" hint now always includes `-p <profile>`. It used to
+  suggest a bare `trenvy secret set <NAME>`, which stored the value under
+  whichever profile happened to be active rather than the one the error was
+  actually about — a paste-and-rerun that silently left a credential in the
+  wrong keyring namespace and the original render still failing.
+- `import --output <name>` now sets `project.output` when the manifest has no
+  default yet, so a fresh project's first output becomes the one `render`,
+  `clean` and `show` use with no argument. `project init` still sets no
+  output — it creates none to default to — and an output a user already chose
+  as the default is never replaced by a later `import --output`.

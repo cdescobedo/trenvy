@@ -339,8 +339,11 @@ takes `--stdin`; `secret rm` and `unset` take `--yes`.
 Flags: `render` takes `--allow-tracked` and `--force`; `clean` takes `--force`;
 `status` takes `--quick`.
 
-Omitting `[output]` uses `project.output` from the manifest, which `init` does
-not set — name the output, or add it yourself.
+Omitting `[output]` uses `project.output` from the manifest. `project init`
+creates no outputs and so sets none; `import --output <name>` claims the first
+output it creates as the default, unless one is already set. Name the output
+explicitly, or set `output = '<name>'` under `[project]` yourself, if neither
+of those gives you the default you want.
 
 ### Reading values back
 
@@ -550,23 +553,17 @@ back into the manifest with `trenvy edit`, or discard it with
 A pre-existing file at the output's path. Seed the manifest from it with
 `trenvy import .env`, or overwrite it with `--force`.
 
-**`API_TOKEN is not in the keyring for profile "prod"`**
-Secrets are per profile. A value stored under `dev` does not exist under
-`prod`. Store it for that profile — and note that the suggested command in the
-error does *not* carry the profile flag, so pass it yourself:
-
-```bash
-trenvy -p prod secret set API_TOKEN
-```
-
 **`unknown profile "nope" (from TRENVY_PROFILE)`**
 A stale export. Every command validates the variable before running, including
 the one that would fix it, so the error names the escape hatch:
 `unset TRENVY_PROFILE`.
 
 **`no output given and project.output is not set`**
-Name the output — `trenvy render local` — or set `output = 'local'` under
-`[project]` in the manifest to make it the default.
+`import --output <name>` sets the default the first time it creates an output,
+so this usually means no output was ever created that way — an `import` run
+without `--output`, or a manifest built up with `trenvy edit`. Name the output
+— `trenvy render local` — or set `output = 'local'` under `[project]` in the
+manifest to make it the default.
 
 **`no passphrase for the file backend`**
 Set `TRENVY_PASSPHRASE`, or use a platform keyring.
