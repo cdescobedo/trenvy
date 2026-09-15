@@ -10,11 +10,11 @@ import (
 
 func TestJSONGoldenMatchesTheFrontendShape(t *testing.T) {
 	got, err := render.JSON(resolved(map[string]string{
-		"auth0ClientID":  "demoClientId00000000000000000000",
+		"auth0ClientID":  "example-client-id",
 		"backendAPI":     "/",
 		"auth0Audience":  "http://app.example.test/api",
-		"auth0Domain":    "dev-example.us.auth0.com",
-		"mapboxAPIToken": "pk.demo.token.00000000000000000000000",
+		"auth0Domain":    "dev-demo.us.auth0.test",
+		"mapboxAPIToken": "pk.example.token",
 	}))
 	if err != nil {
 		t.Fatalf("JSON: %v", err)

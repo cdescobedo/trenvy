@@ -11,12 +11,12 @@ func TestParseDotenv(t *testing.T) {
 	src := `
 # Application environment. Copy to .env.
 
-APP_DB_CONNECTION="Server=localhost;Port=8675;Password=password;"
+APP_DB_CONNECTION="Host=db.example.test;Port=5432;SslMode=disable;"
 
 APP_ENVIRONMENT=Development
 export APP_URL=http://+:8080
 
-#APP_TLS_CERT_PATH=/https/app-tls.pfx
+#APP_TLS__Certificate__Path=/https/app.pfx
 ALPHA_TOKEN=your-secret-key-here-replace-with-actual-secret
 `
 	got, err := sample.Parse(".env_example", []byte(src))
@@ -38,7 +38,7 @@ ALPHA_TOKEN=your-secret-key-here-replace-with-actual-secret
 		t.Errorf("names = %v, want %v (commented lines must be skipped)", names, want)
 	}
 
-	if got[0].Value != "Server=localhost;Port=8675;Password=password;" {
+	if got[0].Value != "Host=db.example.test;Port=5432;SslMode=disable;" {
 		t.Errorf("quoted value = %q", got[0].Value)
 	}
 	if got[2].Value != "http://+:8080" {
@@ -48,9 +48,9 @@ ALPHA_TOKEN=your-secret-key-here-replace-with-actual-secret
 
 func TestParseJSON(t *testing.T) {
 	src := `{
-  "auth0ClientID": "demoClientId00000000000000000000",
+  "auth0ClientID": "example-client-id",
   "backendAPI": "/",
-  "mapboxAPIToken": "pk.eyJ1IjoiZGVtbyJ9.sig"
+  "mapboxAPIToken": "pk.example.token"
 }`
 	got, err := sample.Parse("env.json.example", []byte(src))
 	if err != nil {
@@ -104,11 +104,11 @@ func TestGuessSecretFromNameSuffix(t *testing.T) {
 
 func TestGuessSecretFalseForRealLookingValues(t *testing.T) {
 	plain := map[string]string{
-		"APP_ENVIRONMENT":     "Development",
-		"APP_URL":                    "http://+:8080",
-		"APP_DB_CONNECTION": "Server=localhost;Port=8675;Password=password;",
-		"backendAPI":                 "/",
-		"auth0Domain":                "dev-example.us.auth0.com",
+		"APP_ENVIRONMENT":   "Development",
+		"APP_URL":           "http://+:8080",
+		"APP_DB_CONNECTION": "Host=db.example.test;Port=5432;SslMode=disable;",
+		"backendAPI":        "/",
+		"auth0Domain":       "dev-demo.us.auth0.test",
 	}
 	for name, value := range plain {
 		t.Run(name, func(t *testing.T) {

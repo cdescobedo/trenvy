@@ -46,8 +46,8 @@ func TestPathHelpers(t *testing.T) {
 	}{
 		{"ConfigPath", config.ConfigPath(), "/cfg/config.toml"},
 		{"RegistryPath", config.RegistryPath(), "/cfg/registry.toml"},
-		{"ManifestPath", config.ManifestPath("demo-project"), "/cfg/projects/demo-project.toml"},
-		{"StatePath", config.StatePath("demo-project"), "/cfg/state/demo-project.toml"},
+		{"ManifestPath", config.ManifestPath("demo-backend"), "/cfg/projects/demo-backend.toml"},
+		{"StatePath", config.StatePath("demo-backend"), "/cfg/state/demo-backend.toml"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -47,10 +47,10 @@ func resolved(values map[string]string) resolve.Resolved {
 
 func TestDotenvGolden(t *testing.T) {
 	got, err := render.Dotenv(resolved(map[string]string{
-		"APP_ENVIRONMENT":     "Development",
-		"APP_URL":                    "http://+:8080",
-		"APP_DB_CONNECTION": "Server=localhost;Database=demo_project;Port=8675;User Id=postgres;Password=password;",
-		"ALPHA_TOKEN":                "abc123",
+		"APP_ENVIRONMENT":   "Development",
+		"APP_URL":           "http://+:8080",
+		"APP_DB_CONNECTION": "Host=db.example.test;Port=5432;Database=appdb;Username=appuser;SslMode=disable;",
+		"ALPHA_TOKEN":       "abc123",
 	}))
 	if err != nil {
 		t.Fatalf("Dotenv: %v", err)
