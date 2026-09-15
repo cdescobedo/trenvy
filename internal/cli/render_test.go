@@ -190,8 +190,8 @@ func TestRenderReportsAMissingSecretWithTheFix(t *testing.T) {
 	if err == nil {
 		t.Fatal("render succeeded with a missing secret")
 	}
-	if !strings.Contains(err.Error(), "trenvy secret set ALPHA_TOKEN") {
-		t.Errorf("error does not give the fix: %v", err)
+	if !strings.Contains(err.Error(), "trenvy -p dev secret set ALPHA_TOKEN") {
+		t.Errorf("error does not give the fix under the right profile: %v", err)
 	}
 }
 

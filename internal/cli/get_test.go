@@ -222,8 +222,8 @@ func TestGetSaysHowToStoreAMissingSecret(t *testing.T) {
 	if err == nil {
 		t.Fatal("get succeeded for a secret that is not in the keyring")
 	}
-	if !strings.Contains(err.Error(), "trenvy secret set BETA_TOKEN") {
-		t.Errorf("error does not say how to store it: %v", err)
+	if !strings.Contains(err.Error(), "trenvy -p dev secret set BETA_TOKEN") {
+		t.Errorf("error does not say how to store it under the right profile: %v", err)
 	}
 }
 

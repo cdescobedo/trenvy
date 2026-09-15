@@ -2,7 +2,6 @@ package resolve_test
 
 import (
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/cdescobedo/trenvy/internal/resolve"
@@ -109,6 +108,13 @@ func TestValueReportsAnOptionalSecretWithNoValueAsAbsent(t *testing.T) {
 	}
 }
 
+// The hint must carry -p <profile> so that pasting it verbatim stores the
+// secret under the profile the error is actually about -- not whatever
+// profile happens to be active in the caller's shell. resolve.Value has no
+// notion of an "active" profile (that lives in the CLI layer), so it always
+// includes the flag; asserting only that the variable name appears would
+// pass against the old, buggy message just as well as the new one, so this
+// pins the exact text.
 func TestValueSaysHowToStoreAMissingSecret(t *testing.T) {
 	m := mustParse(t, oneValueTOML)
 
@@ -117,8 +123,27 @@ func TestValueSaysHowToStoreAMissingSecret(t *testing.T) {
 	if err == nil {
 		t.Fatal("Value succeeded with the secret absent from the keyring")
 	}
-	if !strings.Contains(err.Error(), "trenvy secret set TOKEN") {
-		t.Errorf("error does not say how to store it: %v", err)
+	want := `TOKEN is not in the keyring for profile "dev"; run: trenvy -p dev secret set TOKEN`
+	if err.Error() != want {
+		t.Errorf("error = %q, want %q", err.Error(), want)
+	}
+}
+
+// Same shape, but with a profile other than the manifest's default -- the
+// case the bug report actually reproduced: `trenvy -p prod render local`
+// must not suggest a bare `trenvy secret set TOKEN`, which would store the
+// value under whatever profile happens to be active instead of prod.
+func TestValueSaysHowToStoreAMissingSecretUnderANonDefaultProfile(t *testing.T) {
+	m := mustParse(t, profileValueTOML)
+
+	_, _, err := resolve.Value(m, "prod", "TOKEN", lookupFrom(nil))
+
+	if err == nil {
+		t.Fatal("Value succeeded with the secret absent from the keyring")
+	}
+	want := `TOKEN is not in the keyring for profile "prod"; run: trenvy -p prod secret set TOKEN`
+	if err.Error() != want {
+		t.Errorf("error = %q, want %q", err.Error(), want)
 	}
 }
 

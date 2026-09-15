@@ -128,9 +128,19 @@ func Value(m *manifest.Manifest, profile, name string, secret SecretLookup) (str
 			if v.Optional {
 				return "", false, nil
 			}
+			// The hint always carries -p <profile>: this function has no
+			// notion of which profile is "active" in the caller's shell
+			// (that lives in the CLI layer, and stays there rather than
+			// being plumbed in here), so the only way to guarantee the
+			// suggested command stores the secret under the profile this
+			// error is actually about -- rather than silently under
+			// whatever profile happens to be active -- is to say so
+			// unconditionally. A little redundancy when the profile is
+			// already active is the price; it matches the existing
+			// `trenvy -p %s secret set <NAME>` hint in `profile add`.
 			return "", false, fmt.Errorf(
-				"%s is not in the keyring for profile %q; run: trenvy secret set %s",
-				name, profile, name)
+				"%s is not in the keyring for profile %q; run: trenvy -p %s secret set %s",
+				name, profile, profile, name)
 		}
 		if err != nil {
 			return "", false, fmt.Errorf("read secret %s: %w", name, err)

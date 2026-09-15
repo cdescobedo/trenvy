@@ -169,8 +169,8 @@ func TestValuesFailsOnMissingSecretNamingTheVariable(t *testing.T) {
 	if !strings.Contains(err.Error(), "TOKEN") {
 		t.Errorf("error does not name the variable: %v", err)
 	}
-	if !strings.Contains(err.Error(), "trenvy secret set TOKEN") {
-		t.Errorf("error does not suggest the fix: %v", err)
+	if !strings.Contains(err.Error(), "trenvy -p dev secret set TOKEN") {
+		t.Errorf("error does not suggest the fix with the profile flag: %v", err)
 	}
 }
 
