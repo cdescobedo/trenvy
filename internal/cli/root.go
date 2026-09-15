@@ -109,7 +109,7 @@ func (o Options) resolveApp() (*appContext, error) {
 	entry, ok := reg.Lookup(o.Dir)
 	if !ok {
 		return nil, fmt.Errorf(
-			"%s is not inside a registered envctl project\n  register one with: envctl init", o.Dir)
+			"%s is not inside a registered envctl project\n  register one with: envctl project init", o.Dir)
 	}
 
 	m, err := manifest.Load(config.ManifestPath(entry.ID))

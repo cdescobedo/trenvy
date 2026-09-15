@@ -106,8 +106,11 @@ func TestCommandsOutsideAProjectExplainThemselves(t *testing.T) {
 	if err == nil {
 		t.Fatal("status succeeded outside a project")
 	}
-	if !strings.Contains(err.Error(), "envctl init") {
-		t.Errorf("error does not suggest init: %v", err)
+	// Pinned to the full "project init" spelling, not just "envctl init" --
+	// that shorter substring is also present in stale text pointing at the
+	// now-deleted top-level init command, so it cannot tell the two apart.
+	if !strings.Contains(err.Error(), "envctl project init") {
+		t.Errorf("error does not suggest project init: %v", err)
 	}
 }
 
