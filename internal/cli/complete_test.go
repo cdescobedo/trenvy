@@ -19,7 +19,12 @@ func completionFixture(t *testing.T) *manifest.Manifest {
 id = "vpb"
 profiles = ["dev"]
 default_profile = "dev"
+output = "app"
 salt = "abc123"
+
+[outputs.app]
+format = "dotenv"
+path = "src/.env"
 
 [vars.APP_MODE]
 value = "development"
@@ -297,5 +302,239 @@ func TestPlainCompletionNeverOpensAStore(t *testing.T) {
 	}
 	if opened {
 		t.Error("completing plain var names opened the secret store")
+	}
+}
+
+func TestProfileCompletionOffersDeclaredProfiles(t *testing.T) {
+	h := completionHarness(t)
+	m := reloadManifest(t, "vpb")
+	m.Project.Profiles = []string{"dev", "prod"}
+	if err := manifest.Save(config.ManifestPath("vpb"), m); err != nil {
+		t.Fatal(err)
+	}
+
+	cands, directive := complete(t, h, "profile", "default", "")
+
+	if got := names(cands); !equalNames(got, []string{"dev", "prod"}) {
+		t.Errorf("candidates = %v, want both profiles", got)
+	}
+	if directive != noFileComp {
+		t.Errorf("directive = %q, want %q", directive, noFileComp)
+	}
+}
+
+func TestOutputCompletionOffersDefinedOutputs(t *testing.T) {
+	h := completionHarness(t)
+
+	cands, _ := complete(t, h, "render", "")
+
+	if got := names(cands); !equalNames(got, []string{"app"}) {
+		t.Errorf("candidates = %v, want the defined output", got)
+	}
+}
+
+func TestProjectCompletionOffersRegisteredIDs(t *testing.T) {
+	h := completionHarness(t)
+
+	cands, _ := complete(t, h, "project", "rm", "")
+
+	if got := names(cands); !equalNames(got, []string{"vpb"}) {
+		t.Errorf("candidates = %v, want the registered project", got)
+	}
+}
+
+// filterDirs is cobra's ShellCompDirectiveFilterDirs. project move's second
+// argument is a directory on disk, so its completion hands the choice to the
+// shell rather than inventing candidates of its own.
+const filterDirs = ":16"
+
+// Prefix filtering is exercised elsewhere for var names (see
+// TestCompletionFiltersByThePrefixTyped); these three cover the same guard on
+// each of the new completers, so a completer that forgot to check
+// strings.HasPrefix cannot slip through just because every earlier test typed
+// an empty prefix.
+func TestProfileCompletionFiltersByThePrefixTyped(t *testing.T) {
+	h := completionHarness(t)
+
+	cands, _ := complete(t, h, "profile", "default", "z")
+
+	if len(cands) != 0 {
+		t.Errorf("candidates = %v, want none for a prefix nothing matches", cands)
+	}
+}
+
+func TestOutputCompletionFiltersByThePrefixTyped(t *testing.T) {
+	h := completionHarness(t)
+
+	cands, _ := complete(t, h, "render", "z")
+
+	if len(cands) != 0 {
+		t.Errorf("candidates = %v, want none for a prefix nothing matches", cands)
+	}
+}
+
+func TestProjectCompletionFiltersByThePrefixTyped(t *testing.T) {
+	h := completionHarness(t)
+
+	cands, _ := complete(t, h, "project", "rm", "z")
+
+	if len(cands) != 0 {
+		t.Errorf("candidates = %v, want none for a prefix nothing matches", cands)
+	}
+}
+
+// The brief's own output and project tests check candidates only; these two
+// pin the directive on the same commands, so a wrong directive on either
+// completer -- one that would let the shell fall back to filename completion
+// on a miss -- has a test to catch it.
+func TestOutputCompletionUsesNoFileComp(t *testing.T) {
+	h := completionHarness(t)
+
+	_, directive := complete(t, h, "render", "")
+
+	if directive != noFileComp {
+		t.Errorf("directive = %q, want %q", directive, noFileComp)
+	}
+}
+
+func TestProjectCompletionUsesNoFileComp(t *testing.T) {
+	h := completionHarness(t)
+
+	_, directive := complete(t, h, "project", "rm", "")
+
+	if directive != noFileComp {
+		t.Errorf("directive = %q, want %q", directive, noFileComp)
+	}
+}
+
+// Each of the three new completers takes exactly one positional argument (the
+// name being completed); past it there is nothing left to offer.
+func TestProfileCompletionOffersNothingPastFirstArg(t *testing.T) {
+	h := completionHarness(t)
+
+	cands, directive := complete(t, h, "profile", "default", "dev", "")
+
+	if len(cands) != 0 {
+		t.Errorf("candidates = %v, want none past the first argument", cands)
+	}
+	if directive != noFileComp {
+		t.Errorf("directive = %q, want %q", directive, noFileComp)
+	}
+}
+
+func TestOutputCompletionOffersNothingPastFirstArg(t *testing.T) {
+	h := completionHarness(t)
+
+	cands, directive := complete(t, h, "render", "app", "")
+
+	if len(cands) != 0 {
+		t.Errorf("candidates = %v, want none past the first argument", cands)
+	}
+	if directive != noFileComp {
+		t.Errorf("directive = %q, want %q", directive, noFileComp)
+	}
+}
+
+func TestProjectCompletionOffersNothingPastFirstArg(t *testing.T) {
+	h := completionHarness(t)
+
+	cands, directive := complete(t, h, "project", "rm", "vpb", "")
+
+	if len(cands) != 0 {
+		t.Errorf("candidates = %v, want none past the first argument", cands)
+	}
+	if directive != noFileComp {
+		t.Errorf("directive = %q, want %q", directive, noFileComp)
+	}
+}
+
+// completeProjectIDs must read the registry directly rather than resolveApp:
+// project rm and project move name a project by id from anywhere on disk,
+// including from outside every registered root -- exactly where resolveApp
+// fails. Running completion from a directory that owns no project at all is
+// what would catch a regression back to resolveApp.
+func TestProjectCompletionWorksOutsideEveryRegisteredRoot(t *testing.T) {
+	h := completionHarness(t)
+	h.opts.Dir = t.TempDir()
+
+	cands, _ := complete(t, h, "project", "rm", "")
+
+	if got := names(cands); !equalNames(got, []string{"vpb"}) {
+		t.Errorf("candidates = %v, want the registered project even from outside its root", got)
+	}
+}
+
+// project move takes <id> <new-root>. Its first argument completes like
+// project rm's; its second is a directory on disk, handed to the shell via
+// ShellCompDirectiveFilterDirs rather than completed from the registry.
+func TestProjectMoveCompletesIDsForTheFirstArgument(t *testing.T) {
+	h := completionHarness(t)
+
+	cands, directive := complete(t, h, "project", "move", "")
+
+	if got := names(cands); !equalNames(got, []string{"vpb"}) {
+		t.Errorf("candidates = %v, want the registered project", got)
+	}
+	if directive != noFileComp {
+		t.Errorf("directive = %q, want %q", directive, noFileComp)
+	}
+}
+
+func TestProjectMoveOffersDirectoriesForTheSecondArgument(t *testing.T) {
+	h := completionHarness(t)
+
+	cands, directive := complete(t, h, "project", "move", "vpb", "")
+
+	if len(cands) != 0 {
+		t.Errorf("candidates = %v, want none -- directories come from the shell", cands)
+	}
+	if directive != filterDirs {
+		t.Errorf("directive = %q, want %q (FilterDirs)", directive, filterDirs)
+	}
+}
+
+// The brief wires render, clean and show to completeOutputNames; only render
+// has a test above. These two cover the other two commands, so a wiring
+// mistake on either -- forgetting the ValidArgsFunction, or wiring the wrong
+// completer -- has a test to catch it.
+func TestCleanCompletionOffersDefinedOutputs(t *testing.T) {
+	h := completionHarness(t)
+
+	cands, directive := complete(t, h, "clean", "")
+
+	if got := names(cands); !equalNames(got, []string{"app"}) {
+		t.Errorf("candidates = %v, want the defined output", got)
+	}
+	if directive != noFileComp {
+		t.Errorf("directive = %q, want %q", directive, noFileComp)
+	}
+}
+
+func TestShowCompletionOffersDefinedOutputs(t *testing.T) {
+	h := completionHarness(t)
+
+	cands, directive := complete(t, h, "show", "")
+
+	if got := names(cands); !equalNames(got, []string{"app"}) {
+		t.Errorf("candidates = %v, want the defined output", got)
+	}
+	if directive != noFileComp {
+		t.Errorf("directive = %q, want %q", directive, noFileComp)
+	}
+}
+
+// The -p/--profile persistent flag is registered with completeProfileNames in
+// Execute, separately from any subcommand's ValidArgsFunction, so it needs
+// its own test: nothing above exercises flag completion at all.
+func TestProfileFlagCompletionOffersDeclaredProfiles(t *testing.T) {
+	h := completionHarness(t)
+
+	cands, directive := complete(t, h, "get", "--profile", "")
+
+	if got := names(cands); !equalNames(got, []string{"dev"}) {
+		t.Errorf("candidates = %v, want the declared profile", got)
+	}
+	if directive != noFileComp {
+		t.Errorf("directive = %q, want %q", directive, noFileComp)
 	}
 }

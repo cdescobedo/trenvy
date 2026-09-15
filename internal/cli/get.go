@@ -80,7 +80,8 @@ func newShowCmd(opts *Options) *cobra.Command {
 			"filter on that answer, not a precondition for asking it, so a project\n" +
 			"with no outputs at all can still be inspected.\n\n" +
 			"Naming an output restricts the list to what that output selects.",
-		Args: cobra.MaximumNArgs(1),
+		Args:              cobra.MaximumNArgs(1),
+		ValidArgsFunction: opts.completeOutputNames(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Reject a bad format before anything is resolved, so the message
 			// is about the flag rather than about the first variable that

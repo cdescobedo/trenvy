@@ -223,5 +223,9 @@ func Execute(opts Options, args []string) error {
 		newProfileCmd(&opts),
 	)
 
+	if err := root.RegisterFlagCompletionFunc("profile", opts.completeProfileNames()); err != nil {
+		return err
+	}
+
 	return root.Execute()
 }

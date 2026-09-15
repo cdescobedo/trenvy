@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/cdescobedo/envctl/internal/config"
 	"github.com/cdescobedo/envctl/internal/manifest"
 	"github.com/cdescobedo/envctl/internal/store"
 )
@@ -103,5 +104,85 @@ func (a *appContext) cheapPresenceProbe() func(string) string {
 			return "stored"
 		}
 		return "MISSING"
+	}
+}
+
+// completeProfileNames offers the manifest's declared profiles. Like every
+// completion here it reads the manifest and nothing else: no store, no
+// network, no prompt.
+func (o *Options) completeProfileNames() func(
+	*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+
+	return func(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) > 0 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		app, err := o.resolveApp()
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		var out []string
+		for _, p := range app.Manifest.Project.Profiles {
+			if !strings.HasPrefix(p, toComplete) {
+				continue
+			}
+			tag := "profile"
+			if p == app.Manifest.Project.DefaultProfile {
+				tag = "profile, default"
+			}
+			out = append(out, p+"\t"+tag)
+		}
+		sort.Strings(out)
+		return out, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+// completeOutputNames offers the manifest's defined outputs, tagged with the
+// path each one writes so a choice can be made without opening the manifest.
+func (o *Options) completeOutputNames() func(
+	*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+
+	return func(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) > 0 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		app, err := o.resolveApp()
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		var out []string
+		for name, output := range app.Manifest.Outputs {
+			if !strings.HasPrefix(name, toComplete) {
+				continue
+			}
+			out = append(out, name+"\t"+output.Format+" -> "+output.Path)
+		}
+		sort.Strings(out)
+		return out, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+// completeProjectIDs offers registered ids. It reads the registry rather than
+// resolveApp, because project move and rm work on a project named by id from
+// anywhere on disk, including from outside every registered root.
+func (o *Options) completeProjectIDs() func(
+	*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+
+	return func(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) > 0 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		reg, err := config.LoadRegistry()
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		var out []string
+		for _, e := range reg.Projects {
+			if strings.HasPrefix(e.ID, toComplete) {
+				out = append(out, e.ID+"\t"+e.Root)
+			}
+		}
+		sort.Strings(out)
+		return out, cobra.ShellCompDirectiveNoFileComp
 	}
 }

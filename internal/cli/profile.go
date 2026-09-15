@@ -114,7 +114,8 @@ func newProfileUseCmd(opts *Options) *cobra.Command {
 		Long: "Emit a shell export switching profile for this session.\n\n" +
 			"Use it as:  eval \"$(envctl profile use prod)\"\n\n" +
 			"To change the project's default instead, use: envctl profile default <name>",
-		Args: cobra.ExactArgs(1),
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: opts.completeProfileNames(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app, err := opts.resolveApp()
 			if err != nil {
@@ -139,9 +140,10 @@ func newProfileUseCmd(opts *Options) *cobra.Command {
 
 func newProfileDefaultCmd(opts *Options) *cobra.Command {
 	return &cobra.Command{
-		Use:   "default <name>",
-		Short: "Set the project's default profile",
-		Args:  cobra.ExactArgs(1),
+		Use:               "default <name>",
+		Short:             "Set the project's default profile",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: opts.completeProfileNames(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app, err := opts.resolveApp()
 			if err != nil {
@@ -168,9 +170,10 @@ func newProfileRmCmd(opts *Options) *cobra.Command {
 	var yes bool
 
 	c := &cobra.Command{
-		Use:   "rm <name>",
-		Short: "Remove a profile, its overrides and its secrets",
-		Args:  cobra.ExactArgs(1),
+		Use:               "rm <name>",
+		Short:             "Remove a profile, its overrides and its secrets",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: opts.completeProfileNames(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app, err := opts.resolveApp()
 			if err != nil {

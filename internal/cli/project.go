@@ -60,6 +60,14 @@ func newProjectMoveCmd(opts *Options) *cobra.Command {
 		Use:   "move <id> <new-root>",
 		Short: "Repoint a project at a new root after its directory moved",
 		Args:  cobra.ExactArgs(2),
+		ValidArgsFunction: func(c *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			if len(args) == 1 {
+				// The second argument is a directory on disk, so hand it to
+				// the shell rather than inventing candidates.
+				return nil, cobra.ShellCompDirectiveFilterDirs
+			}
+			return opts.completeProjectIDs()(c, args, toComplete)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, newRoot := args[0], args[1]
 
@@ -136,9 +144,10 @@ func newProjectRmCmd(opts *Options) *cobra.Command {
 	var yes bool
 
 	c := &cobra.Command{
-		Use:   "rm <id>",
-		Short: "Delete a project: its manifest, state, registration and every secret",
-		Args:  cobra.ExactArgs(1),
+		Use:               "rm <id>",
+		Short:             "Delete a project: its manifest, state, registration and every secret",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: opts.completeProjectIDs(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
 

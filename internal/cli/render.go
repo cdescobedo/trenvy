@@ -22,9 +22,10 @@ func newRenderCmd(opts *Options) *cobra.Command {
 	var force, allowTracked bool
 
 	c := &cobra.Command{
-		Use:   "render [output]",
-		Short: "Write an output's file into this worktree",
-		Args:  cobra.MaximumNArgs(1),
+		Use:               "render [output]",
+		Short:             "Write an output's file into this worktree",
+		Args:              cobra.MaximumNArgs(1),
+		ValidArgsFunction: opts.completeOutputNames(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app, err := opts.resolveApp()
 			if err != nil {
@@ -116,9 +117,10 @@ func newCleanCmd(opts *Options) *cobra.Command {
 	var force bool
 
 	c := &cobra.Command{
-		Use:   "clean [output]",
-		Short: "Remove a rendered file from this worktree",
-		Args:  cobra.MaximumNArgs(1),
+		Use:               "clean [output]",
+		Short:             "Remove a rendered file from this worktree",
+		Args:              cobra.MaximumNArgs(1),
+		ValidArgsFunction: opts.completeOutputNames(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app, err := opts.resolveApp()
 			if err != nil {
