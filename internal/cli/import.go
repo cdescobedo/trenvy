@@ -69,6 +69,13 @@ func newImportCmd(opts *Options) *cobra.Command {
 					return err
 				}
 				app.Manifest.Outputs[outputName] = out
+				// project init creates no outputs, so it has nothing to
+				// default to; this is the first moment an output exists at
+				// all. Claim it as the default only when nothing already
+				// holds that role -- a user who picked one keeps it.
+				if app.Manifest.Project.Output == "" {
+					app.Manifest.Project.Output = outputName
+				}
 			}
 			if err := app.Manifest.Validate(); err != nil {
 				return err

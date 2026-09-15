@@ -274,6 +274,67 @@ func TestImportRefusesToClobberExistingVariables(t *testing.T) {
 	}
 }
 
+// project init sets no project.output, and until import claims one, a bare
+// `trenvy render` has nowhere to write -- the optional [output] argument to
+// render/clean/show is optional in name only. import --output is the moment
+// an output first exists, so it is the natural place to claim it as the
+// project's default when nothing already holds that role.
+func TestImportSetsProjectOutputWhenNoneIsSet(t *testing.T) {
+	h := newHarness(t)
+	if err := h.run("project", "init", "--id", "vpb"); err != nil {
+		t.Fatal(err)
+	}
+	sample := filepath.Join(h.root, ".env_example")
+	if err := os.WriteFile(sample, []byte("A=1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := h.run("import", sample, "--no-tui", "--output", "local"); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+
+	m, err := manifest.Load(config.ManifestPath("vpb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Project.Output != "local" {
+		t.Errorf("project.output = %q, want %q", m.Project.Output, "local")
+	}
+}
+
+// A user who has already chosen a default output must keep it: a second
+// import --output must not silently move project.output out from under a
+// render/clean/show invocation that relies on it.
+func TestImportDoesNotOverwriteAnExistingProjectOutput(t *testing.T) {
+	h := newHarness(t)
+	if err := h.run("project", "init", "--id", "vpb"); err != nil {
+		t.Fatal(err)
+	}
+	sample := filepath.Join(h.root, ".env_example")
+	if err := os.WriteFile(sample, []byte("A=1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.run("import", sample, "--no-tui", "--output", "local"); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+
+	other := filepath.Join(h.root, "other_example")
+	if err := os.WriteFile(other, []byte("B=1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.run("import", other, "--no-tui", "--output", "docker"); err != nil {
+		t.Fatalf("second import: %v", err)
+	}
+
+	m, err := manifest.Load(config.ManifestPath("vpb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Project.Output != "local" {
+		t.Errorf("project.output = %q, want the first output %q to survive", m.Project.Output, "local")
+	}
+}
+
 // This rejection was unreachable before: resolve.WorktreeRoot never fails, and
 // for an unversioned project it answers "the sample's own directory", so
 // filepath.Rel always succeeded and the guard below could not trip. With a
