@@ -1,14 +1,13 @@
 # Architecture
 
-For contributors. This explains the data model and why it is shaped the way it
-is — the decisions that are load-bearing, and what breaks if you undo them.
+For contributors. It describes the data model, the invariants the code holds,
+and what depends on each one.
 
 Users want the [README](../README.md) instead.
 
 Everything except `cmd/trenvy` lives under `internal/`, so nothing here is
-importable and none of it is a public API. That is deliberate: trenvy is a
-binary, and keeping the packages internal means the shape below can change
-without breaking anyone.
+importable and none of it is a public API. trenvy is a binary, and internal
+packages mean the shape below can change without breaking a consumer.
 
 ## The three layers
 
@@ -57,30 +56,29 @@ cycle.
 
 ## The two axes
 
-This is the central idea, and the thing most likely to be eroded by a
-well-meaning change.
+This is the central distinction in the data model.
 
 A **profile** decides *what the values are*, including which keyring item a
 secret reads. An **output** decides *where values go, in what format, and which
 subset*. They are independent.
 
-In the schema this shows up as an asymmetry worth understanding:
+In the schema this shows up as an asymmetry:
 
 - `Var` has a `Profiles map[string]string` of per-profile values.
 - `Output` has `Format`, `Path`, `Include`, `Exclude` — and **no values at
   all**.
 
-There is deliberately no per-output value table. An output decides which
-variables are written and in what syntax, never what they are worth. Adding one
-would reintroduce the old `[targets]` model, where a single noun conflated both
-questions and you could not answer "what is `DATABASE_URL` in prod?" without
-also naming a file.
+There is no per-output value table. An output decides which variables are
+written and in what syntax, never what they are worth. One would reintroduce
+the `[targets]` model that profiles replaced, where a single noun conflated
+both questions and "what is `DATABASE_URL` in prod?" could not be answered
+without also naming a file.
 
-`Var.Profiles` is sparse on purpose: most variables do not vary, and a dense
-table would grow a row per variable per profile and stop being readable.
+`Var.Profiles` is sparse: most variables do not vary, and a dense table would
+grow a row per variable per profile and stop being readable.
 
-The corollary is that `exec` and `shell` take **no output argument**. Process
-delivery is the verb, not a configured destination. An output's include list
+`exec` and `shell` therefore take **no output argument**. Process delivery is
+the verb, not a configured destination. An output's include list
 describes a file's audience, and a process wants its whole environment — so
 those two commands call `resolve.All`, not `resolve.Values`.
 
@@ -96,7 +94,7 @@ For a variable under a profile, in order:
 4. then: if the variable is **optional**, it resolves to nothing and is omitted
    from the set; otherwise it is an **error** that stops the render.
 
-Two details that are easy to get wrong:
+Two details follow from this:
 
 `Var.Value` is a `*string`, not a `string`, so that an empty string — a legal
 value — is distinguishable from no value at all. Step 2 tests `!= nil`, not
@@ -107,7 +105,7 @@ That is what makes `trenvy get` cost one keyring read rather than one per
 variable, and what stops it failing because some unrelated secret has not been
 stored yet.
 
-`resolve.Value` deliberately does **not** check that `profile` is declared.
+`resolve.Value` does **not** check that `profile` is declared.
 Every CLI command resolves and validates the active profile before its body
 runs, so a name arriving here has already been checked. The active profile
 itself comes from `resolve.Profile`: `--profile`, then `TRENVY_PROFILE`, then
@@ -123,7 +121,7 @@ Both resolvers iterate `sortedVarNames`. Go randomises map iteration, so
 without that sort a rendered file's byte order — and therefore its recorded
 digest — would differ run to run, and every file would look modified.
 
-## Why `Store` separates `Has` from `Get`
+## `Store`: presence and value are separate operations
 
 ```go
 type Store interface {
@@ -134,22 +132,21 @@ type Store interface {
 }
 ```
 
-`Has` is not a convenience. On macOS, *reading* a keyring value can raise a GUI
-authorization prompt; checking that an item *exists* cannot. An interface with
-only `Get` would make `trenvy status` and the interactive table cost one prompt
-per secret, every run — which in practice means nobody runs them.
+The two carry different costs. On macOS, *reading* a keyring value can raise a
+GUI authorization prompt; checking that an item *exists* cannot. An interface
+with only `Get` would make `trenvy status` and the interactive table cost one
+prompt per secret, every run.
 
-So every code path that only needs presence must be able to ask without paying
-that cost, and the ones that matter do: `status` builds its `present`/`MISSING`
-column from `Has`, and the TUI builds its rows from `Has`, taking a lazy `Get`
-callback used only when the user actually reveals a value. `show` without
+Every path that needs only presence therefore asks with `Has`: `status` builds
+its `present`/`MISSING` column from it, and the TUI builds its rows from it,
+taking a lazy `Get` callback used only when the user reveals a value. `show` without
 `--reveal` does not even reach the store: it substitutes the mask for secrets
 and resolves plain variables with a nil lookup.
 
-On macOS this is why the Keychain backend is hand-rolled around `security(1)`
-instead of delegating to a keyring library — `security find-generic-password`
-without `-w` answers presence silently. It also keeps the backend cgo-free, so
-trenvy cross-compiles from any machine.
+The macOS backend is hand-rolled around `security(1)` rather than a keyring
+library for the same reason: `security find-generic-password` without `-w`
+answers presence silently. It is also cgo-free, so trenvy cross-compiles from
+any machine.
 
 There is a second, narrower interface:
 
@@ -164,9 +161,9 @@ This says `Has` is *fast and cannot prompt*, so a caller on a latency budget
 may probe every variable it knows about. Shell completion is that caller: it
 runs on every TAB. `Keychain` and `Mem` qualify. `File` does not — its `Has`
 scrypt-decrypts the whole document. `SystemKeyring` does not — the library
-answers `Has` with a read, which can raise an unlock prompt. The marker method
-is unexported so that only a backend in this package can make the claim, and
-making it is a deliberate act rather than an accident of shape.
+answers `Has` with a read, which can raise an unlock prompt. The marker method is
+unexported, so only a backend in this package can make the claim and no type
+satisfies the interface by accident.
 
 ## The manifest is the authoritative inventory
 
@@ -195,13 +192,13 @@ And it is why `project rm` is careful about scope: it reaches only the
 currently selected backend, but the manifest it destroys was the inventory for
 every backend.
 
-One trap the codebase has hit more than once: `appContext.service(name)` binds
-the **active** profile. Any loop that clears a variable across all profiles
-must call `Cfg.Keyring.ServiceName(project, p, name)` with the loop's own `p`.
-Using `service(name)` inside such a loop deletes one profile's item N times and
-leaves the rest untouched.
+`appContext.service(name)` binds the **active** profile, which makes it the
+wrong call inside a loop over profiles. A loop clearing a variable across all
+of them calls `Cfg.Keyring.ServiceName(project, p, name)` with its own `p`;
+`service(name)` there would delete one profile's item N times and leave the
+rest untouched.
 
-## Why `guard` exists
+## The render guards
 
 `render` writes secrets into a working repository. Two things can go wrong that
 the user will not notice until much later: the file gets committed, or trenvy
@@ -241,16 +238,16 @@ work, whereas staleness only means the file is behind.
 someone running `trenvy clean` to "re-run with --force to overwrite" gives them
 the wrong mental model of what they are about to lose.
 
-**Why the sum is keyed.** The digest lives in the state file. An unkeyed hash
+**The sum is keyed.** The digest lives in the state file. An unkeyed hash
 of a low-entropy secret sitting there could be brute-forced, which would mean
 trenvy's own bookkeeping weakened the secrets it exists to protect. The salt is
 32 random bytes generated at `project init`.
 
-**Why state lives beside the manifest, not in the rendered file.** A JSON
+**State lives beside the manifest, not in the rendered file.** A JSON
 output has no comment syntax, and a rendered `public/env.json` may be served to
 browsers and must carry nothing but the application's own configuration.
 
-## Projects, worktrees, and why they are different
+## Projects and worktrees
 
 `Registry` maps a **project root** to an id. The project root is the directory
 holding every worktree. `Lookup` walks up from the working directory and the
@@ -261,11 +258,11 @@ is not inside `/w/repo`.
 `resolve.WorktreeRoot` is a different thing: the specific checkout an output's
 relative path resolves against, from `git rev-parse --show-toplevel`.
 
-Keeping them separate is what lets one manifest serve every worktree, including
-ones created long after the project was registered — a new `git worktree add`
-needs no trenvy setup at all.
+Separating them lets one manifest serve every worktree, including ones created
+long after the project was registered: a new `git worktree add` needs no trenvy
+setup at all.
 
-It is also why `project move` calls `State.RebaseWorktrees`. Render records
+`project move` calls `State.RebaseWorktrees` for the same reason. Render records
 store absolute worktree paths; without rebasing them, a move makes `State.Find`
 stop matching and `guard.Inspect` classifies every already-rendered file as
 `FOREIGN`, so the guard meant to protect the user starts fighting them.
@@ -329,11 +326,11 @@ skips unless `TRENVY_INTEGRATION=1`. It is not in CI.
 `appContext.store()` opens the secret store on first use and memoizes the
 result — including the error — via a `sync.Once`.
 
-This is not just caching. `NewStore` can fail outright on a project with zero
-secrets: the file backend errors when `TRENVY_PASSPHRASE` is unset. A project
-that never touches a secret must not pay for a store it never uses, so nothing
-opens one eagerly in `resolveApp`.
+The memoized error matters as much as the memoized store. `NewStore` can fail
+outright on a project with zero secrets, because the file backend errors when
+`TRENVY_PASSPHRASE` is unset; nothing opens a store eagerly in `resolveApp`, so
+a project that never touches a secret never pays for one.
 
-It also places the failure usefully. In `secret set`, the store is resolved
-after the manifest has been validated but before it has been saved — so an
+It also places the failure usefully. In `secret set` the store is resolved
+after the manifest has been validated and before it has been saved, so an
 unusable backend reports itself while nothing has been written yet.
