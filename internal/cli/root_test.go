@@ -278,7 +278,7 @@ func TestAnUndeclaredProfileFailsBeforeAnythingIsRead(t *testing.T) {
 	if err == nil {
 		t.Fatal("get succeeded with an undeclared profile")
 	}
-	if !strings.Contains(err.Error(), "--profile") {
+	if !strings.Contains(err.Error(), "from --profile") {
 		t.Errorf("error does not name --profile as the source of the bad name: %v", err)
 	}
 	if calls := h.mem.Calls(); len(calls) != 0 {
