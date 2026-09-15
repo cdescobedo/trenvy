@@ -18,7 +18,7 @@ func readbackFixture(t *testing.T) *manifest.Manifest {
 	m, err := manifest.Parse([]byte(`
 [project]
 id = "vpb"
-profiles = ["dev"]
+profiles = ["dev", "prod"]
 default_profile = "dev"
 default_target = "local"
 salt = "abc123"
@@ -39,6 +39,8 @@ value = "development"
 [vars.PUBLIC_API]
 value = "/"
 targets = { web = "https://api.example.test" }
+[vars.PUBLIC_API.profiles]
+prod = "https://api.example.test"
 
 [vars.ALPHA_TOKEN]
 secret = true
@@ -95,6 +97,17 @@ func TestGetPrintsASecretValue(t *testing.T) {
 
 	if got := h.out.String(); got != "alpha-value\n" {
 		t.Errorf("stdout = %q, want the stored secret", got)
+	}
+}
+
+func TestGetHonoursAProfileOverride(t *testing.T) {
+	h := getHarness(t)
+
+	if err := h.run("-p", "prod", "get", "PUBLIC_API"); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got := h.out.String(); got != "https://api.example.test\n" {
+		t.Errorf("stdout = %q, want the prod override", got)
 	}
 }
 
