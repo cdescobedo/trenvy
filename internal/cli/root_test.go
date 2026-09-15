@@ -145,7 +145,7 @@ func TestCommandsOutsideAProjectExplainThemselves(t *testing.T) {
 func TestResolutionWorksFromASubdirectory(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "k")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
 
 	sub := filepath.Join(h.root, "main", "src", "deep")
 	if err := mkdirAll(sub); err != nil {
@@ -168,7 +168,7 @@ func TestResolutionWorksFromASubdirectory(t *testing.T) {
 func TestBackendFlagReachesTheStoreFactory(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "k")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
 
 	var gotBackend string
 	h.opts.NewStore = func(cfg *config.Config, backend string) (store.Store, error) {

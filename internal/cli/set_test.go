@@ -78,7 +78,7 @@ func TestSecretSetStoresInTheStoreNotTheManifest(t *testing.T) {
 		t.Fatalf("secret set: %v", err)
 	}
 
-	got, err := h.mem.Get("envctl/vpb/ALPHA_TOKEN")
+	got, err := h.mem.Get("envctl/vpb/dev/ALPHA_TOKEN")
 	if err != nil {
 		t.Fatalf("store Get: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestSecretSetTrimsOnlyTheTrailingNewline(t *testing.T) {
 	if err := h.run("secret", "set", "K", "--stdin"); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := h.mem.Get("envctl/vpb/K")
+	got, _ := h.mem.Get("envctl/vpb/dev/K")
 	if got != "  padded value  " {
 		t.Errorf("stored = %q; leading and trailing spaces are part of a secret", got)
 	}
@@ -123,12 +123,12 @@ func TestSecretSetTrimsOnlyTheTrailingNewline(t *testing.T) {
 func TestSecretRmDeletesFromTheStore(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "v")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "v")
 
 	if err := h.run("secret", "rm", "ALPHA_TOKEN", "--yes"); err != nil {
 		t.Fatalf("secret rm: %v", err)
 	}
-	if ok, _ := h.mem.Has("envctl/vpb/ALPHA_TOKEN"); ok {
+	if ok, _ := h.mem.Has("envctl/vpb/dev/ALPHA_TOKEN"); ok {
 		t.Error("the item is still in the store")
 	}
 	// The variable stays in the manifest; only its value is gone.
@@ -141,7 +141,7 @@ func TestSecretRmDeletesFromTheStore(t *testing.T) {
 func TestUnsetRemovesTheVariableAndItsSecret(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "v")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "v")
 
 	if err := h.run("unset", "ALPHA_TOKEN", "--yes"); err != nil {
 		t.Fatalf("unset: %v", err)
@@ -150,7 +150,7 @@ func TestUnsetRemovesTheVariableAndItsSecret(t *testing.T) {
 	if _, ok := m.Vars["ALPHA_TOKEN"]; ok {
 		t.Error("the variable is still in the manifest")
 	}
-	if ok, _ := h.mem.Has("envctl/vpb/ALPHA_TOKEN"); ok {
+	if ok, _ := h.mem.Has("envctl/vpb/dev/ALPHA_TOKEN"); ok {
 		t.Error("the keyring item was left behind")
 	}
 }

@@ -28,7 +28,7 @@ func TestRenderWritesTheTargetFile(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "k3y")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k3y")
 
 	if err := h.run("render", "docker"); err != nil {
 		t.Fatalf("render: %v", err)
@@ -56,7 +56,7 @@ func TestRenderRecordsState(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "k")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
 
 	if err := h.run("render", "docker"); err != nil {
 		t.Fatal(err)
@@ -87,7 +87,7 @@ func TestRenderRefusesAPathGitWouldTrack(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("node_modules/\n")
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "k")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
 
 	err := h.run("render", "docker")
 	if err == nil {
@@ -111,7 +111,7 @@ func TestRenderAllowTrackedSkipsTheGitignoreGuard(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("node_modules/\n") // does not cover src/.env
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "k")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
 
 	if err := h.run("render", "docker"); err == nil {
 		t.Fatal("render wrote to a path git would track")
@@ -129,7 +129,7 @@ func TestRenderRefusesToClobberAForeignFile(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "k")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
 
 	dir := filepath.Join(h.root, "src")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -189,7 +189,7 @@ func TestCleanRemovesTheFileAndForgetsTheState(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "k")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
 	if err := h.run("render", "docker"); err != nil {
 		t.Fatal(err)
 	}

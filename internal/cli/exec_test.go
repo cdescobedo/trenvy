@@ -12,7 +12,7 @@ import (
 func TestExecPassesValuesThroughTheEnvironment(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "k3y")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k3y")
 
 	var captured *exec.Cmd
 	h.opts.Run = func(c *exec.Cmd) error { captured = c; return nil }
@@ -45,7 +45,7 @@ func TestExecPassesValuesThroughTheEnvironment(t *testing.T) {
 func TestExecPutsNoValueInArgv(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "s3cretvalue")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "s3cretvalue")
 
 	var captured *exec.Cmd
 	h.opts.Run = func(c *exec.Cmd) error { captured = c; return nil }
@@ -63,7 +63,7 @@ func TestExecPutsNoValueInArgv(t *testing.T) {
 func TestExecWritesNoFile(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "k")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
 	h.opts.Run = func(*exec.Cmd) error { return nil }
 
 	before := listDir(t, h.root)
@@ -78,7 +78,7 @@ func TestExecWritesNoFile(t *testing.T) {
 func TestExecRunsInTheWorktree(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "k")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
 	sub := filepath.Join(h.root, "src")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
@@ -111,7 +111,7 @@ func TestExecWarnsAboutAStaleRenderedFile(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "k")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
 	if err := h.run("render", "docker"); err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestExecDoesNotWarnAboutAnUnrelatedStaleTarget(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "k")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
 	if err := h.run("render", "docker"); err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestExecDoesNotWarnAboutAnUnrelatedStaleTarget(t *testing.T) {
 func TestExecStripsThePassphraseFromTheChildEnvironment(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "k")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
 	t.Setenv("ENVCTL_PASSPHRASE", "super-secret-passphrase")
 
 	var captured *exec.Cmd
@@ -183,7 +183,7 @@ func TestExecStripsThePassphraseFromTheChildEnvironment(t *testing.T) {
 func TestExecSurfacesTheChildsExitErrorUnwrapped(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "k")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
 
 	var ps os.ProcessState
 	want := &exec.ExitError{ProcessState: &ps}
@@ -202,7 +202,7 @@ func TestExecSurfacesTheChildsExitErrorUnwrapped(t *testing.T) {
 func TestShellRunsTheUsersShell(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "k")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
 	t.Setenv("SHELL", "/bin/sh")
 
 	var captured *exec.Cmd

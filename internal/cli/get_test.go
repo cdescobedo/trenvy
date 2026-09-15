@@ -62,7 +62,7 @@ func getHarness(t *testing.T) *harness {
 	t.Helper()
 	h := newHarness(t)
 	h.register("vpb", readbackFixture(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "alpha-value")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "alpha-value")
 	return h
 }
 
@@ -70,7 +70,7 @@ func getHarness(t *testing.T) *harness {
 func showHarness(t *testing.T) *harness {
 	t.Helper()
 	h := getHarness(t)
-	h.mem.Seed("envctl/vpb/BETA_TOKEN", "beta-value")
+	h.mem.Seed("envctl/vpb/dev/BETA_TOKEN", "beta-value")
 	return h
 }
 
@@ -142,7 +142,7 @@ func TestGetReadsOnlyTheSecretItWasAskedFor(t *testing.T) {
 		t.Fatalf("get: %v", err)
 	}
 
-	want := []string{"Get envctl/vpb/ALPHA_TOKEN"}
+	want := []string{"Get envctl/vpb/dev/ALPHA_TOKEN"}
 	if got := h.mem.Calls(); len(got) != 1 || got[0] != want[0] {
 		t.Errorf("store calls = %v, want exactly %v", got, want)
 	}

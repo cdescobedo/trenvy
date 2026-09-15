@@ -153,7 +153,7 @@ func (a *appContext) secretLookup() resolve.SecretLookup {
 }
 
 func (a *appContext) service(name string) string {
-	return a.Cfg.Keyring.ServiceName(a.Manifest.Project.ID, name)
+	return a.Cfg.Keyring.ServiceName(a.Manifest.Project.ID, a.Manifest.Project.DefaultProfile, name)
 }
 
 // targetOrDefault returns name, or the manifest's default target when empty.

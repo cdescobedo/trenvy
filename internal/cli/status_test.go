@@ -31,7 +31,7 @@ func TestStatusReportsSecretPresence(t *testing.T) {
 func TestStatusWithoutQuickReadsSecretValues(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "s3cretvalue")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "s3cretvalue")
 
 	if err := h.run("status"); err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func TestStatusWithoutQuickReadsSecretValues(t *testing.T) {
 func TestStatusQuickSkipsSecretReadsButStillReportsPresence(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "s3cretvalue")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "s3cretvalue")
 
 	if err := h.run("status", "--quick"); err != nil {
 		t.Fatal(err)
@@ -115,7 +115,7 @@ value = "https://example.com"
 func TestStatusNeverPrintsASecretValue(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "s3cretvalue")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "s3cretvalue")
 
 	if err := h.run("status"); err != nil {
 		t.Fatal(err)
@@ -129,7 +129,7 @@ func TestStatusReportsTargetFreshness(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "k")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
 
 	if err := h.run("render", "docker"); err != nil {
 		t.Fatal(err)
@@ -157,7 +157,7 @@ func TestStatusReportsAHandEditedFileAsModified(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "k")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
 	if err := h.run("render", "docker"); err != nil {
 		t.Fatal(err)
 	}

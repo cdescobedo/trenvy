@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cdescobedo/envctl/internal/config"
@@ -59,18 +60,18 @@ func TestPathHelpers(t *testing.T) {
 
 func TestServiceNameUsesDefaultPattern(t *testing.T) {
 	var k config.KeyringConfig // zero value must behave as the default
-	got := k.ServiceName("demo-backend", "ALPHA_TOKEN")
-	want := "envctl/demo-backend/ALPHA_TOKEN"
+	got := k.ServiceName("demo-backend", "dev", "ALPHA_TOKEN")
+	want := "envctl/demo-backend/dev/ALPHA_TOKEN"
 	if got != want {
 		t.Errorf("ServiceName = %q, want %q", got, want)
 	}
 }
 
 func TestServiceNameHonoursCustomPattern(t *testing.T) {
-	k := config.KeyringConfig{Service: "{project}/{name}"}
-	got := k.ServiceName("p", "TOKEN")
-	if got != "p/TOKEN" {
-		t.Errorf("ServiceName = %q, want p/TOKEN", got)
+	k := config.KeyringConfig{Service: "{project}/{profile}/{name}"}
+	got := k.ServiceName("p", "dev", "TOKEN")
+	if got != "p/dev/TOKEN" {
+		t.Errorf("ServiceName = %q, want p/dev/TOKEN", got)
 	}
 }
 
@@ -80,7 +81,7 @@ func TestLoadReturnsDefaultsWhenFileMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got := cfg.Keyring.ServiceName("p", "N"); got != "envctl/p/N" {
+	if got := cfg.Keyring.ServiceName("p", "dev", "N"); got != "envctl/p/dev/N" {
 		t.Errorf("default ServiceName = %q", got)
 	}
 }
@@ -88,7 +89,7 @@ func TestLoadReturnsDefaultsWhenFileMissing(t *testing.T) {
 func TestLoadReadsCustomPattern(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ENVCTL_CONFIG_DIR", dir)
-	body := "[keyring]\nservice = \"custom/{name}\"\n"
+	body := "[keyring]\nservice = \"custom/{profile}/{name}\"\n"
 	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +97,47 @@ func TestLoadReadsCustomPattern(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got := cfg.Keyring.ServiceName("p", "N"); got != "custom/N" {
-		t.Errorf("ServiceName = %q, want custom/N", got)
+	if got := cfg.Keyring.ServiceName("p", "dev", "N"); got != "custom/dev/N" {
+		t.Errorf("ServiceName = %q, want custom/dev/N", got)
+	}
+}
+
+func TestServiceNameIncludesTheProfile(t *testing.T) {
+	var k config.KeyringConfig
+
+	got := k.ServiceName("vpb", "prod", "API_KEY")
+
+	if want := "envctl/vpb/prod/API_KEY"; got != want {
+		t.Errorf("ServiceName = %q, want %q", got, want)
+	}
+}
+
+func TestServiceNameHonoursACustomPattern(t *testing.T) {
+	k := config.KeyringConfig{Service: "me:{project}:{profile}:{name}"}
+
+	got := k.ServiceName("vpb", "dev", "API_KEY")
+
+	if want := "me:vpb:dev:API_KEY"; got != want {
+		t.Errorf("ServiceName = %q, want %q", got, want)
+	}
+}
+
+// A pattern without {profile} would map every profile's secret onto one
+// keyring item, so switching profiles would silently read the wrong value.
+// That has to fail at load, not at read.
+func TestKeyringConfigRejectsAPatternWithoutAProfile(t *testing.T) {
+	k := config.KeyringConfig{Service: "envctl/{project}/{name}"}
+
+	err := k.Validate()
+
+	if err == nil || !strings.Contains(err.Error(), "{profile}") {
+		t.Errorf("error = %v, want a complaint about {profile}", err)
+	}
+}
+
+func TestKeyringConfigAcceptsTheZeroValue(t *testing.T) {
+	var k config.KeyringConfig
+	if err := k.Validate(); err != nil {
+		t.Errorf("Validate on the default pattern: %v", err)
 	}
 }

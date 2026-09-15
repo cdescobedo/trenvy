@@ -50,7 +50,7 @@ func completionHarness(t *testing.T) *harness {
 	t.Helper()
 	h := newHarness(t)
 	h.register("vpb", completionFixture(t))
-	h.mem.Seed("envctl/vpb/ALPHA_TOKEN", "k")
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
 	return h
 }
 
