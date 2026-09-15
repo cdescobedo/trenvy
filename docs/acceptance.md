@@ -1,7 +1,27 @@
 # Acceptance walkthrough
 
+> **The checkouts named here are placeholders — substitute your own.**
+>
+> `demo-backend`, `demo-frontend`, the paths under them
+> (`main/src/DemoApp.Api/.env_example`, `main/public/env.json.example`), the
+> variable names (`ALPHA_TOKEN`, `BETA_TOKEN`, `GAMMA_TOKEN`,
+> `APP_DB_CONNECTION`) and the project ids (`vpb-test`, `vpfe-test`) all stood
+> for the author's real projects until those identifiers were removed from this
+> repository. Nothing here will run as written against a fresh clone.
+>
+> That trade was the right one — a public repository should not carry a private
+> employer's project names — but it does mean this document is now a shape to
+> follow rather than a script to paste. Before you start, pick two of your own
+> repositories: one with secrets and a `.env`-style sample file, one with plain
+> configuration and a JSON sample. Substitute their paths, their variable names
+> and ids of your own choosing throughout, and keep the *structure* of each
+> step, which is what the criteria actually test.
+>
+> If you want something you can genuinely paste, the README's quickstart is
+> executed end to end against a scratch directory and works as written.
+
 This is the spec's acceptance criteria, meant to be run by hand against your
-real `demo-backend` and `demo-frontend` checkouts and your
+own two checkouts and your
 real OS keyring. It is deliberately **not** part of CI or of any other
 automated step:
 
