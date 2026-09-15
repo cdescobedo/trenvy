@@ -6,11 +6,11 @@ import (
 	"io/fs"
 	"os"
 
-	"github.com/cdescobedo/envctl/internal/config"
-	"github.com/cdescobedo/envctl/internal/render"
+	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/render"
 )
 
-// Status describes a rendered file's relationship to what envctl would write
+// Status describes a rendered file's relationship to what trenvy would write
 // now. Keeping two hashes in the state file — the values' and the file's —
 // separates three conditions that a single in-file header would conflate.
 type Status int
@@ -18,13 +18,13 @@ type Status int
 const (
 	// StatusAbsent: no file on disk.
 	StatusAbsent Status = iota
-	// StatusFresh: written by envctl, current, and untouched since.
+	// StatusFresh: written by trenvy, current, and untouched since.
 	StatusFresh
-	// StatusStale: written by envctl, but the manifest or keyring changed.
+	// StatusStale: written by trenvy, but the manifest or keyring changed.
 	StatusStale
-	// StatusModified: written by envctl, then hand edited.
+	// StatusModified: written by trenvy, then hand edited.
 	StatusModified
-	// StatusForeign: exists, but envctl has no record of writing it here.
+	// StatusForeign: exists, but trenvy has no record of writing it here.
 	StatusForeign
 )
 
@@ -73,12 +73,12 @@ func Inspect(absPath, wantSum string, entry config.RenderEntry, haveEntry bool) 
 	return StatusFresh, nil
 }
 
-// CheckWritable refuses to touch a file envctl did not write, or one that was
+// CheckWritable refuses to touch a file trenvy did not write, or one that was
 // hand edited after it did.
 //
 // verb names what the caller is about to do to the file ("overwrite" for
 // render, "delete" for clean). The distinction is not cosmetic: told to
-// "re-run with --force to overwrite" while running envctl clean, a user has
+// "re-run with --force to overwrite" while running trenvy clean, a user has
 // been given the wrong mental model of what they are about to lose.
 func CheckWritable(st Status, absPath, verb string, force bool) error {
 	if force {
@@ -90,13 +90,13 @@ func CheckWritable(st Status, absPath, verb string, force bool) error {
 	switch st {
 	case StatusForeign:
 		return fmt.Errorf(
-			"%s exists and envctl has no record of writing it\n"+
+			"%s exists and trenvy has no record of writing it\n"+
 				"  inspect it first, then re-run with --force to %s it\n"+
-				"  or seed a manifest from it:  envctl import %s",
+				"  or seed a manifest from it:  trenvy import %s",
 			absPath, verb, absPath)
 	case StatusModified:
 		return fmt.Errorf(
-			"%s was modified after envctl wrote it\n"+
+			"%s was modified after trenvy wrote it\n"+
 				"  re-run with --force to %s it and discard those edits",
 			absPath, verb)
 	}

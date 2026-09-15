@@ -8,13 +8,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/manifest"
 )
 
 func TestExecPassesValuesThroughTheEnvironment(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k3y")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "k3y")
 
 	var captured *exec.Cmd
 	h.opts.Run = func(c *exec.Cmd) error { captured = c; return nil }
@@ -47,7 +47,7 @@ func TestExecPassesValuesThroughTheEnvironment(t *testing.T) {
 func TestExecPutsNoValueInArgv(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "s3cretvalue")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "s3cretvalue")
 
 	var captured *exec.Cmd
 	h.opts.Run = func(c *exec.Cmd) error { captured = c; return nil }
@@ -65,7 +65,7 @@ func TestExecPutsNoValueInArgv(t *testing.T) {
 func TestExecWritesNoFile(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "k")
 	h.opts.Run = func(*exec.Cmd) error { return nil }
 
 	before := listDir(t, h.root)
@@ -80,7 +80,7 @@ func TestExecWritesNoFile(t *testing.T) {
 func TestExecRunsInTheWorktree(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "k")
 	sub := filepath.Join(h.root, "src")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
@@ -98,7 +98,7 @@ func TestExecRunsInTheWorktree(t *testing.T) {
 }
 
 // Cobra needs the -- separator: without it there is no reliable way to tell a
-// flag meant for envctl from one meant for the child, so a missing dash is an
+// flag meant for trenvy from one meant for the child, so a missing dash is an
 // error rather than a guess.
 func TestExecRequiresTheDashSeparator(t *testing.T) {
 	h := newHarness(t)
@@ -112,7 +112,7 @@ func TestExecRequiresTheDashSeparator(t *testing.T) {
 	if !strings.Contains(err.Error(), "a command must follow --") {
 		t.Errorf("error misdescribes the problem as a missing command: %v", err)
 	}
-	if !strings.Contains(err.Error(), "envctl exec -- <command>") {
+	if !strings.Contains(err.Error(), "trenvy exec -- <command>") {
 		t.Errorf("error does not give the usage: %v", err)
 	}
 }
@@ -124,7 +124,7 @@ func TestExecWarnsAboutAStaleRenderedFile(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "k")
 	if err := h.run("render", "docker"); err != nil {
 		t.Fatal(err)
 	}
@@ -145,14 +145,14 @@ func TestExecWarnsAboutAStaleRenderedFile(t *testing.T) {
 
 // The mirror image of the above, reframed for the output axis: exec no longer
 // has a target to be "the one being run", so the line that matters now is
-// which outputs it looks at. Only a file envctl actually rendered into THIS
+// which outputs it looks at. Only a file trenvy actually rendered into THIS
 // worktree can shadow the injected environment; an output that was never
 // rendered here must produce no warning and no file read.
 func TestExecDoesNotWarnAboutAnOutputNeverRenderedHere(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "k")
 	// Deliberately no render: the manifest defines "docker", but nothing has
 	// ever written src/.env in this worktree.
 	if err := h.run("set", "APP_URL", "http://+:9999"); err != nil {
@@ -168,13 +168,13 @@ func TestExecDoesNotWarnAboutAnOutputNeverRenderedHere(t *testing.T) {
 	}
 }
 
-// ENVCTL_PASSPHRASE unlocks the file secret backend; a child process has no
+// TRENVY_PASSPHRASE unlocks the file secret backend; a child process has no
 // business inheriting it just because it inherits everything else.
 func TestExecStripsThePassphraseFromTheChildEnvironment(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
-	t.Setenv("ENVCTL_PASSPHRASE", "super-secret-passphrase")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "k")
+	t.Setenv("TRENVY_PASSPHRASE", "super-secret-passphrase")
 
 	var captured *exec.Cmd
 	h.opts.Run = func(c *exec.Cmd) error { captured = c; return nil }
@@ -183,21 +183,21 @@ func TestExecStripsThePassphraseFromTheChildEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, kv := range captured.Env {
-		if strings.HasPrefix(kv, "ENVCTL_PASSPHRASE=") {
-			t.Errorf("child environment carried ENVCTL_PASSPHRASE: %v", kv)
+		if strings.HasPrefix(kv, "TRENVY_PASSPHRASE=") {
+			t.Errorf("child environment carried TRENVY_PASSPHRASE: %v", kv)
 		}
 	}
 }
 
 // main.go must be able to tell a child's own exit status apart from an
-// envctl failure, so it can propagate the child's code with no "envctl:"
+// trenvy failure, so it can propagate the child's code with no "trenvy:"
 // prefix. That requires exec's error to flow back unwrapped: this pins the
 // property main.go's own logic depends on, using a fabricated ExitError (no
 // real process is run) as the Run seam's return value.
 func TestExecSurfacesTheChildsExitErrorUnwrapped(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "k")
 
 	var ps os.ProcessState
 	want := &exec.ExitError{ProcessState: &ps}
@@ -216,7 +216,7 @@ func TestExecSurfacesTheChildsExitErrorUnwrapped(t *testing.T) {
 func TestShellRunsTheUsersShell(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "k")
 	t.Setenv("SHELL", "/bin/sh")
 
 	var captured *exec.Cmd
@@ -228,23 +228,23 @@ func TestShellRunsTheUsersShell(t *testing.T) {
 	if captured.Path != "/bin/sh" && !strings.HasSuffix(captured.Path, "/sh") {
 		t.Errorf("Path = %q, want the user's shell", captured.Path)
 	}
-	// ENVCTL_PROFILE is both the prompt marker and the variable resolve.Profile
-	// reads, so envctl run from inside the subshell stays on the profile the
+	// TRENVY_PROFILE is both the prompt marker and the variable resolve.Profile
+	// reads, so trenvy run from inside the subshell stays on the profile the
 	// subshell was loaded with.
 	var gotProfile, gotProject string
 	for _, kv := range captured.Env {
-		if v, ok := strings.CutPrefix(kv, "ENVCTL_PROFILE="); ok {
+		if v, ok := strings.CutPrefix(kv, "TRENVY_PROFILE="); ok {
 			gotProfile = v
 		}
-		if v, ok := strings.CutPrefix(kv, "ENVCTL_PROJECT="); ok {
+		if v, ok := strings.CutPrefix(kv, "TRENVY_PROJECT="); ok {
 			gotProject = v
 		}
 	}
 	if gotProfile != "dev" {
-		t.Errorf("ENVCTL_PROFILE = %q, want the active profile", gotProfile)
+		t.Errorf("TRENVY_PROFILE = %q, want the active profile", gotProfile)
 	}
 	if gotProject != "vpb" {
-		t.Errorf("ENVCTL_PROJECT = %q, want the project id", gotProject)
+		t.Errorf("TRENVY_PROJECT = %q, want the project id", gotProject)
 	}
 }
 
@@ -310,7 +310,7 @@ value = "/"
 	}
 }
 
-// `envctl exec local -- cmd` was the old spelling. It must not be read as a
+// `trenvy exec local -- cmd` was the old spelling. It must not be read as a
 // command now that the argument is gone: silently running "local" would be
 // the worst possible answer to a stale muscle memory.
 func TestExecRejectsAnArgumentBeforeTheDash(t *testing.T) {
@@ -323,7 +323,7 @@ func TestExecRejectsAnArgumentBeforeTheDash(t *testing.T) {
 	if err == nil {
 		t.Fatal("exec accepted an argument before --")
 	}
-	if !strings.Contains(err.Error(), "envctl exec -- <command>") {
+	if !strings.Contains(err.Error(), "trenvy exec -- <command>") {
 		t.Errorf("error does not give the new spelling: %v", err)
 	}
 }
@@ -391,7 +391,7 @@ func TestExecWarnsAboutAnyStaleOutputNotJustTheDefault(t *testing.T) {
 	if !strings.Contains(errOut, "public/env.json") {
 		t.Errorf("the warning does not name the stale file:\n%s", errOut)
 	}
-	if !strings.Contains(errOut, "envctl render zeta") {
+	if !strings.Contains(errOut, "trenvy render zeta") {
 		t.Errorf("the warning does not name the output to re-render:\n%s", errOut)
 	}
 	// alpha is the default output but was never rendered here, so there is no
@@ -401,8 +401,8 @@ func TestExecWarnsAboutAnyStaleOutputNotJustTheDefault(t *testing.T) {
 	}
 }
 
-// A script run under exec may itself call envctl -- `envctl -p prod exec --
-// ./deploy.sh`, where deploy.sh runs `envctl get`. Without the profile in the
+// A script run under exec may itself call trenvy -- `trenvy -p prod exec --
+// ./deploy.sh`, where deploy.sh runs `trenvy get`. Without the profile in the
 // child's environment that nested call silently falls back to
 // default_profile and reads a different keyring namespace than the one its
 // parent was told to use. Nothing errors; it just reads the wrong secret.
@@ -411,7 +411,7 @@ func TestExecExportsTheActiveProfileToTheChild(t *testing.T) {
 	m := fixtureManifest(t)
 	m.Project.Profiles = []string{"dev", "prod"}
 	h.register("vpb", m)
-	h.mem.Seed("envctl/vpb/prod/ALPHA_TOKEN", "k")
+	h.mem.Seed("trenvy/vpb/prod/ALPHA_TOKEN", "k")
 
 	var captured *exec.Cmd
 	h.opts.Run = func(c *exec.Cmd) error { captured = c; return nil }
@@ -422,25 +422,25 @@ func TestExecExportsTheActiveProfileToTheChild(t *testing.T) {
 
 	var got string
 	for _, kv := range captured.Env {
-		if v, ok := strings.CutPrefix(kv, "ENVCTL_PROFILE="); ok {
+		if v, ok := strings.CutPrefix(kv, "TRENVY_PROFILE="); ok {
 			got = v
 		}
 	}
 	if got != "prod" {
-		t.Errorf("ENVCTL_PROFILE = %q, want the profile exec actually resolved under", got)
+		t.Errorf("TRENVY_PROFILE = %q, want the profile exec actually resolved under", got)
 	}
 }
 
-// The inherited value must lose to the resolved one, or `ENVCTL_PROFILE=dev
-// envctl -p prod exec -- ...` would hand the child a profile that contradicts
+// The inherited value must lose to the resolved one, or `TRENVY_PROFILE=dev
+// trenvy -p prod exec -- ...` would hand the child a profile that contradicts
 // the values it was given.
 func TestExecOverridesAnInheritedProfileInTheChild(t *testing.T) {
 	h := newHarness(t)
 	m := fixtureManifest(t)
 	m.Project.Profiles = []string{"dev", "prod"}
 	h.register("vpb", m)
-	h.mem.Seed("envctl/vpb/prod/ALPHA_TOKEN", "k")
-	t.Setenv("ENVCTL_PROFILE", "dev")
+	h.mem.Seed("trenvy/vpb/prod/ALPHA_TOKEN", "k")
+	t.Setenv("TRENVY_PROFILE", "dev")
 
 	var captured *exec.Cmd
 	h.opts.Run = func(c *exec.Cmd) error { captured = c; return nil }
@@ -454,11 +454,11 @@ func TestExecOverridesAnInheritedProfileInTheChild(t *testing.T) {
 	// actually sees. Assert on the last occurrence for the same reason.
 	var got string
 	for _, kv := range captured.Env {
-		if v, ok := strings.CutPrefix(kv, "ENVCTL_PROFILE="); ok {
+		if v, ok := strings.CutPrefix(kv, "TRENVY_PROFILE="); ok {
 			got = v
 		}
 	}
 	if got != "prod" {
-		t.Errorf("ENVCTL_PROFILE = %q, want the --profile flag to win over the inherited value", got)
+		t.Errorf("TRENVY_PROFILE = %q, want the --profile flag to win over the inherited value", got)
 	}
 }

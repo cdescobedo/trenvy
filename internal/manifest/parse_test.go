@@ -3,7 +3,7 @@ package manifest_test
 import (
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/manifest"
 )
 
 const backendTOML = `
@@ -90,8 +90,8 @@ func TestParseDistinguishesEmptyValueFromAbsent(t *testing.T) {
 }
 
 // Maps must be non-nil even when sections are absent, so downstream code
-// can write into them without panicking (e.g., envctl set writes to
-// m.Vars[name] and envctl import writes to m.Outputs[outputName]).
+// can write into them without panicking (e.g., trenvy set writes to
+// m.Vars[name] and trenvy import writes to m.Outputs[outputName]).
 func TestParseNormalizesNilMapsToEmpty(t *testing.T) {
 	m, err := manifest.Parse([]byte("[project]\nid = \"test\"\n"))
 	if err != nil {

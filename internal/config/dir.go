@@ -1,4 +1,4 @@
-// Package config owns everything under the envctl config directory: global
+// Package config owns everything under the trenvy config directory: global
 // settings, the project registry, and per-project render state.
 package config
 
@@ -7,23 +7,23 @@ import (
 	"path/filepath"
 )
 
-// Dir returns the envctl configuration directory.
+// Dir returns the trenvy configuration directory.
 //
-// ENVCTL_CONFIG_DIR takes precedence over everything, which is what makes the
+// TRENVY_CONFIG_DIR takes precedence over everything, which is what makes the
 // whole test suite hermetic: a test points it at t.TempDir() and no real
 // configuration is ever read or written.
 func Dir() string {
-	if d := os.Getenv("ENVCTL_CONFIG_DIR"); d != "" {
+	if d := os.Getenv("TRENVY_CONFIG_DIR"); d != "" {
 		return d
 	}
 	if d := os.Getenv("XDG_CONFIG_HOME"); d != "" {
-		return filepath.Join(d, "envctl")
+		return filepath.Join(d, "trenvy")
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return ".envctl"
+		return ".trenvy"
 	}
-	return filepath.Join(home, ".config", "envctl")
+	return filepath.Join(home, ".config", "trenvy")
 }
 
 // ConfigPath is the global settings file.

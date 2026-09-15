@@ -5,20 +5,20 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/config"
-	"github.com/cdescobedo/envctl/internal/store"
+	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/store"
 )
 
 func TestOpenFileBackendUsesThePassphraseEnvVar(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("ENVCTL_CONFIG_DIR", dir)
-	t.Setenv("ENVCTL_PASSPHRASE", "pw")
+	t.Setenv("TRENVY_CONFIG_DIR", dir)
+	t.Setenv("TRENVY_PASSPHRASE", "pw")
 
 	s, err := store.Open("file", "someone")
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	if err := s.Set("envctl/p/A", "v"); err != nil {
+	if err := s.Set("trenvy/p/A", "v"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
@@ -26,7 +26,7 @@ func TestOpenFileBackendUsesThePassphraseEnvVar(t *testing.T) {
 	// fresh File on the same path and passphrase and checking the value
 	// round-trips through it.
 	again := store.NewFile(filepath.Join(config.Dir(), "secrets.age"), "pw")
-	got, err := again.Get("envctl/p/A")
+	got, err := again.Get("trenvy/p/A")
 	if err != nil {
 		t.Fatalf("Get on fresh File: %v", err)
 	}
@@ -36,14 +36,14 @@ func TestOpenFileBackendUsesThePassphraseEnvVar(t *testing.T) {
 }
 
 func TestOpenFileBackendWithoutAPassphraseExplainsItself(t *testing.T) {
-	t.Setenv("ENVCTL_CONFIG_DIR", t.TempDir())
-	t.Setenv("ENVCTL_PASSPHRASE", "")
+	t.Setenv("TRENVY_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRENVY_PASSPHRASE", "")
 
 	_, err := store.Open("file", "someone")
 	if err == nil {
 		t.Fatal("Open succeeded with no passphrase available")
 	}
-	if !strings.Contains(err.Error(), "ENVCTL_PASSPHRASE") {
+	if !strings.Contains(err.Error(), "TRENVY_PASSPHRASE") {
 		t.Errorf("error does not say how to supply one: %v", err)
 	}
 }

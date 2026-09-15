@@ -10,12 +10,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cdescobedo/envctl/internal/config"
-	"github.com/cdescobedo/envctl/internal/fsutil"
-	"github.com/cdescobedo/envctl/internal/guard"
-	"github.com/cdescobedo/envctl/internal/manifest"
-	"github.com/cdescobedo/envctl/internal/render"
-	"github.com/cdescobedo/envctl/internal/resolve"
+	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/fsutil"
+	"github.com/cdescobedo/trenvy/internal/guard"
+	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/render"
+	"github.com/cdescobedo/trenvy/internal/resolve"
 )
 
 func newRenderCmd(opts *Options) *cobra.Command {
@@ -108,7 +108,7 @@ func newRenderCmd(opts *Options) *cobra.Command {
 			return nil
 		},
 	}
-	c.Flags().BoolVar(&force, "force", false, "overwrite a file envctl did not write, or one that was edited")
+	c.Flags().BoolVar(&force, "force", false, "overwrite a file trenvy did not write, or one that was edited")
 	c.Flags().BoolVar(&allowTracked, "allow-tracked", false, "write even if git would track the path")
 	return c
 }
@@ -165,7 +165,7 @@ func newCleanCmd(opts *Options) *cobra.Command {
 			return app.State.Save()
 		},
 	}
-	c.Flags().BoolVar(&force, "force", false, "remove even a file envctl did not write, or one that was edited")
+	c.Flags().BoolVar(&force, "force", false, "remove even a file trenvy did not write, or one that was edited")
 	return c
 }
 

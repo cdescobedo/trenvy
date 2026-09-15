@@ -1,4 +1,4 @@
-module github.com/cdescobedo/envctl
+module github.com/cdescobedo/trenvy
 
 go 1.27
 

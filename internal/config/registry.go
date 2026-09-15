@@ -10,11 +10,11 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/cdescobedo/envctl/internal/fsutil"
+	"github.com/cdescobedo/trenvy/internal/fsutil"
 )
 
 // ErrNoProject is returned when a directory belongs to no registered project.
-var ErrNoProject = errors.New("no envctl project registered for this directory")
+var ErrNoProject = errors.New("no trenvy project registered for this directory")
 
 // Entry maps a project root on disk to a project id.
 type Entry struct {

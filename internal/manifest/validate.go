@@ -55,7 +55,7 @@ func (m *Manifest) Validate() error {
 		add("this manifest predates profiles: [targets] and default_target are gone.\n" +
 			"    Targets split into profiles (values) and outputs (format, path, subset),\n" +
 			"    and process targets are gone because exec and shell are the verb.\n" +
-			"    Recreate it with: envctl project init, then envctl import, then re-enter secrets")
+			"    Recreate it with: trenvy project init, then trenvy import, then re-enter secrets")
 	}
 	// No output is required: a project that only ever feeds exec and shell
 	// has nowhere to write, and the old model's dummy process target existed

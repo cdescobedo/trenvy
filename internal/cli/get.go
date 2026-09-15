@@ -7,9 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cdescobedo/envctl/internal/manifest"
-	"github.com/cdescobedo/envctl/internal/render"
-	"github.com/cdescobedo/envctl/internal/resolve"
+	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/render"
+	"github.com/cdescobedo/trenvy/internal/resolve"
 )
 
 // maskedSecret stands in for a secret's value in a table that was not asked
@@ -59,8 +59,8 @@ func newGetCmd(opts *Options) *cobra.Command {
 				return fmt.Errorf("%s is optional and has no value for profile %q", name, app.Profile.Name)
 			}
 
-			// The value and a newline, on stdout, alone: $(envctl get X) and
-			// `envctl get X | pbcopy` both depend on nothing else being here.
+			// The value and a newline, on stdout, alone: $(trenvy get X) and
+			// `trenvy get X | pbcopy` both depend on nothing else being here.
 			fmt.Fprintln(opts.Stdout, value)
 			return nil
 		},
@@ -163,8 +163,8 @@ func resolveForShow(app *appContext, output string) (resolve.Resolved, error) {
 // showMasked lists the variables without reading a single secret, narrowed to
 // one output only when one was named. The store is never opened: a masked
 // table has no use for a value, and on a prompting backend reading one per
-// secret just to print bullets would make `envctl show` cost more than
-// `envctl render`.
+// secret just to print bullets would make `trenvy show` cost more than
+// `trenvy render`.
 func showMasked(opts *Options, app *appContext, output string) error {
 	names := make([]string, 0, len(app.Manifest.Vars))
 	for name := range app.Manifest.Vars {

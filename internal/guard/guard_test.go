@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/config"
-	"github.com/cdescobedo/envctl/internal/guard"
-	"github.com/cdescobedo/envctl/internal/render"
+	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/guard"
+	"github.com/cdescobedo/trenvy/internal/render"
 )
 
 func newRepoWithGitignore(t *testing.T, lines string) string {

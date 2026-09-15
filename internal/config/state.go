@@ -10,7 +10,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/cdescobedo/envctl/internal/fsutil"
+	"github.com/cdescobedo/trenvy/internal/fsutil"
 )
 
 // RenderEntry records one render: what was written, where, and from what.

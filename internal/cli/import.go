@@ -8,10 +8,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cdescobedo/envctl/internal/config"
-	"github.com/cdescobedo/envctl/internal/manifest"
-	"github.com/cdescobedo/envctl/internal/resolve"
-	"github.com/cdescobedo/envctl/internal/sample"
+	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/resolve"
+	"github.com/cdescobedo/trenvy/internal/sample"
 )
 
 func newImportCmd(opts *Options) *cobra.Command {
@@ -86,7 +86,7 @@ func newImportCmd(opts *Options) *cobra.Command {
 			fmt.Fprintf(opts.Stdout, "imported %d variables (%d secret) from %s\n",
 				len(entries), secrets, samplePath)
 			if secrets > 0 {
-				fmt.Fprintf(opts.Stdout, "next: envctl secret set <NAME> for each secret, then envctl status\n")
+				fmt.Fprintf(opts.Stdout, "next: trenvy secret set <NAME> for each secret, then trenvy status\n")
 			}
 			return nil
 		},

@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/cdescobedo/envctl/internal/tui"
+	"github.com/cdescobedo/trenvy/internal/tui"
 )
 
 func keyRune(r rune) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}} }

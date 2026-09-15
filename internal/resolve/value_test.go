@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/resolve"
+	"github.com/cdescobedo/trenvy/internal/resolve"
 )
 
 const oneValueTOML = `
@@ -117,7 +117,7 @@ func TestValueSaysHowToStoreAMissingSecret(t *testing.T) {
 	if err == nil {
 		t.Fatal("Value succeeded with the secret absent from the keyring")
 	}
-	if !strings.Contains(err.Error(), "envctl secret set TOKEN") {
+	if !strings.Contains(err.Error(), "trenvy secret set TOKEN") {
 		t.Errorf("error does not say how to store it: %v", err)
 	}
 }

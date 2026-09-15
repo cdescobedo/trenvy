@@ -14,37 +14,37 @@ moving on. Nothing here needs root or sudo; it does need an unlocked login
 keychain (or platform equivalent) and network access to your `psql` target.
 
 **Stay in one shell for the whole walkthrough.** Every command below,
-including the Frontend section and Teardown, assumes `ENVCTL_CONFIG_DIR` is
+including the Frontend section and Teardown, assumes `TRENVY_CONFIG_DIR` is
 still exported from the first command. Criteria 4 and 5 start a long-lived
 `dotnet run` and an interactive `psql` session — natural moments to open a
-second terminal — but a fresh shell has no `ENVCTL_CONFIG_DIR`, and
-`envctl init` in that shell would register against your **real**
-`~/.config/envctl/registry.toml` instead of the scratch one. If you do need a
+second terminal — but a fresh shell has no `TRENVY_CONFIG_DIR`, and
+`trenvy init` in that shell would register against your **real**
+`~/.config/trenvy/registry.toml` instead of the scratch one. If you do need a
 new terminal at any point, note the path printed below and re-export it
-there first: `export ENVCTL_CONFIG_DIR=<that path>`.
+there first: `export TRENVY_CONFIG_DIR=<that path>`.
 
 ## Backend
 
 ```bash
-export ENVCTL_CONFIG_DIR=$(mktemp -d)
-echo "$ENVCTL_CONFIG_DIR"   # note this path in case you open a new terminal
-go build -o /tmp/envctl ./cmd/envctl
+export TRENVY_CONFIG_DIR=$(mktemp -d)
+echo "$TRENVY_CONFIG_DIR"   # note this path in case you open a new terminal
+go build -o /tmp/trenvy ./cmd/trenvy
 cd ~/workspace/demo/demo-backend
 
-/tmp/envctl init --id vpb-test
-/tmp/envctl import main/src/DemoApp.Api/.env_example --target docker
-/tmp/envctl status                       # expect three MISSING secrets
-/tmp/envctl secret set BETA_TOKEN
-/tmp/envctl secret set GAMMA_TOKEN
-/tmp/envctl secret set ALPHA_TOKEN
-/tmp/envctl status                       # expect all present, docker not rendered
+/tmp/trenvy init --id vpb-test
+/tmp/trenvy import main/src/DemoApp.Api/.env_example --target docker
+/tmp/trenvy status                       # expect three MISSING secrets
+/tmp/trenvy secret set BETA_TOKEN
+/tmp/trenvy secret set GAMMA_TOKEN
+/tmp/trenvy secret set ALPHA_TOKEN
+/tmp/trenvy status                       # expect all present, docker not rendered
 
 cd main
-/tmp/envctl render docker
+/tmp/trenvy render docker
 diff <(grep -v '^#' src/DemoApp.Api/.env | sort) \
      <(grep -v '^#' src/DemoApp.Api/.env_example | sort) || true
-/tmp/envctl status                       # expect docker fresh
-/tmp/envctl clean docker
+/tmp/trenvy status                       # expect docker fresh
+/tmp/trenvy clean docker
 ```
 
 The `import` command above opens the interactive table instead of skipping
@@ -62,23 +62,23 @@ Confirm, one criterion at a time:
    three placeholders flagged secret
 2. `status` reports every secret present after the three `secret set` calls
 3. the rendered `.env` is `0600` and parses as the same key/value set
-4. `envctl exec local -- dotnet run --no-launch-profile --project src/DemoApp.Api`
+4. `trenvy exec local -- dotnet run --no-launch-profile --project src/DemoApp.Api`
    starts the API with no file written
-5. `envctl shell local`, then `psql "$APP_DB_CONNECTION"`, connects
-6. `git worktree add ../FEAT-TEST && cd ../FEAT-TEST && /tmp/envctl render docker`
+5. `trenvy shell local`, then `psql "$APP_DB_CONNECTION"`, connects
+6. `git worktree add ../FEAT-TEST && cd ../FEAT-TEST && /tmp/trenvy render docker`
    works with no setup
-7. `envctl edit`, change one value, save, then `status` reports the rendered
+7. `trenvy edit`, change one value, save, then `status` reports the rendered
    file `STALE`
 
 ## Frontend
 
 ```bash
-# Same shell as above — confirm with: echo "$ENVCTL_CONFIG_DIR"
+# Same shell as above — confirm with: echo "$TRENVY_CONFIG_DIR"
 # If it's empty (new terminal), re-export the path you noted earlier first.
 cd ~/workspace/demo/demo-frontend
-/tmp/envctl init --id vpfe-test
-/tmp/envctl import main/public/env.json.example --no-tui --target web
-cd main && /tmp/envctl render web && cat public/env.json
+/tmp/trenvy init --id vpfe-test
+/tmp/trenvy import main/public/env.json.example --no-tui --target web
+cd main && /tmp/trenvy render web && cat public/env.json
 ```
 
 Confirm: five plain variables, no keyring use at all, and `public/env.json` is
@@ -87,34 +87,34 @@ byte-clean flat JSON that `src/main.tsx` can load.
 ## Tear down
 
 The `secret set` calls in the Backend section wrote persistent entries into
-your **real** OS keychain — `ENVCTL_CONFIG_DIR` sandboxes only the config
+your **real** OS keychain — `TRENVY_CONFIG_DIR` sandboxes only the config
 directory, not the keyring. Remove them, and the test worktree, before
-discarding the scratch config; once it's gone, so is the only envctl-mediated
+discarding the scratch config; once it's gone, so is the only trenvy-mediated
 route back to those entries.
 
-Still in the same shell, with `ENVCTL_CONFIG_DIR` still exported:
+Still in the same shell, with `TRENVY_CONFIG_DIR` still exported:
 
 ```bash
 cd ~/workspace/demo/demo-backend
-/tmp/envctl secret rm BETA_TOKEN --yes
-/tmp/envctl secret rm GAMMA_TOKEN --yes
-/tmp/envctl secret rm ALPHA_TOKEN --yes
+/tmp/trenvy secret rm BETA_TOKEN --yes
+/tmp/trenvy secret rm GAMMA_TOKEN --yes
+/tmp/trenvy secret rm ALPHA_TOKEN --yes
 
 cd main
 git worktree remove ../FEAT-TEST
 
-rm -rf "$ENVCTL_CONFIG_DIR"
+rm -rf "$TRENVY_CONFIG_DIR"
 ```
 
 If the scratch config is already gone or `secret rm` isn't an option, delete
 the entries directly instead: the service-name pattern is
-`envctl/{project}/{name}`, so for this walkthrough the exact keychain
-services are `envctl/vpb-test/BETA_TOKEN`,
-`envctl/vpb-test/GAMMA_TOKEN`, and
-`envctl/vpb-test/ALPHA_TOKEN` — find and remove these in Keychain Access
+`trenvy/{project}/{name}`, so for this walkthrough the exact keychain
+services are `trenvy/vpb-test/BETA_TOKEN`,
+`trenvy/vpb-test/GAMMA_TOKEN`, and
+`trenvy/vpb-test/ALPHA_TOKEN` — find and remove these in Keychain Access
 (or your platform's Secret Service / Credential Manager UI).
 
-This leaves your real `~/.config/envctl` (if any) untouched, removes the
+This leaves your real `~/.config/trenvy` (if any) untouched, removes the
 scratch config directory, the `../FEAT-TEST` worktree, and the three keychain
 entries created above. Once you've confirmed all criteria above, the real
 `mise.toml` in these repositories is redundant and can be retired.

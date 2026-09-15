@@ -13,11 +13,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cdescobedo/envctl/internal/config"
-	"github.com/cdescobedo/envctl/internal/manifest"
-	"github.com/cdescobedo/envctl/internal/resolve"
-	"github.com/cdescobedo/envctl/internal/store"
-	"github.com/cdescobedo/envctl/internal/tui"
+	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/resolve"
+	"github.com/cdescobedo/trenvy/internal/store"
+	"github.com/cdescobedo/trenvy/internal/tui"
 )
 
 // Options are the seams that make the CLI testable: streams, the working
@@ -28,7 +28,7 @@ type Options struct {
 	Stderr  io.Writer
 	Dir     string
 	Backend string
-	// Profile is the --profile flag. Empty means fall back to ENVCTL_PROFILE
+	// Profile is the --profile flag. Empty means fall back to TRENVY_PROFILE
 	// and then the manifest's default_profile.
 	Profile  string
 	NewStore func(cfg *config.Config, backend string) (store.Store, error)
@@ -54,7 +54,7 @@ func Default() Options {
 		Stderr: os.Stderr,
 		Dir:    dir,
 		NewStore: func(cfg *config.Config, backend string) (store.Store, error) {
-			// store.Open falls back to ENVCTL_BACKEND and then the platform
+			// store.Open falls back to TRENVY_BACKEND and then the platform
 			// default when backend is empty, so the precedence here is
 			// simply flag > env var > platform default. Nothing else in the
 			// CLI reimplements that precedence.
@@ -109,7 +109,7 @@ func (o Options) resolveApp() (*appContext, error) {
 	entry, ok := reg.Lookup(o.Dir)
 	if !ok {
 		return nil, fmt.Errorf(
-			"%s is not inside a registered envctl project\n  register one with: envctl project init", o.Dir)
+			"%s is not inside a registered trenvy project\n  register one with: trenvy project init", o.Dir)
 	}
 
 	m, err := manifest.Load(config.ManifestPath(entry.ID))
@@ -173,7 +173,7 @@ func (a *appContext) service(name string) string {
 //
 // cmd supplies its own path for the hint. Several commands share this, so a
 // hard-coded example is wrong for all but one of them -- and telling someone
-// who ran `envctl clean` to run `envctl render` hands them the opposite of
+// who ran `trenvy clean` to run `trenvy render` hands them the opposite of
 // what they asked for.
 func (a *appContext) outputOrDefault(cmd *cobra.Command, name string) (string, error) {
 	if name == "" {
@@ -192,7 +192,7 @@ func (a *appContext) outputOrDefault(cmd *cobra.Command, name string) (string, e
 // Execute runs the CLI with args.
 func Execute(opts Options, args []string) error {
 	root := &cobra.Command{
-		Use:           "envctl",
+		Use:           "trenvy",
 		Short:         "Project environment variables, with secrets in the OS keyring",
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -204,7 +204,7 @@ func Execute(opts Options, args []string) error {
 	root.PersistentFlags().StringVar(&opts.Backend, "backend", "",
 		"secret backend: keychain, system, file, mem")
 	root.PersistentFlags().StringVarP(&opts.Profile, "profile", "p", "",
-		"value set to use: overrides ENVCTL_PROFILE and the manifest default")
+		"value set to use: overrides TRENVY_PROFILE and the manifest default")
 
 	root.AddCommand(
 		newProjectCmd(&opts),

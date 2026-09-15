@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/config"
-	"github.com/cdescobedo/envctl/internal/manifest"
-	"github.com/cdescobedo/envctl/internal/store"
+	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/store"
 )
 
 // set now writes the active profile's override, not the shared Value -- see
@@ -69,7 +69,7 @@ func TestSetRefusesToOverwriteASecretWithAPlainValue(t *testing.T) {
 	if err == nil {
 		t.Fatal("set overwrote a secret with a plain value")
 	}
-	if !strings.Contains(err.Error(), "envctl secret set") {
+	if !strings.Contains(err.Error(), "trenvy secret set") {
 		t.Errorf("error does not point at the right command: %v", err)
 	}
 	// The rejected value must not appear anywhere.
@@ -87,7 +87,7 @@ func TestSecretSetStoresInTheStoreNotTheManifest(t *testing.T) {
 		t.Fatalf("secret set: %v", err)
 	}
 
-	got, err := h.mem.Get("envctl/vpb/dev/ALPHA_TOKEN")
+	got, err := h.mem.Get("trenvy/vpb/dev/ALPHA_TOKEN")
 	if err != nil {
 		t.Fatalf("store Get: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestSecretSetTrimsOnlyTheTrailingNewline(t *testing.T) {
 	if err := h.run("secret", "set", "K", "--stdin"); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := h.mem.Get("envctl/vpb/dev/K")
+	got, _ := h.mem.Get("trenvy/vpb/dev/K")
 	if got != "  padded value  " {
 		t.Errorf("stored = %q; leading and trailing spaces are part of a secret", got)
 	}
@@ -132,12 +132,12 @@ func TestSecretSetTrimsOnlyTheTrailingNewline(t *testing.T) {
 func TestSecretRmDeletesFromTheStore(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "v")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "v")
 
 	if err := h.run("secret", "rm", "ALPHA_TOKEN", "--yes"); err != nil {
 		t.Fatalf("secret rm: %v", err)
 	}
-	if ok, _ := h.mem.Has("envctl/vpb/dev/ALPHA_TOKEN"); ok {
+	if ok, _ := h.mem.Has("trenvy/vpb/dev/ALPHA_TOKEN"); ok {
 		t.Error("the item is still in the store")
 	}
 	// The variable stays in the manifest; only its value is gone.
@@ -150,7 +150,7 @@ func TestSecretRmDeletesFromTheStore(t *testing.T) {
 func TestUnsetRemovesTheVariableAndItsSecret(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "v")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "v")
 
 	if err := h.run("unset", "ALPHA_TOKEN", "--yes"); err != nil {
 		t.Fatalf("unset: %v", err)
@@ -159,7 +159,7 @@ func TestUnsetRemovesTheVariableAndItsSecret(t *testing.T) {
 	if _, ok := m.Vars["ALPHA_TOKEN"]; ok {
 		t.Error("the variable is still in the manifest")
 	}
-	if ok, _ := h.mem.Has("envctl/vpb/dev/ALPHA_TOKEN"); ok {
+	if ok, _ := h.mem.Has("trenvy/vpb/dev/ALPHA_TOKEN"); ok {
 		t.Error("the keyring item was left behind")
 	}
 }
@@ -216,14 +216,14 @@ func TestSetRefusesASecretVariable(t *testing.T) {
 	if err == nil {
 		t.Fatal("set wrote to a secret variable")
 	}
-	if !strings.Contains(err.Error(), "envctl secret set") {
+	if !strings.Contains(err.Error(), "trenvy secret set") {
 		t.Errorf("error does not point at the safe command: %v", err)
 	}
 }
 
 // manifest.Validate() would also reject this -- a secret may not carry a
 // Value -- but its message describes the manifest, not what the user should
-// do about it. The explicit guard in set is what points at "envctl secret
+// do about it. The explicit guard in set is what points at "trenvy secret
 // set", so the assertion checks for that message specifically: deleting the
 // guard and falling back to Validate's rejection alone must fail this test.
 func TestSetSharedAlsoRefusesASecretVariable(t *testing.T) {
@@ -235,7 +235,7 @@ func TestSetSharedAlsoRefusesASecretVariable(t *testing.T) {
 	if err == nil {
 		t.Fatal("set --shared wrote to a secret variable")
 	}
-	if !strings.Contains(err.Error(), "envctl secret set") {
+	if !strings.Contains(err.Error(), "trenvy secret set") {
 		t.Errorf("error does not point at the safe command: %v", err)
 	}
 }
@@ -301,8 +301,8 @@ func TestUnsetDeletesTheSecretInEveryProfile(t *testing.T) {
 	m := fixtureManifest(t)
 	m.Project.Profiles = []string{"dev", "prod"}
 	h.register("vpb", m)
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "d")
-	h.mem.Seed("envctl/vpb/prod/ALPHA_TOKEN", "p")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "d")
+	h.mem.Seed("trenvy/vpb/prod/ALPHA_TOKEN", "p")
 
 	if err := h.run("unset", "ALPHA_TOKEN", "--yes"); err != nil {
 		t.Fatalf("unset: %v", err)
@@ -310,8 +310,8 @@ func TestUnsetDeletesTheSecretInEveryProfile(t *testing.T) {
 
 	calls := strings.Join(h.mem.Calls(), " ")
 	for _, want := range []string{
-		"Delete envctl/vpb/dev/ALPHA_TOKEN",
-		"Delete envctl/vpb/prod/ALPHA_TOKEN",
+		"Delete trenvy/vpb/dev/ALPHA_TOKEN",
+		"Delete trenvy/vpb/prod/ALPHA_TOKEN",
 	} {
 		if !strings.Contains(calls, want) {
 			t.Errorf("missing %q in %v", want, h.mem.Calls())
@@ -332,7 +332,7 @@ func TestUnsetToleratesASecretNeverStoredInSomeProfiles(t *testing.T) {
 	h.register("vpb", m)
 	// Only dev has ever had a value stored; prod is declared but unseeded --
 	// its delete must return store.ErrNotFound rather than block the rest.
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "d")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "d")
 
 	if err := h.run("unset", "ALPHA_TOKEN", "--yes"); err != nil {
 		t.Fatalf("unset: %v", err)
@@ -340,8 +340,8 @@ func TestUnsetToleratesASecretNeverStoredInSomeProfiles(t *testing.T) {
 
 	calls := strings.Join(h.mem.Calls(), " ")
 	for _, want := range []string{
-		"Delete envctl/vpb/dev/ALPHA_TOKEN",
-		"Delete envctl/vpb/prod/ALPHA_TOKEN",
+		"Delete trenvy/vpb/dev/ALPHA_TOKEN",
+		"Delete trenvy/vpb/prod/ALPHA_TOKEN",
 	} {
 		if !strings.Contains(calls, want) {
 			t.Errorf("missing %q in %v", want, h.mem.Calls())
@@ -393,8 +393,8 @@ func TestUnsetSaysHowManyProfilesWereAlreadyClearedWhenADeleteFails(t *testing.T
 	m := fixtureManifest(t)
 	m.Project.Profiles = []string{"dev", "prod", "staging"}
 	h.register("vpb", m)
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "d")
-	h.mem.Seed("envctl/vpb/prod/ALPHA_TOKEN", "p")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "d")
+	h.mem.Seed("trenvy/vpb/prod/ALPHA_TOKEN", "p")
 	// dev and prod succeed; staging fails, so exactly 2 profiles' items are
 	// already gone by the time the error is written.
 	h.opts.NewStore = func(*config.Config, string) (store.Store, error) {

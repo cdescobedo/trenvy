@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/cdescobedo/envctl/internal/resolve"
+	"github.com/cdescobedo/trenvy/internal/resolve"
 )
 
 // Sum returns a keyed digest of an output's resolved values, used to detect
@@ -15,7 +15,7 @@ import (
 //
 // It is keyed by the project salt rather than a plain hash. The digest is
 // stored in the state file; an unkeyed digest of a low-entropy secret could be
-// brute-forced from there, which would mean envctl's own bookkeeping weakened
+// brute-forced from there, which would mean trenvy's own bookkeeping weakened
 // the secrets it exists to protect.
 func Sum(salt string, r resolve.Resolved) string {
 	mac := hmac.New(sha256.New, []byte(salt))
@@ -27,7 +27,7 @@ func Sum(salt string, r resolve.Resolved) string {
 }
 
 // FileSum digests the bytes of a rendered file, used to detect that someone
-// hand-edited it after envctl wrote it.
+// hand-edited it after trenvy wrote it.
 func FileSum(data []byte) string {
 	h := sha256.Sum256(data)
 	return hex.EncodeToString(h[:])

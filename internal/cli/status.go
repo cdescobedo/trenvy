@@ -9,12 +9,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cdescobedo/envctl/internal/config"
-	"github.com/cdescobedo/envctl/internal/guard"
-	"github.com/cdescobedo/envctl/internal/manifest"
-	"github.com/cdescobedo/envctl/internal/render"
-	"github.com/cdescobedo/envctl/internal/resolve"
-	"github.com/cdescobedo/envctl/internal/store"
+	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/guard"
+	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/render"
+	"github.com/cdescobedo/trenvy/internal/resolve"
+	"github.com/cdescobedo/trenvy/internal/store"
 )
 
 func newStatusCmd(opts *Options) *cobra.Command {
@@ -33,7 +33,7 @@ func newStatusCmd(opts *Options) *cobra.Command {
 
 			fmt.Fprintf(out, "project   %s\n", app.Entry.ID)
 			// The profile decides every value below, and a stale exported
-			// ENVCTL_PROFILE is invisible until something names it -- so the
+			// TRENVY_PROFILE is invisible until something names it -- so the
 			// header reports where the name came from, not just what it is.
 			fmt.Fprintf(out, "profile   %s  (%s)\n", app.Profile.Name, app.Profile.Source)
 			fmt.Fprintf(out, "manifest  %s\n", config.ManifestPath(app.Entry.ID))
@@ -71,7 +71,7 @@ func newStatusCmd(opts *Options) *cobra.Command {
 					fmt.Fprintf(vw, "  present\t%s\n", n)
 				} else {
 					missing++
-					fmt.Fprintf(vw, "  MISSING\t%s\t-> envctl secret set %s\n", n, n)
+					fmt.Fprintf(vw, "  MISSING\t%s\t-> trenvy secret set %s\n", n, n)
 				}
 			}
 			if err := vw.Flush(); err != nil {
@@ -105,7 +105,7 @@ func describeOutput(opts *Options, app *appContext, name string, o manifest.Outp
 	if secretsMissing {
 		st, err := guard.Inspect(abs, "", entry, have)
 		if err != nil {
-			fmt.Fprintf(opts.Stderr, "envctl: status: %s: %v\n", name, err)
+			fmt.Fprintf(opts.Stderr, "trenvy: status: %s: %v\n", name, err)
 			return "?"
 		}
 		if st == guard.StatusAbsent {
@@ -117,7 +117,7 @@ func describeOutput(opts *Options, app *appContext, name string, o manifest.Outp
 	if quick {
 		hasSecret, err := resolve.OutputHasSecret(app.Manifest, name)
 		if err != nil {
-			fmt.Fprintf(opts.Stderr, "envctl: status: %s: %v\n", name, err)
+			fmt.Fprintf(opts.Stderr, "trenvy: status: %s: %v\n", name, err)
 			return "?"
 		}
 		if hasSecret {
@@ -127,12 +127,12 @@ func describeOutput(opts *Options, app *appContext, name string, o manifest.Outp
 
 	values, err := resolve.Values(app.Manifest, app.Profile.Name, name, app.secretLookup())
 	if err != nil {
-		fmt.Fprintf(opts.Stderr, "envctl: status: %s: %v\n", name, err)
+		fmt.Fprintf(opts.Stderr, "trenvy: status: %s: %v\n", name, err)
 		return "?"
 	}
 	st, err := guard.Inspect(abs, render.Sum(app.Manifest.Project.Salt, values), entry, have)
 	if err != nil {
-		fmt.Fprintf(opts.Stderr, "envctl: status: %s: %v\n", name, err)
+		fmt.Fprintf(opts.Stderr, "trenvy: status: %s: %v\n", name, err)
 		return "?"
 	}
 	if st == guard.StatusAbsent {

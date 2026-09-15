@@ -13,7 +13,7 @@ import (
 
 	"filippo.io/age"
 
-	"github.com/cdescobedo/envctl/internal/fsutil"
+	"github.com/cdescobedo/trenvy/internal/fsutil"
 )
 
 // File is an age-encrypted store for machines with no OS keyring: containers,

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/fsutil"
+	"github.com/cdescobedo/trenvy/internal/fsutil"
 )
 
 func TestWriteAtomicCreatesAPrivateFile(t *testing.T) {

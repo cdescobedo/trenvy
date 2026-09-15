@@ -1,6 +1,6 @@
 // Package fsutil holds filesystem primitives shared across packages that
 // otherwise have no dependency on one another. It imports nothing from
-// within envctl, which is what lets both render and store depend on it
+// within trenvy, which is what lets both render and store depend on it
 // without creating a cycle.
 package fsutil
 
@@ -21,7 +21,7 @@ func WriteAtomic(path string, data []byte) error {
 		return fmt.Errorf("create %s: %w", dir, err)
 	}
 
-	tmp, err := os.CreateTemp(dir, ".envctl-*")
+	tmp, err := os.CreateTemp(dir, ".trenvy-*")
 	if err != nil {
 		return fmt.Errorf("create temp file in %s: %w", dir, err)
 	}

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/config"
-	"github.com/cdescobedo/envctl/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/manifest"
 )
 
 func TestImportSeedsTheManifestFromADotenvSample(t *testing.T) {

@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/manifest"
-	"github.com/cdescobedo/envctl/internal/resolve"
-	"github.com/cdescobedo/envctl/internal/store"
+	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/resolve"
+	"github.com/cdescobedo/trenvy/internal/store"
 )
 
 func mustParse(t *testing.T, src string) *manifest.Manifest {
@@ -169,7 +169,7 @@ func TestValuesFailsOnMissingSecretNamingTheVariable(t *testing.T) {
 	if !strings.Contains(err.Error(), "TOKEN") {
 		t.Errorf("error does not name the variable: %v", err)
 	}
-	if !strings.Contains(err.Error(), "envctl secret set TOKEN") {
+	if !strings.Contains(err.Error(), "trenvy secret set TOKEN") {
 		t.Errorf("error does not suggest the fix: %v", err)
 	}
 }

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/manifest"
-	"github.com/cdescobedo/envctl/internal/resolve"
+	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/resolve"
 )
 
 // OutputHasSecret decides whether "status --quick" can report real freshness

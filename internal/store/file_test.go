@@ -7,26 +7,26 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/store"
+	"github.com/cdescobedo/trenvy/internal/store"
 )
 
 func TestFileStoreRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "secrets.age")
 	f := store.NewFile(path, "correct horse")
 
-	if ok, err := f.Has("envctl/p/A"); err != nil || ok {
+	if ok, err := f.Has("trenvy/p/A"); err != nil || ok {
 		t.Fatalf("Has on empty = (%v, %v)", ok, err)
 	}
-	if err := f.Set("envctl/p/A", "one"); err != nil {
+	if err := f.Set("trenvy/p/A", "one"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	if err := f.Set("envctl/p/B", "two"); err != nil {
+	if err := f.Set("trenvy/p/B", "two"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
 	// A fresh instance proves the data survived the round trip to disk.
 	again := store.NewFile(path, "correct horse")
-	got, err := again.Get("envctl/p/A")
+	got, err := again.Get("trenvy/p/A")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -34,10 +34,10 @@ func TestFileStoreRoundTrip(t *testing.T) {
 		t.Errorf("Get = %q, want one", got)
 	}
 
-	if err := again.Delete("envctl/p/A"); err != nil {
+	if err := again.Delete("trenvy/p/A"); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if ok, _ := store.NewFile(path, "correct horse").Has("envctl/p/A"); ok {
+	if ok, _ := store.NewFile(path, "correct horse").Has("trenvy/p/A"); ok {
 		t.Error("deleted item came back")
 	}
 }
@@ -45,7 +45,7 @@ func TestFileStoreRoundTrip(t *testing.T) {
 func TestFileStoreIsEncryptedAtRest(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "secrets.age")
 	f := store.NewFile(path, "pw")
-	if err := f.Set("envctl/p/A", "plaintextsecret"); err != nil {
+	if err := f.Set("trenvy/p/A", "plaintextsecret"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -56,7 +56,7 @@ func TestFileStoreIsEncryptedAtRest(t *testing.T) {
 	if strings.Contains(string(data), "plaintextsecret") {
 		t.Error("the value is readable in the file on disk")
 	}
-	if strings.Contains(string(data), "envctl/p/A") {
+	if strings.Contains(string(data), "trenvy/p/A") {
 		t.Error("the service name is readable in the file on disk")
 	}
 }
@@ -96,7 +96,7 @@ func TestFileStoreRejectsOversizedValues(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "secrets.age")
 	f := store.NewFile(path, "pw")
 
-	err := f.Set("envctl/p/BIG", strings.Repeat("x", store.MaxValueBytes+1))
+	err := f.Set("trenvy/p/BIG", strings.Repeat("x", store.MaxValueBytes+1))
 	if !errors.Is(err, store.ErrTooLong) {
 		t.Fatalf("Set over the size limit: got %v, want ErrTooLong", err)
 	}

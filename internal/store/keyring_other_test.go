@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/store"
+	"github.com/cdescobedo/trenvy/internal/store"
 )
 
 func TestSystemKeyringSatisfiesStore(t *testing.T) {
@@ -19,7 +19,7 @@ func TestSystemKeyringSatisfiesStore(t *testing.T) {
 // limit is checked up front on every platform that shares this backend.
 func TestSystemKeyringRejectsOversizedValues(t *testing.T) {
 	k := store.NewSystemKeyring("someone")
-	err := k.Set("envctl/p/BIG", strings.Repeat("x", 2561))
+	err := k.Set("trenvy/p/BIG", strings.Repeat("x", 2561))
 	if err == nil {
 		t.Fatal("Set accepted a value over the 2560-byte limit")
 	}

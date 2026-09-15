@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/config"
-	"github.com/cdescobedo/envctl/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/manifest"
 )
 
 func profileHarness(t *testing.T) *harness {
@@ -49,14 +49,14 @@ func TestProfileWithNoSubcommandNamesTheActiveProfileAndItsSource(t *testing.T) 
 
 func TestProfileNamesTheEnvVarAsItsSource(t *testing.T) {
 	h := profileHarness(t)
-	t.Setenv("ENVCTL_PROFILE", "prod")
+	t.Setenv("TRENVY_PROFILE", "prod")
 
 	if err := h.run("profile"); err != nil {
 		t.Fatalf("profile: %v", err)
 	}
 
 	out := h.out.String()
-	if !strings.Contains(out, "prod") || !strings.Contains(out, "ENVCTL_PROFILE") {
+	if !strings.Contains(out, "prod") || !strings.Contains(out, "TRENVY_PROFILE") {
 		t.Errorf("output does not blame the environment variable:\n%s", out)
 	}
 }
@@ -65,7 +65,7 @@ func TestProfileNamesTheEnvVarAsItsSource(t *testing.T) {
 // showed only one of them would hide the difference.
 func TestProfileListMarksActiveAndDefaultSeparately(t *testing.T) {
 	h := profileHarness(t)
-	t.Setenv("ENVCTL_PROFILE", "prod")
+	t.Setenv("TRENVY_PROFILE", "prod")
 
 	if err := h.run("profile", "list"); err != nil {
 		t.Fatalf("profile list: %v", err)
@@ -140,7 +140,7 @@ func TestProfileUseEmitsOnlyAnExportOnStdout(t *testing.T) {
 		t.Fatalf("profile use: %v", err)
 	}
 
-	if got, want := h.out.String(), "export ENVCTL_PROFILE=prod\n"; got != want {
+	if got, want := h.out.String(), "export TRENVY_PROFILE=prod\n"; got != want {
 		t.Errorf("stdout = %q, want %q", got, want)
 	}
 }
@@ -208,11 +208,11 @@ func TestProfileRmDeletesTheProfilesSecretsAndOverrides(t *testing.T) {
 	if err := manifest.Save(config.ManifestPath("vpb"), m); err != nil {
 		t.Fatal(err)
 	}
-	h.mem.Seed("envctl/vpb/prod/ALPHA_TOKEN", "k")
+	h.mem.Seed("trenvy/vpb/prod/ALPHA_TOKEN", "k")
 	// The same secret name under a different profile must survive rm: that
 	// is the property the explicit per-name ServiceName call (rather than
 	// app.service, which is bound to the active profile) exists to protect.
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "kept")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "kept")
 
 	if err := h.run("profile", "rm", "prod", "--yes"); err != nil {
 		t.Fatalf("profile rm: %v", err)
@@ -228,13 +228,13 @@ func TestProfileRmDeletesTheProfilesSecretsAndOverrides(t *testing.T) {
 		t.Error("the prod override survived")
 	}
 	calls := strings.Join(h.mem.Calls(), " ")
-	if !strings.Contains(calls, "Delete envctl/vpb/prod/ALPHA_TOKEN") {
+	if !strings.Contains(calls, "Delete trenvy/vpb/prod/ALPHA_TOKEN") {
 		t.Errorf("the prod secret was not deleted: %v", h.mem.Calls())
 	}
-	if !strings.Contains(calls, "Delete envctl/vpb/prod/OTHER_API_KEY") {
+	if !strings.Contains(calls, "Delete trenvy/vpb/prod/OTHER_API_KEY") {
 		t.Errorf("the never-stored prod secret was not attempted: %v", h.mem.Calls())
 	}
-	if v, err := h.mem.Get("envctl/vpb/dev/ALPHA_TOKEN"); err != nil || v != "kept" {
+	if v, err := h.mem.Get("trenvy/vpb/dev/ALPHA_TOKEN"); err != nil || v != "kept" {
 		t.Errorf("a different profile's same-named secret did not survive: %q, %v", v, err)
 	}
 	// Two secrets are declared but only one was ever stored under prod, so
@@ -278,7 +278,7 @@ func TestProfileRmRefusesThePersistedDefault(t *testing.T) {
 
 func TestProfileRmRefusesTheActiveProfile(t *testing.T) {
 	h := profileHarness(t)
-	t.Setenv("ENVCTL_PROFILE", "prod")
+	t.Setenv("TRENVY_PROFILE", "prod")
 
 	err := h.run("profile", "rm", "prod", "--yes")
 

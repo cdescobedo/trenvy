@@ -1,4 +1,4 @@
-// Package manifest defines the per-project envctl manifest: the single source
+// Package manifest defines the per-project trenvy manifest: the single source
 // of truth for a project's variable names, secret-ness, plain values and
 // outputs. Secret values are never stored here.
 package manifest
@@ -23,7 +23,7 @@ type Project struct {
 	// selects what a variable's value is, including which keyring item a
 	// secret reads, and is independent of which output it is written to.
 	Profiles []string `toml:"profiles,omitempty"`
-	// DefaultProfile is used when neither --profile nor ENVCTL_PROFILE says
+	// DefaultProfile is used when neither --profile nor TRENVY_PROFILE says
 	// otherwise. It must be one of Profiles.
 	DefaultProfile string `toml:"default_profile"`
 	// Output names the output `render` writes when given no argument. It may

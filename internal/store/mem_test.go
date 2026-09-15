@@ -4,12 +4,12 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/store"
+	"github.com/cdescobedo/trenvy/internal/store"
 )
 
 func TestMemSetGetHasDelete(t *testing.T) {
 	m := store.NewMem()
-	const svc = "envctl/p/TOKEN"
+	const svc = "trenvy/p/TOKEN"
 
 	if ok, err := m.Has(svc); err != nil || ok {
 		t.Fatalf("Has on empty store = (%v, %v), want (false, nil)", ok, err)
@@ -48,20 +48,20 @@ func TestMemSetGetHasDelete(t *testing.T) {
 // must not fall through to Get. Recording calls lets tests assert that.
 func TestMemRecordsCallsSoTestsCanAssertHasDoesNotRead(t *testing.T) {
 	m := store.NewMem()
-	m.Seed("envctl/p/A", "v")
+	m.Seed("trenvy/p/A", "v")
 
-	if _, err := m.Has("envctl/p/A"); err != nil {
+	if _, err := m.Has("trenvy/p/A"); err != nil {
 		t.Fatal(err)
 	}
 	calls := m.Calls()
-	if len(calls) != 1 || calls[0] != "Has envctl/p/A" {
+	if len(calls) != 1 || calls[0] != "Has trenvy/p/A" {
 		t.Fatalf("Calls() = %v, want exactly one Has", calls)
 	}
 }
 
 func TestMemSeedDoesNotCountAsACall(t *testing.T) {
 	m := store.NewMem()
-	m.Seed("envctl/p/A", "v")
+	m.Seed("trenvy/p/A", "v")
 	if len(m.Calls()) != 0 {
 		t.Errorf("Calls() = %v, want empty after Seed", m.Calls())
 	}

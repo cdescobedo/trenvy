@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/manifest"
 )
 
 func parseOrFatal(t *testing.T, src string) *manifest.Manifest {
@@ -296,7 +296,7 @@ default_profile = "dev"
 			if err == nil {
 				t.Fatal("Validate accepted a pre-profile manifest")
 			}
-			if !strings.Contains(err.Error(), "envctl project init") {
+			if !strings.Contains(err.Error(), "trenvy project init") {
 				t.Errorf("error does not say how to recover: %v", err)
 			}
 		})

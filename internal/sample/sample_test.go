@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/sample"
+	"github.com/cdescobedo/trenvy/internal/sample"
 )
 
 func TestParseDotenv(t *testing.T) {

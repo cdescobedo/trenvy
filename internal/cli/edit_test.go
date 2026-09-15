@@ -6,9 +6,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/cdescobedo/envctl/internal/config"
-	"github.com/cdescobedo/envctl/internal/manifest"
-	"github.com/cdescobedo/envctl/internal/tui"
+	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/tui"
 )
 
 func keyRunes(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)} }
@@ -42,7 +42,7 @@ func TestEditSavesPlainValuesToTheManifestAndSecretsToTheStore(t *testing.T) {
 		t.Errorf("new plain value = %q", got)
 	}
 
-	got, err := h.mem.Get("envctl/vpb/dev/ALPHA_TOKEN")
+	got, err := h.mem.Get("trenvy/vpb/dev/ALPHA_TOKEN")
 	if err != nil {
 		t.Fatalf("store Get: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestEditWritesOnlyChangedSecrets(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t)
 			h.register("vpb", fixtureManifest(t))
-			h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "unchanged")
+			h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "unchanged")
 
 			h.opts.RunTUI = func(m tui.Model, _ func(string) (string, error)) (tui.Model, error) {
 				return markSaved(tui.New("vpb", []tui.Row{
@@ -107,7 +107,7 @@ func TestEditWritesOnlyChangedSecrets(t *testing.T) {
 func TestEditAppliesDeletions(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "v")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "v")
 
 	h.opts.RunTUI = func(m tui.Model, _ func(string) (string, error)) (tui.Model, error) {
 		return markSaved(tui.New("vpb", []tui.Row{
@@ -123,7 +123,7 @@ func TestEditAppliesDeletions(t *testing.T) {
 	if _, ok := m.Vars["ALPHA_TOKEN"]; ok {
 		t.Error("the deleted variable is still in the manifest")
 	}
-	if ok, _ := h.mem.Has("envctl/vpb/dev/ALPHA_TOKEN"); ok {
+	if ok, _ := h.mem.Has("trenvy/vpb/dev/ALPHA_TOKEN"); ok {
 		t.Error("the deleted variable's keyring item was left behind")
 	}
 }
@@ -138,7 +138,7 @@ func TestEditAppliesDeletions(t *testing.T) {
 func TestEditTogglingSecretToPlainDeletesTheOldKeyringItem(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "old-secret-value")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "old-secret-value")
 
 	h.opts.RunTUI = func(m tui.Model, _ func(string) (string, error)) (tui.Model, error) {
 		return markSaved(tui.New("vpb", []tui.Row{
@@ -157,7 +157,7 @@ func TestEditTogglingSecretToPlainDeletesTheOldKeyringItem(t *testing.T) {
 	if v := m.Vars["ALPHA_TOKEN"]; v.Secret || v.Value == nil || *v.Value != "now-plain" {
 		t.Errorf("ALPHA_TOKEN = %+v, want a plain var with value %q", v, "now-plain")
 	}
-	if ok, _ := h.mem.Has("envctl/vpb/dev/ALPHA_TOKEN"); ok {
+	if ok, _ := h.mem.Has("trenvy/vpb/dev/ALPHA_TOKEN"); ok {
 		t.Error("the old secret's keyring item survived the secret-to-plain toggle")
 	}
 }

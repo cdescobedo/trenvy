@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/config"
-	"github.com/cdescobedo/envctl/internal/manifest"
-	"github.com/cdescobedo/envctl/internal/store"
+	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/store"
 )
 
 // completionFixture has both kinds of variable and, among the secrets, one
@@ -50,7 +50,7 @@ func completionHarness(t *testing.T) *harness {
 	t.Helper()
 	h := newHarness(t)
 	h.register("vpb", completionFixture(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "k")
 	return h
 }
 
@@ -110,7 +110,7 @@ func equalNames(got, want []string) bool {
 	return true
 }
 
-// noFileComp is cobra's ShellCompDirectiveNoFileComp. Every envctl name
+// noFileComp is cobra's ShellCompDirectiveNoFileComp. Every trenvy name
 // completion must use it: a variable name is never a filename, so a miss has
 // to yield nothing rather than the contents of the current directory.
 const noFileComp = ":4"

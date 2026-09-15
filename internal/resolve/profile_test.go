@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/resolve"
+	"github.com/cdescobedo/trenvy/internal/resolve"
 )
 
 const profileManifestTOML = `
@@ -76,7 +76,7 @@ func TestProfileRejectsAnUndeclaredName(t *testing.T) {
 	}
 }
 
-// A stale exported ENVCTL_PROFILE is easy to forget about, so the error has
+// A stale exported TRENVY_PROFILE is easy to forget about, so the error has
 // to say where the bad name came from.
 func TestProfileErrorNamesTheSourceOfABadName(t *testing.T) {
 	m := mustParse(t, profileManifestTOML)
@@ -88,7 +88,7 @@ func TestProfileErrorNamesTheSourceOfABadName(t *testing.T) {
 	}
 }
 
-// A bad ENVCTL_PROFILE is a dead end without this: every envctl command,
+// A bad TRENVY_PROFILE is a dead end without this: every trenvy command,
 // including `profile use` (the one that would fix it), validates the env var
 // before running, so a stale export otherwise locks the shell out of its own
 // escape hatch.

@@ -65,7 +65,7 @@ func parseJSON(data []byte) ([]Entry, error) {
 		s, ok := raw[name].(string)
 		if !ok {
 			return nil, fmt.Errorf(
-				"key %q is not a string; envctl renders flat json only", name)
+				"key %q is not a string; trenvy renders flat json only", name)
 		}
 		out = append(out, Entry{Name: name, Value: s, GuessSecret: GuessSecret(name, s)})
 	}

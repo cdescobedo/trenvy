@@ -3,7 +3,7 @@ package store_test
 import (
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/store"
+	"github.com/cdescobedo/trenvy/internal/store"
 )
 
 // A backend claims CheapPresence only if Has is fast and cannot prompt. These

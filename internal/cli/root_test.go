@@ -7,13 +7,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/cli"
-	"github.com/cdescobedo/envctl/internal/config"
-	"github.com/cdescobedo/envctl/internal/manifest"
-	"github.com/cdescobedo/envctl/internal/store"
+	"github.com/cdescobedo/trenvy/internal/cli"
+	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/store"
 )
 
-// harness wires a hermetic envctl: a temp config dir, a temp project root, and
+// harness wires a hermetic trenvy: a temp config dir, a temp project root, and
 // an in-memory secret store. Every CLI test uses it, which is what keeps the
 // suite from touching a real keyring or a real config directory.
 type harness struct {
@@ -27,7 +27,7 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	t.Setenv("ENVCTL_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRENVY_CONFIG_DIR", t.TempDir())
 
 	h := &harness{
 		t:    t,
@@ -106,10 +106,10 @@ func TestCommandsOutsideAProjectExplainThemselves(t *testing.T) {
 	if err == nil {
 		t.Fatal("status succeeded outside a project")
 	}
-	// Pinned to the full "project init" spelling, not just "envctl init" --
+	// Pinned to the full "project init" spelling, not just "trenvy init" --
 	// that shorter substring is also present in stale text pointing at the
 	// now-deleted top-level init command, so it cannot tell the two apart.
-	if !strings.Contains(err.Error(), "envctl project init") {
+	if !strings.Contains(err.Error(), "trenvy project init") {
 		t.Errorf("error does not suggest project init: %v", err)
 	}
 }
@@ -117,7 +117,7 @@ func TestCommandsOutsideAProjectExplainThemselves(t *testing.T) {
 func TestResolutionWorksFromASubdirectory(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "k")
 
 	sub := filepath.Join(h.root, "main", "src", "deep")
 	if err := mkdirAll(sub); err != nil {
@@ -140,7 +140,7 @@ func TestResolutionWorksFromASubdirectory(t *testing.T) {
 func TestBackendFlagReachesTheStoreFactory(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "k")
 
 	var gotBackend string
 	h.opts.NewStore = func(cfg *config.Config, backend string) (store.Store, error) {
@@ -183,8 +183,8 @@ value = "https://example.com"
 	}
 	h.register("fe", m)
 
-	t.Setenv("ENVCTL_BACKEND", "file")
-	t.Setenv("ENVCTL_PASSPHRASE", "")
+	t.Setenv("TRENVY_BACKEND", "file")
+	t.Setenv("TRENVY_PASSPHRASE", "")
 	h.opts.NewStore = func(cfg *config.Config, backend string) (store.Store, error) {
 		return store.Open(backend, "someone")
 	}
@@ -210,7 +210,7 @@ func TestProfileFlagSelectsTheKeyringItem(t *testing.T) {
 	m := fixtureManifest(t)
 	m.Project.Profiles = []string{"dev", "prod"}
 	h.register("vpb", m)
-	h.mem.Seed("envctl/vpb/prod/ALPHA_TOKEN", "prod-key")
+	h.mem.Seed("trenvy/vpb/prod/ALPHA_TOKEN", "prod-key")
 
 	if err := h.run("--profile", "prod", "get", "ALPHA_TOKEN"); err != nil {
 		t.Fatalf("get: %v", err)
@@ -225,8 +225,8 @@ func TestProfileEnvVarSelectsTheKeyringItem(t *testing.T) {
 	m := fixtureManifest(t)
 	m.Project.Profiles = []string{"dev", "prod"}
 	h.register("vpb", m)
-	h.mem.Seed("envctl/vpb/prod/ALPHA_TOKEN", "prod-key")
-	t.Setenv("ENVCTL_PROFILE", "prod")
+	h.mem.Seed("trenvy/vpb/prod/ALPHA_TOKEN", "prod-key")
+	t.Setenv("TRENVY_PROFILE", "prod")
 
 	if err := h.run("get", "ALPHA_TOKEN"); err != nil {
 		t.Fatalf("get: %v", err)

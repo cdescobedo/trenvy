@@ -10,11 +10,11 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-// DefaultServicePattern namespaces every item envctl stores under envctl/, so
+// DefaultServicePattern namespaces every item trenvy stores under trenvy/, so
 // the tool never reads or writes a keyring item it did not create. The
 // profile segment is what keeps one variable's dev and prod credentials in
 // separate items.
-const DefaultServicePattern = "envctl/{project}/{profile}/{name}"
+const DefaultServicePattern = "trenvy/{project}/{profile}/{name}"
 
 // Config is the global settings file.
 type Config struct {
@@ -23,7 +23,7 @@ type Config struct {
 
 // KeyringConfig controls how a (project, variable) pair maps to a keyring
 // service name. It is configurable so that an existing layout can be adopted
-// deliberately, but the default is envctl's own namespace.
+// deliberately, but the default is trenvy's own namespace.
 type KeyringConfig struct {
 	Service string `toml:"service,omitempty"`
 }

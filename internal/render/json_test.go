@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/render"
+	"github.com/cdescobedo/trenvy/internal/render"
 )
 
 func TestJSONGoldenMatchesTheFrontendShape(t *testing.T) {

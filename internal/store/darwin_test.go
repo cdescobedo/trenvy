@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/store"
+	"github.com/cdescobedo/trenvy/internal/store"
 )
 
 // exitErrorWithCode fabricates a genuine *exec.ExitError carrying code, by
@@ -24,8 +24,8 @@ func exitErrorWithCode(t *testing.T, code int) *exec.ExitError {
 	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=TestDarwinHelperProcess")
 	cmd.Env = append(os.Environ(),
-		"ENVCTL_WANT_HELPER_PROCESS=1",
-		"ENVCTL_HELPER_EXIT_CODE="+strconv.Itoa(code))
+		"TRENVY_WANT_HELPER_PROCESS=1",
+		"TRENVY_HELPER_EXIT_CODE="+strconv.Itoa(code))
 	err := cmd.Run()
 	var ee *exec.ExitError
 	if !errors.As(err, &ee) {
@@ -38,10 +38,10 @@ func exitErrorWithCode(t *testing.T, code int) *exec.ExitError {
 // exitErrorWithCode spawns. It exits immediately unless invoked the way that
 // helper invokes it.
 func TestDarwinHelperProcess(t *testing.T) {
-	if os.Getenv("ENVCTL_WANT_HELPER_PROCESS") != "1" {
+	if os.Getenv("TRENVY_WANT_HELPER_PROCESS") != "1" {
 		return
 	}
-	code, _ := strconv.Atoi(os.Getenv("ENVCTL_HELPER_EXIT_CODE"))
+	code, _ := strconv.Atoi(os.Getenv("TRENVY_HELPER_EXIT_CODE"))
 	os.Exit(code)
 }
 
@@ -49,8 +49,8 @@ func TestDarwinHelperProcess(t *testing.T) {
 // a throwaway service prefix that no real project uses.
 func requireIntegration(t *testing.T) {
 	t.Helper()
-	if os.Getenv("ENVCTL_INTEGRATION") != "1" {
-		t.Skip("set ENVCTL_INTEGRATION=1 to run Keychain integration tests")
+	if os.Getenv("TRENVY_INTEGRATION") != "1" {
+		t.Skip("set TRENVY_INTEGRATION=1 to run Keychain integration tests")
 	}
 }
 
@@ -62,7 +62,7 @@ func TestKeychainRoundTrip(t *testing.T) {
 	requireIntegration(t)
 	user := os.Getenv("USER")
 	k := store.NewKeychain(user)
-	svc := fmt.Sprintf("envctl-test/%d/VALUE", os.Getpid())
+	svc := fmt.Sprintf("trenvy-test/%d/VALUE", os.Getpid())
 	t.Cleanup(func() { _ = k.Delete(svc) })
 
 	if ok, err := k.Has(svc); err != nil || ok {
@@ -111,7 +111,7 @@ func TestKeychainSetPutsNoValueInArgv(t *testing.T) {
 	t.Cleanup(restore)
 
 	k := store.NewKeychain("someone")
-	if err := k.Set("envctl/p/TOKEN", "s3cretvalue"); err != nil {
+	if err := k.Set("trenvy/p/TOKEN", "s3cretvalue"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 	for _, arg := range captured {
@@ -128,14 +128,14 @@ func TestKeychainSetRejectsNewline(t *testing.T) {
 	t.Cleanup(restore)
 
 	k := store.NewKeychain("someone")
-	err := k.Set("envctl/service/KEY", "value\nmalicious")
+	err := k.Set("trenvy/service/KEY", "value\nmalicious")
 	if !errors.Is(err, store.ErrControlChar) {
 		t.Fatalf("Set with newline: got %v, want ErrControlChar", err)
 	}
 	if strings.Contains(err.Error(), "value\nmalicious") {
 		t.Error("error message contains the secret value")
 	}
-	if !strings.Contains(err.Error(), "envctl/service/KEY") {
+	if !strings.Contains(err.Error(), "trenvy/service/KEY") {
 		t.Error("error message does not name the service")
 	}
 }
@@ -147,14 +147,14 @@ func TestKeychainSetRejectsCarriageReturn(t *testing.T) {
 	t.Cleanup(restore)
 
 	k := store.NewKeychain("someone")
-	err := k.Set("envctl/service/KEY", "value\rmalicious")
+	err := k.Set("trenvy/service/KEY", "value\rmalicious")
 	if !errors.Is(err, store.ErrControlChar) {
 		t.Fatalf("Set with carriage return: got %v, want ErrControlChar", err)
 	}
 	if strings.Contains(err.Error(), "value\rmalicious") {
 		t.Error("error message contains the secret value")
 	}
-	if !strings.Contains(err.Error(), "envctl/service/KEY") {
+	if !strings.Contains(err.Error(), "trenvy/service/KEY") {
 		t.Error("error message does not name the service")
 	}
 }
@@ -166,11 +166,11 @@ func TestKeychainSetRejectsNULByte(t *testing.T) {
 	t.Cleanup(restore)
 
 	k := store.NewKeychain("someone")
-	err := k.Set("envctl/service/KEY", "value\x00malicious")
+	err := k.Set("trenvy/service/KEY", "value\x00malicious")
 	if !errors.Is(err, store.ErrControlChar) {
 		t.Fatalf("Set with a NUL byte: got %v, want ErrControlChar", err)
 	}
-	if !strings.Contains(err.Error(), "envctl/service/KEY") {
+	if !strings.Contains(err.Error(), "trenvy/service/KEY") {
 		t.Error("error message does not name the service")
 	}
 }
@@ -182,7 +182,7 @@ func TestKeychainSetRejectsOversizedValues(t *testing.T) {
 	t.Cleanup(restore)
 
 	k := store.NewKeychain("someone")
-	err := k.Set("envctl/p/BIG", strings.Repeat("x", store.MaxValueBytes+1))
+	err := k.Set("trenvy/p/BIG", strings.Repeat("x", store.MaxValueBytes+1))
 	if !errors.Is(err, store.ErrTooLong) {
 		t.Fatalf("Set over the size limit: got %v, want ErrTooLong", err)
 	}
@@ -207,7 +207,7 @@ func TestKeychainHasDistinguishesNotFoundFromOtherFailures(t *testing.T) {
 		t.Cleanup(restore)
 
 		k := store.NewKeychain("someone")
-		ok, err := k.Has("envctl/p/A")
+		ok, err := k.Has("trenvy/p/A")
 		if err != nil {
 			t.Fatalf("Has: %v", err)
 		}
@@ -223,14 +223,14 @@ func TestKeychainHasDistinguishesNotFoundFromOtherFailures(t *testing.T) {
 		t.Cleanup(restore)
 
 		k := store.NewKeychain("someone")
-		ok, err := k.Has("envctl/p/A")
+		ok, err := k.Has("trenvy/p/A")
 		if err == nil {
 			t.Fatal("Has swallowed a non-44 exit status as not-found")
 		}
 		if ok {
 			t.Error("Has = true on error")
 		}
-		if !strings.Contains(err.Error(), "envctl/p/A") {
+		if !strings.Contains(err.Error(), "trenvy/p/A") {
 			t.Errorf("error does not name the service: %v", err)
 		}
 	})
@@ -243,7 +243,7 @@ func TestKeychainGetRemovesOnlyOneTrailingNewline(t *testing.T) {
 	t.Cleanup(restore)
 
 	k := store.NewKeychain("someone")
-	got, err := k.Get("envctl/service/KEY")
+	got, err := k.Get("trenvy/service/KEY")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}

@@ -4,7 +4,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/store"
+	"github.com/cdescobedo/trenvy/internal/store"
 )
 
 // ResolveBackendName is what status reports to the user, and it is also the
@@ -13,21 +13,21 @@ import (
 // platform's answer.
 func TestResolveBackendNamePrecedence(t *testing.T) {
 	t.Run("an explicit flag wins over the environment", func(t *testing.T) {
-		t.Setenv("ENVCTL_BACKEND", "file")
+		t.Setenv("TRENVY_BACKEND", "file")
 		if got := store.ResolveBackendName("mem"); got != "mem" {
 			t.Errorf("ResolveBackendName(\"mem\") = %q, want %q", got, "mem")
 		}
 	})
 
 	t.Run("the environment wins over the platform default", func(t *testing.T) {
-		t.Setenv("ENVCTL_BACKEND", "file")
+		t.Setenv("TRENVY_BACKEND", "file")
 		if got := store.ResolveBackendName(""); got != "file" {
 			t.Errorf("ResolveBackendName(\"\") = %q, want %q", got, "file")
 		}
 	})
 
 	t.Run("an empty environment falls through to the platform default", func(t *testing.T) {
-		t.Setenv("ENVCTL_BACKEND", "")
+		t.Setenv("TRENVY_BACKEND", "")
 		want := store.DefaultBackend()
 		if got := store.ResolveBackendName(""); got != want {
 			t.Errorf("ResolveBackendName(\"\") = %q, want the platform default %q", got, want)

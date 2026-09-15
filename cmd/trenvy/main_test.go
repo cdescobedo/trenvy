@@ -12,18 +12,18 @@ import (
 	"testing"
 )
 
-// report is the piece of main that decides envctl's own exit code and
+// report is the piece of main that decides trenvy's own exit code and
 // whether a diagnostic is printed. This pins the fix for a child process's
 // exit code being swallowed: the child's own status must flow through as
-// envctl's, with nothing written to stderr, while every other error keeps the
-// "envctl: <message>" diagnostic and exits 1.
+// trenvy's, with nothing written to stderr, while every other error keeps the
+// "trenvy: <message>" diagnostic and exits 1.
 //
 // These run REAL children. A fabricated exec.ExitError around a zero-value
 // os.ProcessState reports exit code 0, so it demonstrates only the
 // no-diagnostic half and would pass even if the code were hard-wired to
 // return zero.
 func TestReportSurfacesAChildsExitCodeWithNoDiagnostic(t *testing.T) {
-	t.Run("a non-zero exit becomes envctl's own exit code", func(t *testing.T) {
+	t.Run("a non-zero exit becomes trenvy's own exit code", func(t *testing.T) {
 		err := childExiting(t, "7")
 		var buf bytes.Buffer
 		if code := report(err, &buf); code != 7 {
@@ -36,7 +36,7 @@ func TestReportSurfacesAChildsExitCodeWithNoDiagnostic(t *testing.T) {
 
 	// A signalled child has no exit code at all: ExitCode reports -1, and
 	// os.Exit(-1) surfaces as 255, indistinguishable from a child that really
-	// did exit 255. Shells report 128+signal instead, so envctl does too.
+	// did exit 255. Shells report 128+signal instead, so trenvy does too.
 	t.Run("a signalled child becomes 128+signal, not 255", func(t *testing.T) {
 		if runtime.GOOS == "windows" {
 			t.Skip("no POSIX signals")
@@ -58,7 +58,7 @@ func TestReportSurfacesAChildsExitCodeWithNoDiagnostic(t *testing.T) {
 func childExiting(t *testing.T, mode string) error {
 	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=TestHelperChildProcess")
-	cmd.Env = append(os.Environ(), "ENVCTL_TEST_CHILD="+mode)
+	cmd.Env = append(os.Environ(), "TRENVY_TEST_CHILD="+mode)
 	err := cmd.Run()
 	var ee *exec.ExitError
 	if !errors.As(err, &ee) {
@@ -70,7 +70,7 @@ func childExiting(t *testing.T, mode string) error {
 // TestHelperChildProcess is not a real test: it is the body of the child
 // process childExiting spawns, and does nothing unless that variable is set.
 func TestHelperChildProcess(t *testing.T) {
-	mode := os.Getenv("ENVCTL_TEST_CHILD")
+	mode := os.Getenv("TRENVY_TEST_CHILD")
 	if mode == "" {
 		return
 	}
@@ -96,8 +96,8 @@ func TestReportPrefixesOtherErrorsAndExitsOne(t *testing.T) {
 	if code != 1 {
 		t.Errorf("code = %d, want 1", code)
 	}
-	if !strings.Contains(buf.String(), "envctl: boom") {
-		t.Errorf("output = %q, want the envctl: prefix", buf.String())
+	if !strings.Contains(buf.String(), "trenvy: boom") {
+		t.Errorf("output = %q, want the trenvy: prefix", buf.String())
 	}
 }
 

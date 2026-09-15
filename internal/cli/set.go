@@ -10,9 +10,9 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/cdescobedo/envctl/internal/config"
-	"github.com/cdescobedo/envctl/internal/manifest"
-	"github.com/cdescobedo/envctl/internal/store"
+	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/store"
 )
 
 func newSetCmd(opts *Options) *cobra.Command {
@@ -36,7 +36,7 @@ func newSetCmd(opts *Options) *cobra.Command {
 				// This holds for --shared too: the hazard is the channel (argv
 				// and shell history), not which destination the value lands in.
 				return fmt.Errorf(
-					"%s is a secret; set its value with: envctl secret set %s", name, name)
+					"%s is a secret; set its value with: trenvy secret set %s", name, name)
 			}
 
 			v := app.Manifest.Vars[name]

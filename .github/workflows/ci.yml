@@ -29,7 +29,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.27'
-      # Every backend was deliberately chosen to be cgo-free, so envctl builds
+      # Every backend was deliberately chosen to be cgo-free, so trenvy builds
       # for any target from any machine. This is not redundant with the test
       # matrix above: the test matrix proves the suite passes on each OS's
       # own toolchain, this proves cross-compilation with CGO_ENABLED=0 still
@@ -37,5 +37,5 @@ jobs:
       # dependency has crept in somewhere.
       - run: |
           for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64; do
-            GOOS=${target%/*} GOARCH=${target#*/} CGO_ENABLED=0 go build -o /dev/null ./cmd/envctl
+            GOOS=${target%/*} GOARCH=${target#*/} CGO_ENABLED=0 go build -o /dev/null ./cmd/trenvy
           done

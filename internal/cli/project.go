@@ -13,9 +13,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cdescobedo/envctl/internal/config"
-	"github.com/cdescobedo/envctl/internal/manifest"
-	"github.com/cdescobedo/envctl/internal/store"
+	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/store"
 )
 
 func newProjectCmd(opts *Options) *cobra.Command {
@@ -42,7 +42,7 @@ func newProjectListCmd(opts *Options) *cobra.Command {
 			}
 			if len(reg.Projects) == 0 {
 				fmt.Fprintln(opts.Stdout, "no projects registered")
-				fmt.Fprintln(opts.Stdout, "  register one with: envctl project init")
+				fmt.Fprintln(opts.Stdout, "  register one with: trenvy project init")
 				return nil
 			}
 			w := tabwriter.NewWriter(opts.Stdout, 0, 0, 2, ' ', 0)
@@ -89,7 +89,7 @@ func newProjectMoveCmd(opts *Options) *cobra.Command {
 			}
 			old, ok := reg.Find(id)
 			if !ok {
-				return fmt.Errorf("no project registered with id %q; see: envctl project list", id)
+				return fmt.Errorf("no project registered with id %q; see: trenvy project list", id)
 			}
 			if err := reg.SetRoot(id, abs); err != nil {
 				return err
@@ -124,8 +124,8 @@ func newProjectMoveCmd(opts *Options) *cobra.Command {
 			fmt.Fprintf(opts.Stdout, "  %d render records rebased\n", moved)
 			if _, err := os.Stat(old.Root); err == nil {
 				fmt.Fprintf(opts.Stderr,
-					"envctl: %s still exists -- if this was a copy rather than a move,\n"+
-						"  register the new one instead with: envctl project init --root %s\n",
+					"trenvy: %s still exists -- if this was a copy rather than a move,\n"+
+						"  register the new one instead with: trenvy project init --root %s\n",
 					old.Root, abs)
 			}
 			return nil
@@ -156,7 +156,7 @@ func newProjectRmCmd(opts *Options) *cobra.Command {
 				return err
 			}
 			if _, ok := reg.Find(id); !ok {
-				return fmt.Errorf("no project registered with id %q; see: envctl project list", id)
+				return fmt.Errorf("no project registered with id %q; see: trenvy project list", id)
 			}
 			cfg, err := config.Load()
 			if err != nil {

@@ -1,4 +1,4 @@
-// Package guard holds the refusals: the checks that stop envctl writing a
+// Package guard holds the refusals: the checks that stop trenvy writing a
 // secret somewhere it should not go, or over something it did not write.
 package guard
 

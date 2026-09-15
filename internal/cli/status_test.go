@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/manifest"
 )
 
 func TestStatusReportsSecretPresence(t *testing.T) {
@@ -21,7 +21,7 @@ func TestStatusReportsSecretPresence(t *testing.T) {
 	if !strings.Contains(out, "MISSING") || !strings.Contains(out, "ALPHA_TOKEN") {
 		t.Errorf("missing secret not reported:\n%s", out)
 	}
-	if !strings.Contains(out, "envctl secret set ALPHA_TOKEN") {
+	if !strings.Contains(out, "trenvy secret set ALPHA_TOKEN") {
 		t.Errorf("status does not give the fix:\n%s", out)
 	}
 }
@@ -31,7 +31,7 @@ func TestStatusReportsSecretPresence(t *testing.T) {
 func TestStatusWithoutQuickReadsSecretValues(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "s3cretvalue")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "s3cretvalue")
 
 	if err := h.run("status"); err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func TestStatusWithoutQuickReadsSecretValues(t *testing.T) {
 func TestStatusQuickSkipsSecretReadsButStillReportsPresence(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "s3cretvalue")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "s3cretvalue")
 
 	if err := h.run("status", "--quick"); err != nil {
 		t.Fatal(err)
@@ -111,7 +111,7 @@ value = "https://example.com"
 func TestStatusNeverPrintsASecretValue(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "s3cretvalue")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "s3cretvalue")
 
 	if err := h.run("status"); err != nil {
 		t.Fatal(err)
@@ -125,7 +125,7 @@ func TestStatusReportsOutputFreshness(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "k")
 
 	if err := h.run("render", "docker"); err != nil {
 		t.Fatal(err)
@@ -153,7 +153,7 @@ func TestStatusReportsAHandEditedFileAsModified(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "k")
 	if err := h.run("render", "docker"); err != nil {
 		t.Fatal(err)
 	}
@@ -188,14 +188,14 @@ func TestStatusShowsTheBackendAndWorktree(t *testing.T) {
 }
 
 // Which profile is in force decides every value status reports on, and a
-// stale exported ENVCTL_PROFILE is invisible until something names it. So the
+// stale exported TRENVY_PROFILE is invisible until something names it. So the
 // header says both the profile and where it came from.
 func TestStatusNamesTheActiveProfileAndItsSource(t *testing.T) {
 	h := newHarness(t)
 	m := fixtureManifest(t)
 	m.Project.Profiles = []string{"dev", "prod"}
 	h.register("vpb", m)
-	t.Setenv("ENVCTL_PROFILE", "prod")
+	t.Setenv("TRENVY_PROFILE", "prod")
 
 	if err := h.run("status"); err != nil {
 		t.Fatalf("status: %v", err)
@@ -204,7 +204,7 @@ func TestStatusNamesTheActiveProfileAndItsSource(t *testing.T) {
 	if !strings.Contains(out, "profile") || !strings.Contains(out, "prod") {
 		t.Errorf("status does not name the active profile:\n%s", out)
 	}
-	if !strings.Contains(out, "ENVCTL_PROFILE") {
+	if !strings.Contains(out, "TRENVY_PROFILE") {
 		t.Errorf("status does not say where the profile came from:\n%s", out)
 	}
 }

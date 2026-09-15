@@ -10,10 +10,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cdescobedo/envctl/internal/guard"
-	"github.com/cdescobedo/envctl/internal/manifest"
-	"github.com/cdescobedo/envctl/internal/render"
-	"github.com/cdescobedo/envctl/internal/resolve"
+	"github.com/cdescobedo/trenvy/internal/guard"
+	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/render"
+	"github.com/cdescobedo/trenvy/internal/resolve"
 )
 
 func newExecCmd(opts *Options) *cobra.Command {
@@ -64,19 +64,19 @@ func newShellCmd(opts *Options) *cobra.Command {
 					sh = "cmd.exe"
 				}
 			}
-			// ENVCTL_PROFILE is already in env: prepareEnv exports it for
+			// TRENVY_PROFILE is already in env: prepareEnv exports it for
 			// every child, because it is functional -- resolve.Profile reads
-			// it, so an envctl run inside the subshell stays on the profile
-			// the subshell was loaded with. ENVCTL_PROJECT is added only here
+			// it, so a trenvy run inside the subshell stays on the profile
+			// the subshell was loaded with. TRENVY_PROJECT is added only here
 			// because it is purely cosmetic: a marker the user's prompt can
 			// pick up, so a shell carrying secrets looks different from a
 			// clean one. A one-shot exec has no prompt to mark.
-			env = append(env, "ENVCTL_PROJECT="+app.Entry.ID)
+			env = append(env, "TRENVY_PROJECT="+app.Entry.ID)
 
 			child := exec.Command(sh)
 			child.Env = env
 			child.Dir = opts.Dir
-			fmt.Fprintf(opts.Stderr, "envctl: %s/%s loaded; exit to leave\n",
+			fmt.Fprintf(opts.Stderr, "trenvy: %s/%s loaded; exit to leave\n",
 				app.Entry.ID, app.Profile.Name)
 			return opts.Run(child)
 		},
@@ -102,12 +102,12 @@ func prepareEnv(opts *Options) (*appContext, []string, error) {
 	warnStaleRenders(opts, app, values)
 
 	// Inheriting the parent environment matters: without it PATH is empty and
-	// nothing the user asked for can be found. ENVCTL_PASSPHRASE is stripped:
+	// nothing the user asked for can be found. TRENVY_PASSPHRASE is stripped:
 	// it unlocks the file secret backend, and a child process has no
 	// business inheriting it just because it inherits everything else.
 	env := make([]string, 0, len(os.Environ())+len(values.Names))
 	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, "ENVCTL_PASSPHRASE=") {
+		if strings.HasPrefix(kv, "TRENVY_PASSPHRASE=") {
 			continue
 		}
 		env = append(env, kv)
@@ -116,12 +116,12 @@ func prepareEnv(opts *Options) (*appContext, []string, error) {
 		env = append(env, n+"="+values.Values[n])
 	}
 	// The profile the child inherits must be the one these values came from.
-	// A script run under exec may itself call envctl -- deploy.sh running
-	// `envctl get` -- and without this that nested call falls back to
+	// A script run under exec may itself call trenvy -- deploy.sh running
+	// `trenvy get` -- and without this that nested call falls back to
 	// default_profile and reads a different keyring namespace than its parent
 	// was told to use. It does not fail; it quietly reads the wrong secret.
 	//
-	// Appended last on purpose: an inherited ENVCTL_PROFILE is already in env
+	// Appended last on purpose: an inherited TRENVY_PROFILE is already in env
 	// above, and os/exec deduplicates on Start keeping the last occurrence, so
 	// a --profile flag beats a stale export rather than losing to it.
 	env = append(env, resolve.ProfileEnvVar+"="+app.Profile.Name)
@@ -163,7 +163,7 @@ func warnStaleRenders(opts *Options, app *appContext, all resolve.Resolved) {
 		}
 		if st == guard.StatusStale || st == guard.StatusModified {
 			fmt.Fprintf(opts.Stderr,
-				"envctl: %s is %s and may override what is injected; run: envctl render %s\n",
+				"trenvy: %s is %s and may override what is injected; run: trenvy render %s\n",
 				o.Path, st, name)
 		}
 	}
@@ -194,25 +194,25 @@ func narrow(m *manifest.Manifest, output string, all resolve.Resolved) (resolve.
 
 // commandAfterDash returns the command following --. Cobra requires the
 // separator: without it there is no reliable way to tell a flag meant for
-// envctl from one meant for the child.
+// trenvy from one meant for the child.
 //
 // An argument before the dash is refused by name rather than treated as the
-// command. `envctl exec local -- cmd` was the old spelling, and running
+// command. `trenvy exec local -- cmd` was the old spelling, and running
 // "local" as a program would be the worst possible answer to stale muscle
 // memory.
 func commandAfterDash(cmd *cobra.Command, args []string) ([]string, error) {
 	at := cmd.ArgsLenAtDash()
 	if at < 0 {
-		return nil, fmt.Errorf("a command must follow --; usage: envctl exec -- <command>")
+		return nil, fmt.Errorf("a command must follow --; usage: trenvy exec -- <command>")
 	}
 	if at > 0 {
 		return nil, fmt.Errorf(
 			"exec takes no argument before --: the target axis is gone, and values now\n"+
 				"  come from the profile. Drop %q, or choose values with --profile;\n"+
-				"  usage: envctl exec -- <command>", args[0])
+				"  usage: trenvy exec -- <command>", args[0])
 	}
 	if len(args) == 0 {
-		return nil, fmt.Errorf("a command must follow --; usage: envctl exec -- <command>")
+		return nil, fmt.Errorf("a command must follow --; usage: trenvy exec -- <command>")
 	}
 	return args, nil
 }

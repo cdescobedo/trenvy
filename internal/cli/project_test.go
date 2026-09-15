@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/config"
-	"github.com/cdescobedo/envctl/internal/manifest"
-	"github.com/cdescobedo/envctl/internal/store"
+	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/store"
 )
 
 func TestProjectInitRegistersTheProject(t *testing.T) {
@@ -61,7 +61,7 @@ func TestProjectListOnAnEmptyRegistry(t *testing.T) {
 	if err := h.run("project", "list"); err != nil {
 		t.Fatalf("project list: %v", err)
 	}
-	if !strings.Contains(h.out.String(), "envctl project init") {
+	if !strings.Contains(h.out.String(), "trenvy project init") {
 		t.Errorf("output does not suggest how to register one:\n%s", h.out)
 	}
 }
@@ -146,8 +146,8 @@ func TestProjectMoveRejectsAnUnknownProject(t *testing.T) {
 	// internal "no project registered" guard would also make err non-nil,
 	// so a bare err != nil check cannot tell the command's early, more
 	// helpful check apart from that fallback.
-	if !strings.Contains(err.Error(), "envctl project list") {
-		t.Errorf("error does not point at envctl project list: %v", err)
+	if !strings.Contains(err.Error(), "trenvy project list") {
+		t.Errorf("error does not point at trenvy project list: %v", err)
 	}
 }
 
@@ -168,8 +168,8 @@ func TestProjectMoveWarnsWhenTheOldRootStillExists(t *testing.T) {
 	if !strings.Contains(stderr, h.root) {
 		t.Errorf("stderr does not mention the old root %q:\n%s", h.root, stderr)
 	}
-	if !strings.Contains(stderr, "envctl project init") {
-		t.Errorf("stderr does not suggest envctl project init:\n%s", stderr)
+	if !strings.Contains(stderr, "trenvy project init") {
+		t.Errorf("stderr does not suggest trenvy project init:\n%s", stderr)
 	}
 }
 
@@ -178,8 +178,8 @@ func TestProjectRmDeletesEverySecretAcrossEveryProfile(t *testing.T) {
 	m := fixtureManifest(t)
 	m.Project.Profiles = []string{"dev", "prod"}
 	h.register("vpb", m)
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "d")
-	h.mem.Seed("envctl/vpb/prod/ALPHA_TOKEN", "p")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "d")
+	h.mem.Seed("trenvy/vpb/prod/ALPHA_TOKEN", "p")
 
 	if err := h.run("project", "rm", "vpb", "--yes"); err != nil {
 		t.Fatalf("project rm: %v", err)
@@ -187,8 +187,8 @@ func TestProjectRmDeletesEverySecretAcrossEveryProfile(t *testing.T) {
 
 	calls := strings.Join(h.mem.Calls(), " ")
 	for _, want := range []string{
-		"Delete envctl/vpb/dev/ALPHA_TOKEN",
-		"Delete envctl/vpb/prod/ALPHA_TOKEN",
+		"Delete trenvy/vpb/dev/ALPHA_TOKEN",
+		"Delete trenvy/vpb/prod/ALPHA_TOKEN",
 	} {
 		if !strings.Contains(calls, want) {
 			t.Errorf("missing %q in %v", want, h.mem.Calls())
@@ -255,7 +255,7 @@ func TestProjectRmKeepsTheManifestWhenAKeyringDeleteFails(t *testing.T) {
 	if attempts == 0 {
 		t.Error("no keyring delete was attempted")
 	}
-	if !strings.Contains(err.Error(), "envctl/vpb/dev/ALPHA_TOKEN") {
+	if !strings.Contains(err.Error(), "trenvy/vpb/dev/ALPHA_TOKEN") {
 		t.Errorf("error does not name the item that could not be deleted: %v", err)
 	}
 
@@ -303,8 +303,8 @@ func TestProjectRmSaysWhatWasAlreadyDeletedWhenADeleteFails(t *testing.T) {
 	m := fixtureManifest(t)
 	m.Vars["OTHER_TOKEN"] = manifest.Var{Secret: true}
 	h.register("vpb", m)
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "a")
-	h.mem.Seed("envctl/vpb/dev/OTHER_TOKEN", "b")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "a")
+	h.mem.Seed("trenvy/vpb/dev/OTHER_TOKEN", "b")
 	// secretNames sorts, so ALPHA_TOKEN is deleted before OTHER_TOKEN
 	// fails: one item really is gone by the time the error is written.
 	h.opts.NewStore = func(*config.Config, string) (store.Store, error) {
@@ -377,14 +377,14 @@ func TestProjectRmToleratesSecretsThatWereNeverStored(t *testing.T) {
 	m := fixtureManifest(t)
 	m.Vars["OTHER_TOKEN"] = manifest.Var{Secret: true}
 	h.register("vpb", m)
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "d") // OTHER_TOKEN deliberately not seeded
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "d") // OTHER_TOKEN deliberately not seeded
 
 	if err := h.run("project", "rm", "vpb", "--yes"); err != nil {
 		t.Fatalf("project rm: %v", err)
 	}
 
 	calls := strings.Join(h.mem.Calls(), " ")
-	if !strings.Contains(calls, "Delete envctl/vpb/dev/OTHER_TOKEN") {
+	if !strings.Contains(calls, "Delete trenvy/vpb/dev/OTHER_TOKEN") {
 		t.Errorf("the never-stored secret was not attempted: %v", h.mem.Calls())
 	}
 	if !strings.Contains(h.out.String(), "1 keyring items deleted") {
@@ -476,8 +476,8 @@ func TestProjectRmRejectsAnUnknownProject(t *testing.T) {
 	// Pinned to the friendlier message, not just any error: without the
 	// registry check the command would still fail, but on manifest.Load's
 	// bare no-such-file, which names a path nobody asked about.
-	if !strings.Contains(err.Error(), "envctl project list") {
-		t.Errorf("error does not point at envctl project list: %v", err)
+	if !strings.Contains(err.Error(), "trenvy project list") {
+		t.Errorf("error does not point at trenvy project list: %v", err)
 	}
 }
 

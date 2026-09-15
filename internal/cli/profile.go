@@ -10,10 +10,10 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/cdescobedo/envctl/internal/config"
-	"github.com/cdescobedo/envctl/internal/manifest"
-	"github.com/cdescobedo/envctl/internal/resolve"
-	"github.com/cdescobedo/envctl/internal/store"
+	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/resolve"
+	"github.com/cdescobedo/trenvy/internal/store"
 )
 
 func newProfileCmd(opts *Options) *cobra.Command {
@@ -95,7 +95,7 @@ func newProfileAddCmd(opts *Options) *cobra.Command {
 				return err
 			}
 			fmt.Fprintf(opts.Stdout, "added profile %s\n", name)
-			fmt.Fprintf(opts.Stdout, "  its secrets are empty; store them with: envctl -p %s secret set <NAME>\n", name)
+			fmt.Fprintf(opts.Stdout, "  its secrets are empty; store them with: trenvy -p %s secret set <NAME>\n", name)
 			return nil
 		},
 	}
@@ -112,8 +112,8 @@ func newProfileUseCmd(opts *Options) *cobra.Command {
 		Use:   "use <name>",
 		Short: "Emit a shell export switching profile for this session",
 		Long: "Emit a shell export switching profile for this session.\n\n" +
-			"Use it as:  eval \"$(envctl profile use prod)\"\n\n" +
-			"To change the project's default instead, use: envctl profile default <name>",
+			"Use it as:  eval \"$(trenvy profile use prod)\"\n\n" +
+			"To change the project's default instead, use: trenvy profile default <name>",
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: opts.completeProfileNames(),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -131,7 +131,7 @@ func newProfileUseCmd(opts *Options) *cobra.Command {
 			fmt.Fprintf(opts.Stdout, "export %s=%s\n", resolve.ProfileEnvVar, name)
 			if isTerminal(opts.Stdout) {
 				fmt.Fprintf(opts.Stderr,
-					"envctl: nothing changed -- run it as: eval \"$(envctl profile use %s)\"\n", name)
+					"trenvy: nothing changed -- run it as: eval \"$(trenvy profile use %s)\"\n", name)
 			}
 			return nil
 		},
@@ -191,7 +191,7 @@ func newProfileRmCmd(opts *Options) *cobra.Command {
 			}
 			if name == app.Manifest.Project.DefaultProfile {
 				return fmt.Errorf(
-					"%s is the default profile; point it elsewhere first: envctl profile default <other>",
+					"%s is the default profile; point it elsewhere first: trenvy profile default <other>",
 					name)
 			}
 			if name == app.Profile.Name {

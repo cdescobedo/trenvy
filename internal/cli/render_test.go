@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/config"
-	"github.com/cdescobedo/envctl/internal/manifest"
-	"github.com/cdescobedo/envctl/internal/resolve"
+	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/resolve"
 )
 
 // gitInit turns the harness root into a repo with a .gitignore, since the
@@ -31,7 +31,7 @@ func TestRenderWritesTheOutputFile(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k3y")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "k3y")
 
 	if err := h.run("render", "docker"); err != nil {
 		t.Fatalf("render: %v", err)
@@ -59,7 +59,7 @@ func TestRenderRecordsState(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "k")
 
 	if err := h.run("render", "docker"); err != nil {
 		t.Fatal(err)
@@ -90,7 +90,7 @@ func TestRenderRefusesAPathGitWouldTrack(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("node_modules/\n")
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "k")
 
 	err := h.run("render", "docker")
 	if err == nil {
@@ -114,7 +114,7 @@ func TestRenderAllowTrackedSkipsTheGitignoreGuard(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("node_modules/\n") // does not cover src/.env
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "k")
 
 	if err := h.run("render", "docker"); err == nil {
 		t.Fatal("render wrote to a path git would track")
@@ -132,7 +132,7 @@ func TestRenderRefusesToClobberAForeignFile(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "k")
 
 	dir := filepath.Join(h.root, "src")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -190,7 +190,7 @@ func TestRenderReportsAMissingSecretWithTheFix(t *testing.T) {
 	if err == nil {
 		t.Fatal("render succeeded with a missing secret")
 	}
-	if !strings.Contains(err.Error(), "envctl secret set ALPHA_TOKEN") {
+	if !strings.Contains(err.Error(), "trenvy secret set ALPHA_TOKEN") {
 		t.Errorf("error does not give the fix: %v", err)
 	}
 }
@@ -199,7 +199,7 @@ func TestCleanRemovesTheFileAndForgetsTheState(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")
 	h.register("vpb", fixtureManifest(t))
-	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "k")
 	if err := h.run("render", "docker"); err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +224,7 @@ func TestCleanRemovesTheFileAndForgetsTheState(t *testing.T) {
 }
 
 // The FOREIGN freshness state clean must refuse: a user's hand-written file
-// that envctl never rendered must survive a bare `envctl clean`, the same as
+// that trenvy never rendered must survive a bare `trenvy clean`, the same as
 // render's guard, and only come off with --force.
 func TestCleanRefusesAForeignFile(t *testing.T) {
 	h := newHarness(t)
@@ -243,7 +243,7 @@ func TestCleanRefusesAForeignFile(t *testing.T) {
 
 	err := h.run("clean", "docker")
 	if err == nil {
-		t.Fatal("clean removed a file envctl has no record of writing")
+		t.Fatal("clean removed a file trenvy has no record of writing")
 	}
 	if got := mustReadFile(t, path); got != handWritten {
 		t.Error("the foreign file was modified")
@@ -294,7 +294,7 @@ value = "development"
 	if !strings.Contains(err.Error(), "project.output") {
 		t.Errorf("error does not name the missing setting: %v", err)
 	}
-	if !strings.Contains(err.Error(), "envctl render <output>") {
+	if !strings.Contains(err.Error(), "trenvy render <output>") {
 		t.Errorf("error does not say how to name one: %v", err)
 	}
 }
@@ -322,7 +322,7 @@ value = "development"
 
 // outputOrDefault is shared by render and clean, so one hard-coded hint is a
 // hint that is wrong for all but one of them. Telling someone who ran
-// `envctl clean` to run `envctl render` hands them the opposite of what they
+// `trenvy clean` to run `trenvy render` hands them the opposite of what they
 // asked for -- and on a project with no outputs, running it would fail again
 // with the same message.
 func TestTheNoOutputHintNamesTheCommandThatFailed(t *testing.T) {
@@ -336,7 +336,7 @@ func TestTheNoOutputHintNamesTheCommandThatFailed(t *testing.T) {
 			if err == nil {
 				t.Fatalf("%s succeeded with no output named and none configured", command)
 			}
-			want := "envctl " + command + " <output>"
+			want := "trenvy " + command + " <output>"
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("hint does not name %s: %v", command, err)
 			}

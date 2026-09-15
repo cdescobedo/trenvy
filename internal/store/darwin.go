@@ -14,9 +14,9 @@ import (
 // (newline or carriage return) that would break the security(1) command stream.
 var ErrControlChar = errors.New("value contains a control character")
 
-// KeychainKind labels envctl's items in Keychain Access.app so a human can
+// KeychainKind labels trenvy's items in Keychain Access.app so a human can
 // tell at a glance which items the tool owns.
-const KeychainKind = "envctl secret"
+const KeychainKind = "trenvy secret"
 
 // Keychain is the macOS login Keychain, driven through security(1).
 //
@@ -25,7 +25,7 @@ const KeychainKind = "envctl secret"
 // answers "does this exist?" silently, while adding -w can raise a GUI
 // authorization prompt, and a library that only exposes Get would make the
 // status table cost one prompt per secret. Second, driving security(1)
-// directly gives control over -D so items are labelled as envctl's.
+// directly gives control over -D so items are labelled as trenvy's.
 //
 // Using the security binary also means no cgo, so the tool cross-compiles
 // from any machine.

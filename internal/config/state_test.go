@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cdescobedo/envctl/internal/config"
+	"github.com/cdescobedo/trenvy/internal/config"
 )
 
 func TestStateRecordAndFind(t *testing.T) {
-	t.Setenv("ENVCTL_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRENVY_CONFIG_DIR", t.TempDir())
 	s, err := config.LoadState("p")
 	if err != nil {
 		t.Fatalf("LoadState: %v", err)
@@ -38,7 +38,7 @@ func TestStateRecordAndFind(t *testing.T) {
 // A rendered file is per-worktree: the same output in a different worktree is
 // a different record, and one being fresh says nothing about the other.
 func TestStateKeysOnWorktreeAndOutput(t *testing.T) {
-	t.Setenv("ENVCTL_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRENVY_CONFIG_DIR", t.TempDir())
 	s, _ := config.LoadState("p")
 	s.Record(config.RenderEntry{Worktree: "/w/main", Output: "docker", Sum: "one"})
 	s.Record(config.RenderEntry{Worktree: "/w/FEAT-4001", Output: "docker", Sum: "two"})
@@ -54,7 +54,7 @@ func TestStateKeysOnWorktreeAndOutput(t *testing.T) {
 }
 
 func TestStateRecordReplacesRatherThanAppends(t *testing.T) {
-	t.Setenv("ENVCTL_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRENVY_CONFIG_DIR", t.TempDir())
 	s, _ := config.LoadState("p")
 	s.Record(config.RenderEntry{Worktree: "/w", Output: "t", Sum: "one"})
 	s.Record(config.RenderEntry{Worktree: "/w", Output: "t", Sum: "two"})
@@ -69,7 +69,7 @@ func TestStateRecordReplacesRatherThanAppends(t *testing.T) {
 }
 
 func TestStateForgetRemovesTheRecord(t *testing.T) {
-	t.Setenv("ENVCTL_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRENVY_CONFIG_DIR", t.TempDir())
 	s, _ := config.LoadState("p")
 	s.Record(config.RenderEntry{Worktree: "/w", Output: "t", Sum: "one"})
 	s.Forget("/w", "t")
@@ -79,7 +79,7 @@ func TestStateForgetRemovesTheRecord(t *testing.T) {
 }
 
 func TestStateRoundTripsThroughDisk(t *testing.T) {
-	t.Setenv("ENVCTL_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRENVY_CONFIG_DIR", t.TempDir())
 	s, _ := config.LoadState("p")
 	s.Record(config.RenderEntry{Worktree: "/w", Output: "t", Sum: "abc", At: time.Now().UTC().Truncate(time.Second)})
 	if err := s.Save(); err != nil {
@@ -97,7 +97,7 @@ func TestStateRoundTripsThroughDisk(t *testing.T) {
 }
 
 func TestLoadStateOnMissingFileIsEmptyNotAnError(t *testing.T) {
-	t.Setenv("ENVCTL_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRENVY_CONFIG_DIR", t.TempDir())
 	s, err := config.LoadState("never-rendered")
 	if err != nil {
 		t.Fatalf("LoadState: %v", err)
@@ -109,7 +109,7 @@ func TestLoadStateOnMissingFileIsEmptyNotAnError(t *testing.T) {
 
 func TestStateSaveWritesFileWith0600Mode(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("ENVCTL_CONFIG_DIR", tmpDir)
+	t.Setenv("TRENVY_CONFIG_DIR", tmpDir)
 	s, _ := config.LoadState("p")
 	s.Record(config.RenderEntry{Worktree: "/w", Output: "t", Sum: "abc"})
 	if err := s.Save(); err != nil {
@@ -129,7 +129,7 @@ func TestStateSaveWritesFileWith0600Mode(t *testing.T) {
 
 func TestStateSaveCreatesDir0700(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("ENVCTL_CONFIG_DIR", tmpDir)
+	t.Setenv("TRENVY_CONFIG_DIR", tmpDir)
 	s, _ := config.LoadState("p")
 	s.Record(config.RenderEntry{Worktree: "/w", Output: "t", Sum: "abc"})
 	if err := s.Save(); err != nil {
@@ -195,7 +195,7 @@ func TestRebaseWorktreesLeavesASiblingPathAlone(t *testing.T) {
 
 func TestStateSaveTightensExistingFilePermissions(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("ENVCTL_CONFIG_DIR", tmpDir)
+	t.Setenv("TRENVY_CONFIG_DIR", tmpDir)
 
 	// Pre-create the file at 0o644
 	stateDir := filepath.Join(tmpDir, "state")

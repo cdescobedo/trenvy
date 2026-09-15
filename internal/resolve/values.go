@@ -6,8 +6,8 @@ import (
 	"path"
 	"sort"
 
-	"github.com/cdescobedo/envctl/internal/manifest"
-	"github.com/cdescobedo/envctl/internal/store"
+	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/store"
 )
 
 // ErrUnknownOutput is returned when an output name is not defined.
@@ -129,7 +129,7 @@ func Value(m *manifest.Manifest, profile, name string, secret SecretLookup) (str
 				return "", false, nil
 			}
 			return "", false, fmt.Errorf(
-				"%s is not in the keyring for profile %q; run: envctl secret set %s",
+				"%s is not in the keyring for profile %q; run: trenvy secret set %s",
 				name, profile, name)
 		}
 		if err != nil {

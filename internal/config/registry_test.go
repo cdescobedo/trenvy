@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cdescobedo/envctl/internal/config"
+	"github.com/cdescobedo/trenvy/internal/config"
 )
 
 func TestLookupFindsAnAncestor(t *testing.T) {
@@ -81,7 +81,7 @@ func TestAddRejectsDuplicateRoot(t *testing.T) {
 
 func TestRegistryRoundTripsThroughDisk(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("ENVCTL_CONFIG_DIR", dir)
+	t.Setenv("TRENVY_CONFIG_DIR", dir)
 
 	r, err := config.LoadRegistry()
 	if err != nil {
@@ -107,7 +107,7 @@ func TestRegistryRoundTripsThroughDisk(t *testing.T) {
 
 func TestAddCleansTrailingSeparator(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("ENVCTL_CONFIG_DIR", dir)
+	t.Setenv("TRENVY_CONFIG_DIR", dir)
 
 	r := &config.Registry{}
 	// Register with trailing separator
@@ -143,8 +143,8 @@ func TestAddCleansTrailingSeparator(t *testing.T) {
 func TestSaveCreatesDirWithCorrectMode(t *testing.T) {
 	tempDir := t.TempDir()
 	// Use a non-existent subdirectory so Save() actually creates it
-	configDir := filepath.Join(tempDir, "envctl-config")
-	t.Setenv("ENVCTL_CONFIG_DIR", configDir)
+	configDir := filepath.Join(tempDir, "trenvy-config")
+	t.Setenv("TRENVY_CONFIG_DIR", configDir)
 
 	r := &config.Registry{}
 	if err := r.Add(config.Entry{ID: "p", Root: "/w/vpb"}); err != nil {
@@ -245,7 +245,7 @@ func TestRemoveOnAnUnknownIDReportsFalseAndChangesNothing(t *testing.T) {
 
 func TestRegistrySaveTightensExistingFilePermissions(t *testing.T) {
 	tempDir := t.TempDir()
-	t.Setenv("ENVCTL_CONFIG_DIR", tempDir)
+	t.Setenv("TRENVY_CONFIG_DIR", tempDir)
 
 	// Pre-create the registry file at 0o644
 	registryPath := config.RegistryPath()

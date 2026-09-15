@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cdescobedo/envctl/internal/config"
-	"github.com/cdescobedo/envctl/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/manifest"
 )
 
 func newInitCmd(opts *Options) *cobra.Command {
@@ -45,7 +45,7 @@ func newInitCmd(opts *Options) *cobra.Command {
 			// its format, path and subset -- and a fresh project has no way
 			// to guess any of the three. It needs none either: exec and
 			// shell are the verb, so a manifest with one profile and nothing
-			// else is valid and immediately usable. `envctl import --output`
+			// else is valid and immediately usable. `trenvy import --output`
 			// or a hand edit adds a file destination when there is one.
 			m := &manifest.Manifest{
 				Project: manifest.Project{
@@ -69,8 +69,8 @@ func newInitCmd(opts *Options) *cobra.Command {
 
 			fmt.Fprintf(opts.Stdout, "registered %s\n  root      %s\n  manifest  %s\n",
 				id, abs, config.ManifestPath(id))
-			fmt.Fprintf(opts.Stdout, "\nnext: envctl import <sample .env or .json>, or envctl edit\n")
-			fmt.Fprintf(opts.Stdout, "add a second value set with: envctl profile add <name>\n")
+			fmt.Fprintf(opts.Stdout, "\nnext: trenvy import <sample .env or .json>, or trenvy edit\n")
+			fmt.Fprintf(opts.Stdout, "add a second value set with: trenvy profile add <name>\n")
 			return nil
 		},
 	}
