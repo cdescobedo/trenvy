@@ -144,8 +144,15 @@ func newProjectRmCmd(opts *Options) *cobra.Command {
 	var yes bool
 
 	c := &cobra.Command{
-		Use:               "rm <id>",
-		Short:             "Delete a project: its manifest, state, registration and every secret",
+		Use:   "rm <id>",
+		Short: "Delete a project: its manifest, state, registration and its secrets in the current backend",
+		Long: "Delete a project: its manifest, state, registration and the secrets it owns\n" +
+			"in the currently selected secret backend.\n\n" +
+			"Like every other command, this scopes to one backend (the --backend flag,\n" +
+			"TRENVY_BACKEND, or the platform default). A secret stored under a\n" +
+			"different backend is not touched -- but the manifest this command deletes\n" +
+			"was that secret's only inventory, so once it is gone there is no record\n" +
+			"left that the secret exists, or where.",
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: opts.completeProjectIDs(),
 		RunE: func(cmd *cobra.Command, args []string) error {

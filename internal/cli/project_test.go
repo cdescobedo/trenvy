@@ -481,6 +481,25 @@ func TestProjectRmRejectsAnUnknownProject(t *testing.T) {
 	}
 }
 
+// project rm only ever reaches the currently selected backend, the same as
+// every other command; its help text must say so rather than promising to
+// remove "every secret" outright, which would misstate what survives under a
+// different backend.
+func TestProjectRmHelpScopesToTheCurrentBackend(t *testing.T) {
+	h := newHarness(t)
+
+	if err := h.run("project", "rm", "--help"); err != nil {
+		t.Fatalf("project rm --help: %v", err)
+	}
+	out := h.out.String()
+	if !strings.Contains(out, "current backend") && !strings.Contains(out, "currently selected") {
+		t.Errorf("help text does not scope deletion to the current backend:\n%s", out)
+	}
+	if strings.Contains(out, "every secret") {
+		t.Errorf("help text still promises to delete \"every secret\" unconditionally:\n%s", out)
+	}
+}
+
 // A project with no secrets must not pay for a store it never uses: the file
 // backend errors outright when no passphrase is configured, and a project
 // that never stored a secret would then be undeletable.
