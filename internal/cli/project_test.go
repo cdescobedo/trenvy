@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -107,6 +108,25 @@ func TestProjectMoveRejectsARootThatDoesNotExist(t *testing.T) {
 
 	if err == nil {
 		t.Fatal("project move accepted a nonexistent root")
+	}
+}
+
+// A path that exists but is a plain file, not a directory, must be rejected
+// by the IsDir check specifically -- TestProjectMoveRejectsARootThatDoesNotExist
+// only reaches os.Stat's not-exist error and never exercises IsDir at all.
+func TestProjectMoveRejectsARootThatIsAFile(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+
+	filePath := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(filePath, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := h.run("project", "move", "vpb", filePath)
+
+	if err == nil {
+		t.Fatal("project move accepted a root that is a plain file")
 	}
 }
 

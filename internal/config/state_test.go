@@ -166,6 +166,23 @@ func TestRebaseWorktreesRewritesEveryEntryUnderTheOldRoot(t *testing.T) {
 	}
 }
 
+// The relative position under the root must survive at any depth, not just
+// one level down -- this pins filepath.Rel/filepath.Join rather than a
+// single-segment substitution that would happen to pass at depth one.
+func TestRebaseWorktreesPreservesDeepNesting(t *testing.T) {
+	s := &config.State{}
+	s.Record(config.RenderEntry{Worktree: "/old/proj/feat/sub", Output: "app"})
+
+	n := s.RebaseWorktrees("/old/proj", "/new/proj")
+
+	if n != 1 {
+		t.Errorf("rebased %d entries, want 1", n)
+	}
+	if _, ok := s.Find("/new/proj/feat/sub", "app"); !ok {
+		t.Error("the two-level-deep worktree entry was not rebased to the matching depth")
+	}
+}
+
 // A path that merely shares a string prefix is not inside the root.
 func TestRebaseWorktreesLeavesASiblingPathAlone(t *testing.T) {
 	s := &config.State{}

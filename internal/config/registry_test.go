@@ -206,6 +206,43 @@ func TestSetRootRejectsARootAnotherProjectOwns(t *testing.T) {
 	}
 }
 
+// Task 12 wires Remove to `project rm`, a destructive command, so both
+// branches need pinning before it ships uncovered.
+func TestRemoveDropsARegisteredProject(t *testing.T) {
+	r := &config.Registry{}
+	if err := r.Add(config.Entry{ID: "a", Root: "/x/a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Add(config.Entry{ID: "b", Root: "/x/b"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if ok := r.Remove("a"); !ok {
+		t.Error("Remove returned false for a registered id")
+	}
+
+	if _, ok := r.Find("a"); ok {
+		t.Error("the entry is still findable after Remove")
+	}
+	if len(r.Projects) != 1 || r.Projects[0].ID != "b" {
+		t.Errorf("Projects = %+v, want only b left", r.Projects)
+	}
+}
+
+func TestRemoveOnAnUnknownIDReportsFalseAndChangesNothing(t *testing.T) {
+	r := &config.Registry{}
+	if err := r.Add(config.Entry{ID: "a", Root: "/x/a"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if ok := r.Remove("nope"); ok {
+		t.Error("Remove returned true for an id that was never registered")
+	}
+	if len(r.Projects) != 1 || r.Projects[0].ID != "a" {
+		t.Errorf("Projects = %+v, want a left untouched", r.Projects)
+	}
+}
+
 func TestRegistrySaveTightensExistingFilePermissions(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("ENVCTL_CONFIG_DIR", tempDir)
