@@ -77,11 +77,11 @@ func TestParseRejectsNestedJSON(t *testing.T) {
 // variable name alone.
 func TestGuessSecretFromPlaceholderText(t *testing.T) {
 	secretish := map[string]string{
-		"ALPHA_TOKEN":        "your-secret-key-here-replace-with-actual-secret",
-		"BETA_TOKEN": "changeme",
-		"SOME_VALUE":             "<your value here>",
-		"ANOTHER":                "xxxxx",
-		"THIRD":                  "TODO",
+		"ALPHA_TOKEN": "your-secret-key-here-replace-with-actual-secret",
+		"BETA_TOKEN":  "changeme",
+		"SOME_VALUE":  "<your value here>",
+		"ANOTHER":     "xxxxx",
+		"THIRD":       "TODO",
 	}
 	for name, value := range secretish {
 		t.Run(name, func(t *testing.T) {
@@ -105,7 +105,7 @@ func TestGuessSecretFromNameSuffix(t *testing.T) {
 func TestGuessSecretFalseForRealLookingValues(t *testing.T) {
 	plain := map[string]string{
 		"APP_ENVIRONMENT":     "Development",
-		"APP_URL":            "http://+:8080",
+		"APP_URL":                    "http://+:8080",
 		"APP_DB_CONNECTION": "Server=localhost;Port=8675;Password=password;",
 		"backendAPI":                 "/",
 		"auth0Domain":                "dev-example.us.auth0.com",

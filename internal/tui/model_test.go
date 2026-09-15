@@ -188,7 +188,7 @@ func TestAddCreatesARow(t *testing.T) {
 }
 
 func TestFilterNarrowsTheVisibleRows(t *testing.T) {
-	m := press(fixture(), "/", "B", "A", "L", "enter")
+	m := press(fixture(), "/", "A", "L", "P", "enter")
 
 	t.Run("narrows to the matching row", func(t *testing.T) {
 		if len(m.Rows()) != 1 || m.Rows()[0].Name != "ALPHA_TOKEN" {

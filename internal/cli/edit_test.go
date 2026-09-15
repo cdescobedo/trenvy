@@ -192,10 +192,10 @@ func TestEditSavingAFilteredViewKeepsFilteredOutRows(t *testing.T) {
 			{Name: "ALPHA_TOKEN", Secret: true, Present: true},
 		}
 		out := tui.New("vpb", rows)
-		// Simulate an active filter that hides everything but one row: type
-		// "/" then a filter string that matches nothing named BALANCE...
+		// Filter to "U", which matches APP_URL and hides ALPHA_TOKEN, so the
+		// saved view really is narrower than the model.
 		out, _ = out.Update(keyRunes("/"))
-		out, _ = out.Update(keyRunes("A"))
+		out, _ = out.Update(keyRunes("U"))
 		out, _ = out.Update(keyEnter())
 		return markSaved(out), nil
 	}
