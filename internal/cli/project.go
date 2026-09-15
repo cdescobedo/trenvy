@@ -172,7 +172,7 @@ func newProjectRmCmd(opts *Options) *cobra.Command {
 			if !yes {
 				fmt.Fprintf(opts.Stderr,
 					"This deletes the manifest, the render state, the registry entry,\n"+
-						"and %d keyring items (%d secrets across %d profiles). It cannot be undone.\n",
+						"and up to %d keyring items (%d secrets across %d profiles). It cannot be undone.\n",
 					items, len(secrets), len(m.Project.Profiles))
 				if len(st.Renders) > 0 {
 					fmt.Fprintf(opts.Stderr, "Rendered files are NOT removed; %d remain:\n", len(st.Renders))
@@ -190,10 +190,17 @@ func newProjectRmCmd(opts *Options) *cobra.Command {
 				}
 			}
 
-			// Keyring first, and abort on any failure with nothing else
-			// touched. The manifest is the only inventory of which items
-			// exist, so destroying it before them would strand the remainder
-			// with no record. Aborting early keeps the command re-runnable.
+			// Keyring first, and abort on the first failure. The manifest is
+			// the only inventory of which items exist, so destroying it before
+			// them would strand the remainder with no record. Aborting here
+			// leaves the manifest, the state file and the registry entry
+			// intact, which is what keeps the command re-runnable.
+			//
+			// The error says how many items are already gone rather than
+			// claiming nothing was removed: by the time a delete fails, every
+			// item before it has been destroyed permanently, and telling
+			// someone their secrets are intact is how they end up not
+			// re-running and losing the rest.
 			//
 			// The service name is built from cfg directly with the profile
 			// being iterated: app.service would bind whichever profile is
@@ -218,20 +225,33 @@ func newProjectRmCmd(opts *Options) *cobra.Command {
 								continue
 							}
 							return fmt.Errorf(
-								"delete %s: %w\n  nothing else was removed; fix this and re-run", svc, err)
+								"delete %s: %w\n  %d items were already deleted; the manifest,"+
+									" state and registry are untouched -- fix this and re-run",
+								svc, err, deleted)
 						}
 						deleted++
 					}
 				}
 			}
 
+			// manifest.Load above already failed if the file were missing, so
+			// no test can reach this ErrNotExist branch -- it is unreachable
+			// except in the window where a second `project rm` for the same id
+			// is running concurrently. It stays anyway: on that path this run's
+			// keyring work is already done, and erroring out over a file the
+			// other run removed would leave the state file and the registry
+			// entry behind for no reason.
 			if err := os.Remove(config.ManifestPath(id)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				return err
 			}
 			if err := os.Remove(config.StatePath(id)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				return err
 			}
-			reg.Remove(id)
+			// The result is discarded deliberately: reg.Find above already
+			// proved the entry is there, so a false here could only mean the
+			// registry changed underneath this run, and the Save below writes
+			// the same absence either way.
+			_ = reg.Remove(id)
 			if err := reg.Save(); err != nil {
 				return err
 			}

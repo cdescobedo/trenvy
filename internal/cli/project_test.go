@@ -204,19 +204,7 @@ func TestProjectRmClearsTheRegistryManifestAndState(t *testing.T) {
 	// is gone afterwards would hold for a command that never removed it:
 	// LoadState invents an empty state rather than writing one, so a project
 	// that has never rendered has no state file to begin with.
-	st, err := config.LoadState("vpb")
-	if err != nil {
-		t.Fatal(err)
-	}
-	st.Record(config.RenderEntry{
-		Worktree: filepath.Join(h.root, "main"), Output: "docker", Path: "src/.env",
-	})
-	if err := st.Save(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(config.StatePath("vpb")); err != nil {
-		t.Fatalf("arranging the state file: %v", err)
-	}
+	seedState(t, h, "vpb")
 
 	if err := h.run("project", "rm", "vpb", "--yes"); err != nil {
 		t.Fatalf("project rm: %v", err)
@@ -247,6 +235,11 @@ func TestProjectRmClearsTheRegistryManifestAndState(t *testing.T) {
 func TestProjectRmKeepsTheManifestWhenAKeyringDeleteFails(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
+	// The state file has to exist before the run for the assertion that it
+	// survived to mean anything: LoadState invents an empty state rather than
+	// writing one, so without this os.Stat reports ErrNotExist either way and
+	// hoisting the state removal above the keyring loop would go unnoticed.
+	seedState(t, h, "vpb")
 	attempts := 0
 	h.opts.NewStore = func(*config.Config, string) (store.Store, error) {
 		return failingDeleteStore{Store: h.mem, attempts: &attempts}, nil
@@ -269,8 +262,8 @@ func TestProjectRmKeepsTheManifestWhenAKeyringDeleteFails(t *testing.T) {
 	if _, err := os.Stat(config.ManifestPath("vpb")); err != nil {
 		t.Errorf("the manifest was destroyed after a failed delete: %v", err)
 	}
-	if _, err := os.Stat(config.StatePath("vpb")); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("stat state: %v", err)
+	if _, err := os.Stat(config.StatePath("vpb")); err != nil {
+		t.Errorf("the state file was destroyed after a failed delete: %v", err)
 	}
 	reg, err := config.LoadRegistry()
 	if err != nil {
@@ -278,6 +271,90 @@ func TestProjectRmKeepsTheManifestWhenAKeyringDeleteFails(t *testing.T) {
 	}
 	if _, ok := reg.Find("vpb"); !ok {
 		t.Error("the registry entry was removed after a failed delete")
+	}
+}
+
+// seedState writes a real state file for id, so that an assertion about the
+// state file surviving or being removed is about the command's behavior and
+// not about a file that was never there.
+func seedState(t *testing.T, h *harness, id string) {
+	t.Helper()
+	st, err := config.LoadState(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Record(config.RenderEntry{
+		Worktree: filepath.Join(h.root, "main"), Output: "docker", Path: "src/.env",
+	})
+	if err := st.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(config.StatePath(id)); err != nil {
+		t.Fatalf("arranging the state file: %v", err)
+	}
+}
+
+// A delete that fails partway through has already destroyed the items before
+// it, permanently. Saying "nothing else was removed" there would tell someone
+// their secrets are intact when some of them are gone for good, and is exactly
+// the kind of false reassurance that stops a user re-running the command.
+func TestProjectRmSaysWhatWasAlreadyDeletedWhenADeleteFails(t *testing.T) {
+	h := newHarness(t)
+	m := fixtureManifest(t)
+	m.Vars["OTHER_TOKEN"] = manifest.Var{Secret: true}
+	h.register("vpb", m)
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "a")
+	h.mem.Seed("envctl/vpb/dev/OTHER_TOKEN", "b")
+	// secretNames sorts, so ALPHA_TOKEN is deleted before OTHER_TOKEN
+	// fails: one item really is gone by the time the error is written.
+	h.opts.NewStore = func(*config.Config, string) (store.Store, error) {
+		return failOnStore{Store: h.mem, failOn: "OTHER_TOKEN"}, nil
+	}
+
+	err := h.run("project", "rm", "vpb", "--yes")
+	if err == nil {
+		t.Fatal("project rm succeeded despite a failing keyring delete")
+	}
+	if strings.Contains(err.Error(), "nothing else was removed") {
+		t.Errorf("error claims nothing was removed, but an item was already deleted: %v", err)
+	}
+	if !strings.Contains(err.Error(), "1 items were already deleted") {
+		t.Errorf("error does not say how many items are already gone: %v", err)
+	}
+	if !strings.Contains(err.Error(), "the manifest, state and registry are untouched") {
+		t.Errorf("error does not say what is still intact: %v", err)
+	}
+}
+
+type failOnStore struct {
+	store.Store
+	failOn string
+}
+
+func (f failOnStore) Delete(service string) error {
+	if strings.HasSuffix(service, "/"+f.failOn) {
+		return errors.New("keyring is locked")
+	}
+	return f.Store.Delete(service)
+}
+
+// Without --yes and with nothing on stdin -- a CI job, a closed pipe -- the
+// read returns io.EOF. That is an abort, not a plumbing error: reporting "EOF"
+// would tell the user something broke when in fact nothing was confirmed and
+// nothing was touched.
+func TestProjectRmAbortsWhenStdinIsEmpty(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+
+	err := h.run("project", "rm", "vpb") // harness stdin is an empty reader
+	if err == nil {
+		t.Fatal("project rm proceeded with no confirmation at all")
+	}
+	if !strings.Contains(err.Error(), "aborted") || strings.Contains(err.Error(), "EOF") {
+		t.Errorf("error should be an abort, not an EOF failure: %v", err)
+	}
+	if _, err := os.Stat(config.ManifestPath("vpb")); err != nil {
+		t.Errorf("the manifest was removed without a confirmation: %v", err)
 	}
 }
 
