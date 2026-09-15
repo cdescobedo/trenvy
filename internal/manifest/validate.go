@@ -29,6 +29,11 @@ func (m *Manifest) Validate() error {
 
 	if m.Project.ID == "" {
 		add("project.id is required")
+	} else if !ValidProjectID(m.Project.ID) {
+		add("project.id %q: ids may use letters, digits, '.', '-' and '_', and may "+
+			"not begin with '.' or '-'; the id is both a segment of the keyring "+
+			"service name and a path segment of the manifest and state files",
+			m.Project.ID)
 	}
 	if len(m.Project.Profiles) == 0 {
 		add("project.profiles must name at least one profile")
@@ -147,4 +152,32 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// ValidProjectID reports whether s is safe to use as a project id.
+//
+// An id is interpolated into two namespaces and each constrains it. It is a
+// segment of the keyring service name, where a "/" would silently reshape the
+// namespace rather than fail -- the same reason validProfileName exists. It is
+// also a raw path segment in ManifestPath and StatePath, where a leading "."
+// escapes the config directory ("..") or hides the file.
+//
+// Dots are allowed elsewhere in the name because the default id is a directory
+// basename, and those routinely carry them: my.app, site.v2. They stay
+// unambiguous because the service name's separator is "/", which an id may not
+// contain. A leading "-" is refused so that an id always reads as an argument
+// in the command hints trenvy prints, never as a flag.
+func ValidProjectID(s string) bool {
+	if s == "" || s[0] == '.' || s[0] == '-' {
+		return false
+	}
+	for _, c := range s {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case c == '-', c == '_', c == '.':
+		default:
+			return false
+		}
+	}
+	return true
 }

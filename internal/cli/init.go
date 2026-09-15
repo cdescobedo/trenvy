@@ -25,8 +25,20 @@ func newInitCmd(opts *Options) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("resolve %s: %w", root, err)
 			}
-			if id == "" {
+			// The id must be judged before anything is registered or
+			// written: it is a path segment of the manifest and state
+			// files, so a bad one is a bad path, not a bad label.
+			derived := id == ""
+			if derived {
 				id = filepath.Base(abs)
+			}
+			if !manifest.ValidProjectID(id) {
+				if derived {
+					return fmt.Errorf(
+						"the directory name %q cannot be a project id; pass one with --id", id)
+				}
+				return fmt.Errorf("--id %q: an id may use letters, digits, '.', '-' "+
+					"and '_', and may not begin with '.' or '-'", id)
 			}
 
 			reg, err := config.LoadRegistry()

@@ -302,3 +302,44 @@ default_profile = "dev"
 		})
 	}
 }
+
+func TestValidProjectID(t *testing.T) {
+	ok := []string{"trenvy", "verity-portal-backend", "my.app", "site.v2", "a_b", "x1"}
+	for _, s := range ok {
+		if !manifest.ValidProjectID(s) {
+			t.Errorf("ValidProjectID(%q) = false, want true", s)
+		}
+	}
+	bad := []string{"", ".", "..", "../../etc", "team/app", `team\app`, ".hidden", "-lead", "a b", "a:b"}
+	for _, s := range bad {
+		if manifest.ValidProjectID(s) {
+			t.Errorf("ValidProjectID(%q) = true, want false", s)
+		}
+	}
+}
+
+// A project id is a segment of the keyring service name, exactly as a profile
+// name is, so a slash reshapes the namespace instead of failing.
+func TestValidateRejectsAProjectIDWithASlash(t *testing.T) {
+	m := parseOrFatal(t, profileTOML)
+	m.Project.ID = "team/app"
+
+	err := m.Validate()
+
+	if err == nil || !strings.Contains(err.Error(), "team/app") {
+		t.Errorf("error = %v, want it to reject the id", err)
+	}
+}
+
+// The id is also a raw path segment in ManifestPath and StatePath, so ".."
+// escapes the config directory rather than naming a project.
+func TestValidateRejectsAProjectIDThatEscapesTheConfigDir(t *testing.T) {
+	m := parseOrFatal(t, profileTOML)
+	m.Project.ID = "../../escape"
+
+	err := m.Validate()
+
+	if err == nil || !strings.Contains(err.Error(), "../../escape") {
+		t.Errorf("error = %v, want it to reject the traversal", err)
+	}
+}

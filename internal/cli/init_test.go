@@ -127,3 +127,62 @@ func TestInitCreatesAManifestWithNoOutputs(t *testing.T) {
 		t.Errorf("project.output = %q, want empty", m.Project.Output)
 	}
 }
+
+// The id becomes a path segment of the manifest and state files, so init must
+// judge it before it writes anything. Registering first and failing later
+// would leave a manifest under projects/team/ that no command can reach.
+func TestInitRefusesAnIDWithAPathSeparator(t *testing.T) {
+	h := newHarness(t)
+
+	err := h.run("project", "init", "--id", "team/app")
+
+	if err == nil {
+		t.Fatal("init accepted an id containing a separator")
+	}
+	if !strings.Contains(err.Error(), "--id") {
+		t.Errorf("error does not name the flag to fix: %v", err)
+	}
+	entries, _ := os.ReadDir(filepath.Join(os.Getenv("TRENVY_CONFIG_DIR"), "projects"))
+	if len(entries) > 0 {
+		t.Errorf("init wrote %d entry under projects/ despite rejecting the id", len(entries))
+	}
+}
+
+func TestInitRefusesAnIDThatEscapesTheConfigDir(t *testing.T) {
+	h := newHarness(t)
+	cfg := os.Getenv("TRENVY_CONFIG_DIR")
+
+	err := h.run("project", "init", "--id", "../../escape")
+
+	if err == nil {
+		t.Fatal("init accepted an id containing ..")
+	}
+	if !strings.Contains(err.Error(), "--id") {
+		t.Errorf("error does not name the flag to fix: %v", err)
+	}
+	// projects/../../escape.toml resolves to a sibling of the config dir.
+	escaped := filepath.Join(filepath.Dir(cfg), "escape.toml")
+	if _, statErr := os.Stat(escaped); statErr == nil {
+		t.Errorf("init wrote %s, outside the config directory", escaped)
+	}
+}
+
+// The default id is the root directory's name, which the user did not choose
+// with trenvy in mind. Refusing is right, but the error has to point at the
+// way out rather than at the directory.
+func TestInitRefusesADirectoryNameThatCannotBeAnID(t *testing.T) {
+	h := newHarness(t)
+	root := filepath.Join(h.root, "my project")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := h.run("project", "init", "--root", root)
+
+	if err == nil {
+		t.Fatal("init accepted a directory name with a space as the id")
+	}
+	if !strings.Contains(err.Error(), "--id") {
+		t.Errorf("error does not point at --id: %v", err)
+	}
+}

@@ -12,6 +12,17 @@ the command surface may still move under you.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Project ids are validated.** An id is both a segment of the keyring service
+  name and a path segment of the manifest and state files, so `--id 'a/b'`
+  reshaped the keyring namespace and `--id '../../x'` wrote outside the config
+  directory. `trenvy project init` now refuses an id that is not letters,
+  digits, `.`, `-` or `_`, or that begins with `.` or `-`, and refuses it
+  before registering or writing anything. When the id is defaulted from the
+  root directory's name, the error points at `--id`. Profile names already had
+  this rule; project ids did not.
+
 ### Breaking
 
 - **The tool is now `trenvy`, not `envctl`.** The binary, the module path
