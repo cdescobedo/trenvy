@@ -219,12 +219,22 @@ func TestSetRefusesASecretVariable(t *testing.T) {
 	}
 }
 
+// manifest.Validate() would also reject this -- a secret may not carry a
+// Value -- but its message describes the manifest, not what the user should
+// do about it. The explicit guard in set is what points at "envctl secret
+// set", so the assertion checks for that message specifically: deleting the
+// guard and falling back to Validate's rejection alone must fail this test.
 func TestSetSharedAlsoRefusesASecretVariable(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
 
-	if err := h.run("set", "ALPHA_TOKEN", "hunter2", "--shared"); err == nil {
+	err := h.run("set", "ALPHA_TOKEN", "hunter2", "--shared")
+
+	if err == nil {
 		t.Fatal("set --shared wrote to a secret variable")
+	}
+	if !strings.Contains(err.Error(), "envctl secret set") {
+		t.Errorf("error does not point at the safe command: %v", err)
 	}
 }
 
