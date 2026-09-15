@@ -208,6 +208,7 @@ func Execute(opts Options, args []string) error {
 		newCleanCmd(&opts),
 		newExecCmd(&opts),
 		newShellCmd(&opts),
+		newProfileCmd(&opts),
 	)
 
 	return root.Execute()
