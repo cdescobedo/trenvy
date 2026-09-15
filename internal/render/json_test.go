@@ -89,9 +89,16 @@ func TestJSONEscapesCorrectly(t *testing.T) {
 	})
 
 	t.Run("SetEscapeHTML(false) preserves ampersands", func(t *testing.T) {
-		// JSON calls SetEscapeHTML(false). Left on, Go's encoder writes an
-		// ampersand as the six characters &, so a URL like ?a=1&b=2
-		// arrives in the rendered file unreadable.
+		// JSON calls SetEscapeHTML(false). Left on, Go's encoder replaces an
+		// ampersand with a six-character JSON unicode escape -- a backslash,
+		// a "u", then the four hex digits of the codepoint, 0026 -- so a URL
+		// like ?a=1&b=2 arrives in the rendered file unreadable.
+		//
+		// Spelled out in words on purpose: writing the sequence itself here
+		// has twice been decoded back into a single ampersand before reaching
+		// the file, leaving a sentence that claimed six characters and showed
+		// one. The assertion below carries the literal, where Go's own string
+		// escaping keeps it intact.
 		got, err := render.JSON(resolved(map[string]string{"url": "?a=1&b=2"}))
 		if err != nil {
 			t.Fatal(err)

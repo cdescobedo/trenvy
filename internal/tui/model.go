@@ -17,7 +17,7 @@ type Row struct {
 	Value     string
 	Secret    bool
 	Present   bool   // the secret exists in the keyring (from Has, not Get)
-	Overrides int    // how many profiles give this variable a value of their own
+	Overrides int    // Overrides counts the profiles giving this variable a value of its own.
 	Source    string // where an imported row came from, shown during import
 	Dirty     bool
 	Deleted   bool
