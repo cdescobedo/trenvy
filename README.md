@@ -41,7 +41,8 @@ root, so it inherits the manifest.
 | `trenvy project rm <id>` | delete a project, its state and its secrets in the current backend |
 | `trenvy profile` | show the active profile and where it came from |
 | `trenvy profile list` | list the project's profiles |
-| `trenvy profile add\|rm <name>` | declare or remove a profile |
+| `trenvy profile add <name>` | declare a new profile |
+| `trenvy profile rm <name>` | remove a profile, its overrides and its secrets |
 | `trenvy profile use <name>` | emit a shell export switching profile for this session |
 | `trenvy profile default <name>` | set the project's default profile |
 | `trenvy import <sample file>` | seed the manifest from a sample `.env` or `.json` file |

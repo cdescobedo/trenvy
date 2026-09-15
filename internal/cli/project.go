@@ -134,7 +134,14 @@ func newProjectMoveCmd(opts *Options) *cobra.Command {
 }
 
 // newProjectRmCmd deletes a project outright: its manifest, its render state,
-// its registry entry and every keyring item it owns, across every profile.
+// its registry entry and every keyring item it owns in the currently
+// selected secret backend.
+//
+// The backend qualifier matters: a secret stored under a different backend
+// (--backend, TRENVY_BACKEND, or a platform default that changed since it was
+// stored) is not touched by this command, but the manifest deleted here was
+// that secret's only inventory. Once it's gone, nothing records that the
+// secret exists or which backend holds it -- so it survives, just unfindable.
 //
 // It deliberately does not use resolveApp. Every other project-scoped command
 // asks "which project owns this directory?"; this one is told an id, and must
@@ -188,7 +195,8 @@ func newProjectRmCmd(opts *Options) *cobra.Command {
 			if !yes {
 				fmt.Fprintf(opts.Stderr,
 					"This deletes the manifest, the render state, the registry entry,\n"+
-						"and up to %d keyring items (%d secrets across %d profiles). It cannot be undone.\n",
+						"and up to %d keyring items (%d secrets across %d profiles) in the current\n"+
+						"backend. It cannot be undone.\n",
 					items, len(secrets), len(m.Project.Profiles))
 				if len(st.Renders) > 0 {
 					fmt.Fprintf(opts.Stderr, "Rendered files are NOT removed; %d remain:\n", len(st.Renders))

@@ -392,6 +392,25 @@ func TestProjectRmToleratesSecretsThatWereNeverStored(t *testing.T) {
 	}
 }
 
+// The confirmation prompt is the last thing a user reads before an
+// irreversible action, so it must name the same backend scoping as Short,
+// Long and the README -- not just hedge with "up to" and leave the reader to
+// infer why the count might be lower than every secret the project declares.
+func TestProjectRmConfirmationNamesTheCurrentBackend(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+	h.opts.Stdin = strings.NewReader("wrong\n") // decline; only the prompt matters here
+
+	if err := h.run("project", "rm", "vpb"); err == nil {
+		t.Fatal("project rm proceeded on a mistyped confirmation")
+	}
+
+	stderr := h.errb.String()
+	if !strings.Contains(stderr, "current\nbackend") && !strings.Contains(stderr, "current backend") {
+		t.Errorf("confirmation prompt does not name the current backend:\n%s", stderr)
+	}
+}
+
 // Without --yes the id must be typed in full: y/N is too easy to fire off for
 // something with no undo.
 func TestProjectRmRequiresTheIdTypedBack(t *testing.T) {
