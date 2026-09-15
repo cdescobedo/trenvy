@@ -71,7 +71,7 @@ func newStatusCmd(opts *Options) *cobra.Command {
 					fmt.Fprintf(vw, "  present\t%s\n", n)
 				} else {
 					missing++
-					fmt.Fprintf(vw, "  MISSING\t%s\t-> trenvy secret set %s\n", n, n)
+					fmt.Fprintf(vw, "  MISSING\t%s\t-> trenvy -p %s secret set %s\n", n, app.Profile.Name, n)
 				}
 			}
 			if err := vw.Flush(); err != nil {

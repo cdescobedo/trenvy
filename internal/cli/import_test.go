@@ -52,6 +52,31 @@ func TestImportSeedsTheManifestFromADotenvSample(t *testing.T) {
 	}
 }
 
+// The post-import hint suggests a command to run next. Under -p prod, a bare
+// `trenvy secret set <NAME>` would store the value under whichever profile
+// happens to be active in the shell that copy-pastes it, not the profile
+// this import actually ran under.
+func TestImportSecretHintNamesTheActiveProfile(t *testing.T) {
+	h := newHarness(t)
+	m := fixtureManifest(t)
+	m.Project.Profiles = []string{"dev", "prod"}
+	h.register("vpb", m)
+	sample := filepath.Join(h.root, "sample.env")
+	body := "NEW_SECRET=your-secret-key-here-replace-with-actual-secret\n"
+	if err := os.WriteFile(sample, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := h.run("-p", "prod", "import", sample, "--no-tui"); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+
+	out := h.out.String()
+	if !strings.Contains(out, "trenvy -p prod secret set <NAME>") {
+		t.Errorf("import hint does not name the active profile:\n%s", out)
+	}
+}
+
 func TestImportCreatesAnOutputForTheSamplesRealPath(t *testing.T) {
 	h := newHarness(t)
 	if err := h.run("project", "init", "--id", "vpb"); err != nil {

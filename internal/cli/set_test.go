@@ -69,7 +69,7 @@ func TestSetRefusesToOverwriteASecretWithAPlainValue(t *testing.T) {
 	if err == nil {
 		t.Fatal("set overwrote a secret with a plain value")
 	}
-	if !strings.Contains(err.Error(), "trenvy secret set") {
+	if !strings.Contains(err.Error(), "trenvy -p dev secret set ALPHA_TOKEN") {
 		t.Errorf("error does not point at the right command: %v", err)
 	}
 	// The rejected value must not appear anywhere.
@@ -216,8 +216,28 @@ func TestSetRefusesASecretVariable(t *testing.T) {
 	if err == nil {
 		t.Fatal("set wrote to a secret variable")
 	}
-	if !strings.Contains(err.Error(), "trenvy secret set") {
+	if !strings.Contains(err.Error(), "trenvy -p dev secret set ALPHA_TOKEN") {
 		t.Errorf("error does not point at the safe command: %v", err)
+	}
+}
+
+// The suggested command must reproduce the invocation that would actually
+// work: under -p prod, a bare `trenvy secret set` would store the value
+// under whichever profile happens to be active, not the one this refusal is
+// actually about.
+func TestSetSecretRefusalNamesTheActiveProfile(t *testing.T) {
+	h := newHarness(t)
+	m := fixtureManifest(t)
+	m.Project.Profiles = []string{"dev", "prod"}
+	h.register("vpb", m)
+
+	err := h.run("-p", "prod", "set", "ALPHA_TOKEN", "hunter2")
+
+	if err == nil {
+		t.Fatal("set wrote to a secret variable")
+	}
+	if !strings.Contains(err.Error(), "trenvy -p prod secret set ALPHA_TOKEN") {
+		t.Errorf("error does not name the active profile: %v", err)
 	}
 }
 
@@ -235,7 +255,7 @@ func TestSetSharedAlsoRefusesASecretVariable(t *testing.T) {
 	if err == nil {
 		t.Fatal("set --shared wrote to a secret variable")
 	}
-	if !strings.Contains(err.Error(), "trenvy secret set") {
+	if !strings.Contains(err.Error(), "trenvy -p dev secret set ALPHA_TOKEN") {
 		t.Errorf("error does not point at the safe command: %v", err)
 	}
 }

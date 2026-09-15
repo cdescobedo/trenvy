@@ -21,8 +21,28 @@ func TestStatusReportsSecretPresence(t *testing.T) {
 	if !strings.Contains(out, "MISSING") || !strings.Contains(out, "ALPHA_TOKEN") {
 		t.Errorf("missing secret not reported:\n%s", out)
 	}
-	if !strings.Contains(out, "trenvy secret set ALPHA_TOKEN") {
-		t.Errorf("status does not give the fix:\n%s", out)
+	if !strings.Contains(out, "trenvy -p dev secret set ALPHA_TOKEN") {
+		t.Errorf("status does not give the fix with the active profile:\n%s", out)
+	}
+}
+
+// Copy-pasting the fix must write the credential into the profile status is
+// actually reporting on. A bare `trenvy secret set` names no profile, so it
+// silently stores under whichever profile happens to be active in the
+// pasting shell -- which under -p prod is not the profile status just
+// checked, and the paste-and-rerun leaves status still reporting MISSING.
+func TestStatusMissingHintNamesTheActiveProfile(t *testing.T) {
+	h := newHarness(t)
+	m := fixtureManifest(t)
+	m.Project.Profiles = []string{"dev", "prod"}
+	h.register("vpb", m)
+
+	if err := h.run("-p", "prod", "status"); err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	out := h.out.String()
+	if !strings.Contains(out, "trenvy -p prod secret set ALPHA_TOKEN") {
+		t.Errorf("status does not name the active profile in its fix:\n%s", out)
 	}
 }
 

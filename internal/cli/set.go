@@ -36,7 +36,8 @@ func newSetCmd(opts *Options) *cobra.Command {
 				// This holds for --shared too: the hazard is the channel (argv
 				// and shell history), not which destination the value lands in.
 				return fmt.Errorf(
-					"%s is a secret; set its value with: trenvy secret set %s", name, name)
+					"%s is a secret; set its value with: trenvy -p %s secret set %s",
+					name, app.Profile.Name, name)
 			}
 
 			v := app.Manifest.Vars[name]

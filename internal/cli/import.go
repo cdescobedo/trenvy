@@ -93,7 +93,9 @@ func newImportCmd(opts *Options) *cobra.Command {
 			fmt.Fprintf(opts.Stdout, "imported %d variables (%d secret) from %s\n",
 				len(entries), secrets, samplePath)
 			if secrets > 0 {
-				fmt.Fprintf(opts.Stdout, "next: trenvy secret set <NAME> for each secret, then trenvy status\n")
+				fmt.Fprintf(opts.Stdout,
+					"next: trenvy -p %s secret set <NAME> for each secret, then trenvy status\n",
+					app.Profile.Name)
 			}
 			return nil
 		},
