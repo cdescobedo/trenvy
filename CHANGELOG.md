@@ -128,6 +128,15 @@ the command surface may still move under you.
   pointing at a name that no longer existed. It refuses a `<new>` that is
   already defined, and updates `project.output` when it named the output
   being renamed.
+- **`trenvy output rm <name>`** removes an output. It refuses when the output
+  has render records in any worktree, naming every affected worktree and both
+  ways forward -- `trenvy clean <name>` in each one, or `--force` to drop the
+  records and leave the files in place -- because a silent delete would orphan
+  files under a name `trenvy clean` can no longer look up. `--yes` and
+  `--force` are independent: `--yes` answers the confirmation prompt, `--force`
+  answers the render-record refusal, and neither bypasses the other. Removing
+  the output that held `project.output` clears it and says so, since a bare
+  `trenvy render` then needs an explicit argument.
 
 ### Changed
 

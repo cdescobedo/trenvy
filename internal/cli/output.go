@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -26,6 +27,7 @@ func newOutputCmd(opts *Options) *cobra.Command {
 		newOutputAddCmd(opts),
 		newOutputDefaultCmd(opts),
 		newOutputRenameCmd(opts),
+		newOutputRmCmd(opts),
 	)
 	return cmd
 }
@@ -207,6 +209,100 @@ func newOutputRenameCmd(opts *Options) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// newOutputRmCmd removes an output.
+//
+// --yes and --force answer two different questions and do not substitute for
+// each other: --yes answers "are you sure", --force answers "drop the render
+// records that still point at real files". Collapsing them into one flag
+// would let an unattended run silently orphan files it can no longer reach
+// with `trenvy clean`, since Forget deletes the very record clean needs.
+func newOutputRmCmd(opts *Options) *cobra.Command {
+	var yes, force bool
+
+	c := &cobra.Command{
+		Use:               "rm <name>",
+		Short:             "Remove an output",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: opts.completeOutputNames(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			app, err := opts.resolveApp()
+			if err != nil {
+				return err
+			}
+			name := args[0]
+			if _, ok := app.Manifest.Outputs[name]; !ok {
+				return fmt.Errorf("no output named %q; list them with: trenvy output list", name)
+			}
+
+			var rendered []config.RenderEntry
+			for _, e := range app.State.Renders {
+				if e.Output == name {
+					rendered = append(rendered, e)
+				}
+			}
+			if len(rendered) > 0 && !force {
+				var b strings.Builder
+				fmt.Fprintf(&b, "output %q has been rendered in %d worktree(s):\n", name, len(rendered))
+				for _, e := range rendered {
+					fmt.Fprintf(&b, "  %s\n", e.Worktree)
+				}
+				b.WriteString("  remove the files first: trenvy clean " + name + "  (in each worktree)\n")
+				b.WriteString("  or drop the records and leave the files: trenvy output rm " + name + " --force")
+				return errors.New(b.String())
+			}
+
+			if !yes {
+				ok, err := confirm(opts, fmt.Sprintf("Remove output %q?", name))
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return errors.New("aborted")
+				}
+			}
+
+			// State first, then the manifest, for the reason given in rename:
+			// re-running after a failed manifest write still finds the name
+			// and Forget is idempotent, but a manifest write that lands first
+			// leaves the name undefined and this command can no longer find
+			// the records to drop.
+			for _, e := range rendered {
+				app.State.Forget(e.Worktree, name)
+			}
+			if len(rendered) > 0 {
+				if err := app.State.Save(); err != nil {
+					return err
+				}
+			}
+			delete(app.Manifest.Outputs, name)
+			clearedDefault := app.Manifest.Project.Output == name
+			if clearedDefault {
+				app.Manifest.Project.Output = ""
+			}
+			if err := app.Manifest.Validate(); err != nil {
+				return err
+			}
+			if err := manifest.Save(config.ManifestPath(app.Entry.ID), app.Manifest); err != nil {
+				return err
+			}
+
+			fmt.Fprintf(opts.Stdout, "removed output %s\n", name)
+			for _, e := range rendered {
+				fmt.Fprintf(opts.Stdout, "  left in place: %s/%s\n", e.Worktree, e.Path)
+			}
+			if clearedDefault {
+				fmt.Fprintf(opts.Stdout,
+					"  it was the default; bare `trenvy render` now needs an output argument\n")
+			}
+			return nil
+		},
+	}
+	c.Flags().BoolVar(&yes, "yes", false, "do not ask for confirmation")
+	c.Flags().BoolVar(&force, "force", false,
+		"drop render records and leave the rendered files in place")
+	return c
 }
 
 func newOutputDefaultCmd(opts *Options) *cobra.Command {

@@ -186,3 +186,112 @@ func TestOutputRenameRefusesAnExistingName(t *testing.T) {
 		t.Error("the refused rename removed the original anyway")
 	}
 }
+
+// Records can exist in worktrees the user is not standing in. Deleting the
+// output silently would orphan those files: the name they are keyed under
+// would be gone, so trenvy clean could no longer reach them.
+//
+// This passes --yes precisely to prove that --yes alone does not bypass the
+// record refusal: --yes answers the confirmation prompt, --force answers
+// this refusal, and the two are independent.
+func TestOutputRmRefusesWhileRenderRecordsExist(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+	h.setOutputs(t, "p", map[string]manifest.Output{
+		"app": {Format: "dotenv", Path: ".env"},
+	}, "app")
+	h.recordRender(t, "p", h.root, "app", ".env")
+
+	err := h.run("output", "rm", "app", "--yes")
+
+	if err == nil {
+		t.Fatal("rm removed an output that had been rendered")
+	}
+	if !strings.Contains(err.Error(), h.root) {
+		t.Errorf("error does not name the worktree: %v", err)
+	}
+	if !strings.Contains(err.Error(), "--force") {
+		t.Errorf("error does not name the way forward: %v", err)
+	}
+	if _, ok := h.manifest(t, "p").Outputs["app"]; !ok {
+		t.Error("the refused rm removed it anyway")
+	}
+}
+
+func TestOutputRmForceDropsTheRecordsAndKeepsTheFiles(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+	h.setOutputs(t, "p", map[string]manifest.Output{
+		"app": {Format: "dotenv", Path: ".env"},
+	}, "app")
+	h.recordRender(t, "p", h.root, "app", ".env")
+
+	if err := h.run("output", "rm", "app", "--yes", "--force"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := h.manifest(t, "p").Outputs["app"]; ok {
+		t.Error("the output survived --force")
+	}
+	if _, ok := h.state(t, "p").Find(h.root, "app"); ok {
+		t.Error("the render record survived --force")
+	}
+}
+
+// --force alone must still prompt: it answers the render-record refusal, not
+// the confirmation question. An unattended run that only set --force, never
+// intending to answer the prompt, must not silently proceed.
+func TestOutputRmForceWithoutYesStillPrompts(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+	h.setOutputs(t, "p", map[string]manifest.Output{
+		"app": {Format: "dotenv", Path: ".env"},
+	}, "app")
+	h.recordRender(t, "p", h.root, "app", ".env")
+	h.opts.Stdin = strings.NewReader("") // EOF: nothing typed at the prompt
+
+	err := h.run("output", "rm", "app", "--force")
+
+	if err == nil {
+		t.Fatal("rm --force with no --yes and no confirmation removed the output")
+	}
+	if _, ok := h.manifest(t, "p").Outputs["app"]; !ok {
+		t.Error("the unconfirmed rm removed it anyway")
+	}
+	if !strings.Contains(h.errb.String(), "Remove output") {
+		t.Errorf("rm --force did not prompt for confirmation:\n%s", h.errb.String())
+	}
+}
+
+// Removing the default is allowed; it clears project.output and says so,
+// because refusing until the user repoints is ceremony for a reversible edit.
+func TestOutputRmClearsTheDefaultItHeld(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+	h.setOutputs(t, "p", map[string]manifest.Output{
+		"app": {Format: "dotenv", Path: ".env"},
+	}, "app")
+
+	if err := h.run("output", "rm", "app", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+
+	m := h.manifest(t, "p")
+	if m.Project.Output != "" {
+		t.Errorf("project.output = %q, want cleared", m.Project.Output)
+	}
+	if !strings.Contains(h.out.String(), "render") {
+		t.Errorf("rm did not warn that bare render now needs an argument:\n%s", h.out.String())
+	}
+}
+
+func TestOutputRmRefusesAnUnknownName(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+
+	err := h.run("output", "rm", "nope", "--yes")
+
+	if err == nil || !strings.Contains(err.Error(), "nope") {
+		t.Errorf("error = %v, want it to name the unknown output", err)
+	}
+}
