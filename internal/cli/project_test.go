@@ -113,7 +113,38 @@ func TestProjectMoveRejectsARootThatDoesNotExist(t *testing.T) {
 func TestProjectMoveRejectsAnUnknownProject(t *testing.T) {
 	h := newHarness(t)
 
-	if err := h.run("project", "move", "nope", t.TempDir()); err == nil {
+	err := h.run("project", "move", "nope", t.TempDir())
+
+	if err == nil {
 		t.Fatal("project move accepted an unknown id")
+	}
+	// Pinned to the friendlier message, not just any error: SetRoot's own
+	// internal "no project registered" guard would also make err non-nil,
+	// so a bare err != nil check cannot tell the command's early, more
+	// helpful check apart from that fallback.
+	if !strings.Contains(err.Error(), "envctl project list") {
+		t.Errorf("error does not point at envctl project list: %v", err)
+	}
+}
+
+// The old root is left behind on disk by every test above (t.TempDir() is
+// not removed mid-test), so this is really asserting on behavior the
+// implementation already has -- there is no RED for a missing feature here,
+// only for a missing assertion.
+func TestProjectMoveWarnsWhenTheOldRootStillExists(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+
+	newRoot := t.TempDir()
+	if err := h.run("project", "move", "vpb", newRoot); err != nil {
+		t.Fatalf("project move: %v", err)
+	}
+
+	stderr := h.errb.String()
+	if !strings.Contains(stderr, h.root) {
+		t.Errorf("stderr does not mention the old root %q:\n%s", h.root, stderr)
+	}
+	if !strings.Contains(stderr, "envctl project init") {
+		t.Errorf("stderr does not suggest envctl project init:\n%s", stderr)
 	}
 }
