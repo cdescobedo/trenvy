@@ -253,6 +253,23 @@ func TestAnUndeclaredProfileFailsBeforeAnythingIsRead(t *testing.T) {
 	}
 }
 
+// The --help text is the one place a user goes to find out what -p does, so
+// its wording should read as "profile", not the internal-jargon "value set".
+func TestProfileFlagHelpNamesTheProfile(t *testing.T) {
+	h := newHarness(t)
+
+	if err := h.run("--help"); err != nil {
+		t.Fatalf("--help: %v", err)
+	}
+	out := h.out.String()
+	if !strings.Contains(out, "profile to use") {
+		t.Errorf("--help does not describe -p as a profile:\n%s", out)
+	}
+	if strings.Contains(out, "value set to use") {
+		t.Errorf("--help still describes -p as a \"value set\":\n%s", out)
+	}
+}
+
 func mkdirAll(p string) error { return os.MkdirAll(p, 0o755) }
 
 func mustReadFile(t *testing.T, path string) string {
