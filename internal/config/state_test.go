@@ -148,6 +148,34 @@ func TestStateSaveCreatesDir0700(t *testing.T) {
 	}
 }
 
+// RenderEntry.Worktree is absolute. Leave it stale after a move and Find stops
+// matching, so guard.Inspect sees a rendered file with no record, calls it
+// FOREIGN, and render refuses without --force -- the guard fighting the user.
+func TestRebaseWorktreesRewritesEveryEntryUnderTheOldRoot(t *testing.T) {
+	s := &config.State{}
+	s.Record(config.RenderEntry{Worktree: "/old/proj/main", Output: "app", Path: "src/.env"})
+	s.Record(config.RenderEntry{Worktree: "/old/proj/feat", Output: "app", Path: "src/.env"})
+
+	n := s.RebaseWorktrees("/old/proj", "/new/proj")
+
+	if n != 2 {
+		t.Errorf("rebased %d entries, want 2", n)
+	}
+	if _, ok := s.Find("/new/proj/main", "app"); !ok {
+		t.Error("the main worktree entry was not rebased")
+	}
+}
+
+// A path that merely shares a string prefix is not inside the root.
+func TestRebaseWorktreesLeavesASiblingPathAlone(t *testing.T) {
+	s := &config.State{}
+	s.Record(config.RenderEntry{Worktree: "/old/proj-other/main", Output: "app"})
+
+	if n := s.RebaseWorktrees("/old/proj", "/new/proj"); n != 0 {
+		t.Errorf("rebased %d entries, want 0", n)
+	}
+}
+
 func TestStateSaveTightensExistingFilePermissions(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("ENVCTL_CONFIG_DIR", tmpDir)

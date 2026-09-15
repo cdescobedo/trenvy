@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cdescobedo/envctl/internal/config"
@@ -170,6 +171,38 @@ func TestSaveCreatesDirWithCorrectMode(t *testing.T) {
 	}
 	if fileInfo.Mode().Perm() != 0o600 {
 		t.Errorf("registry.toml mode = %o, want 0600", fileInfo.Mode().Perm())
+	}
+}
+
+func TestSetRootMovesAProject(t *testing.T) {
+	r := &config.Registry{}
+	if err := r.Add(config.Entry{ID: "p", Root: "/old/p"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := r.SetRoot("p", "/new/p"); err != nil {
+		t.Fatalf("SetRoot: %v", err)
+	}
+
+	e, ok := r.Find("p")
+	if !ok || e.Root != "/new/p" {
+		t.Errorf("entry = %+v, want root /new/p", e)
+	}
+}
+
+func TestSetRootRejectsARootAnotherProjectOwns(t *testing.T) {
+	r := &config.Registry{}
+	if err := r.Add(config.Entry{ID: "a", Root: "/x/a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Add(config.Entry{ID: "b", Root: "/x/b"}); err != nil {
+		t.Fatal(err)
+	}
+
+	err := r.SetRoot("a", "/x/b")
+
+	if err == nil || !strings.Contains(err.Error(), "b") {
+		t.Errorf("error = %v, want it to name the owning project", err)
 	}
 }
 

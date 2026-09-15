@@ -75,6 +75,49 @@ func (r *Registry) Add(e Entry) error {
 	return nil
 }
 
+// Find returns the entry with this id.
+func (r *Registry) Find(id string) (Entry, bool) {
+	for _, e := range r.Projects {
+		if e.ID == id {
+			return e, true
+		}
+	}
+	return Entry{}, false
+}
+
+// SetRoot repoints a project at a new root. Uniqueness is rechecked because
+// two entries sharing a root would make Lookup ambiguous.
+func (r *Registry) SetRoot(id, root string) error {
+	root = filepath.Clean(root)
+	for _, e := range r.Projects {
+		if e.ID != id && filepath.Clean(e.Root) == root {
+			return fmt.Errorf("%s is already registered as project %q", root, e.ID)
+		}
+	}
+	for i, e := range r.Projects {
+		if e.ID == id {
+			r.Projects[i].Root = root
+			return nil
+		}
+	}
+	return fmt.Errorf("no project registered with id %q", id)
+}
+
+// Remove drops a project's entry, reporting whether one was there.
+func (r *Registry) Remove(id string) bool {
+	out := r.Projects[:0]
+	found := false
+	for _, e := range r.Projects {
+		if e.ID == id {
+			found = true
+			continue
+		}
+		out = append(out, e)
+	}
+	r.Projects = out
+	return found
+}
+
 // LoadRegistry reads registry.toml, returning an empty registry when absent.
 func LoadRegistry() (*Registry, error) {
 	data, err := os.ReadFile(RegistryPath())

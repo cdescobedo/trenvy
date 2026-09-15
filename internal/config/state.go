@@ -77,6 +77,36 @@ func (s *State) Record(e RenderEntry) {
 	s.Renders = append(s.Renders, e)
 }
 
+// RebaseWorktrees rewrites every render record whose worktree sits under
+// oldRoot so that it sits under newRoot instead, returning how many moved.
+//
+// Without this, a project move silently breaks the render guard: the
+// worktree path is absolute, Find stops matching, and guard.Inspect
+// classifies an already-rendered file as FOREIGN because it has no record --
+// the very guard meant to protect the user starts fighting them.
+//
+// Matching reuses underOrEqual, the same path-boundary check Registry.Lookup
+// uses, so /old/proj-other is not treated as inside /old/proj just because it
+// shares a string prefix.
+func (s *State) RebaseWorktrees(oldRoot, newRoot string) int {
+	oldRoot = filepath.Clean(oldRoot)
+	newRoot = filepath.Clean(newRoot)
+	moved := 0
+	for i, e := range s.Renders {
+		wt := filepath.Clean(e.Worktree)
+		if !underOrEqual(wt, oldRoot) {
+			continue
+		}
+		rel, err := filepath.Rel(oldRoot, wt)
+		if err != nil {
+			continue
+		}
+		s.Renders[i].Worktree = filepath.Clean(filepath.Join(newRoot, rel))
+		moved++
+	}
+	return moved
+}
+
 // Forget removes a record, used when a rendered file is cleaned.
 func (s *State) Forget(worktree, output string) {
 	worktree = filepath.Clean(worktree)
