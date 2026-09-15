@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 
 	"github.com/cdescobedo/trenvy/internal/config"
 	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/store"
 	"github.com/cdescobedo/trenvy/internal/tui"
 )
 
@@ -207,6 +209,93 @@ func TestEditSavingAFilteredViewKeepsFilteredOutRows(t *testing.T) {
 	if _, ok := m.Vars["ALPHA_TOKEN"]; !ok {
 		t.Error("a row hidden by an active filter was deleted on save")
 	}
+}
+
+// A keyring write that fails partway through cannot be unwound: the items
+// before it are already stored for good. edit must therefore say how far it
+// got and that the manifest is unsaved, the same promise unset, profile rm and
+// project rm make -- telling the user nothing happened is how the orphaned
+// items never get cleaned up.
+func TestEditSaysHowFarItGotWhenAKeyringWriteFails(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+
+	h.opts.NewStore = func(*config.Config, string) (store.Store, error) {
+		return failOnSetStore{Store: h.mem, failOn: "SECOND_TOKEN"}, nil
+	}
+	// Two secret writes, in sorted order: ALPHA_TOKEN succeeds, SECOND_TOKEN
+	// fails. One write is genuinely applied by the time the error is written.
+	h.opts.RunTUI = func(tui.Model, func(string) (string, error)) (tui.Model, error) {
+		return markSaved(tui.New("vpb", []tui.Row{
+			{Name: "ALPHA_TOKEN", Secret: true, Value: "first", Dirty: true},
+			{Name: "SECOND_TOKEN", Secret: true, Value: "second", Dirty: true},
+		})), nil
+	}
+
+	err := h.run("edit")
+	if err == nil {
+		t.Fatal("edit succeeded despite a failing keyring write")
+	}
+	if !strings.Contains(err.Error(), "already applied 1 of 2 keyring writes") {
+		t.Errorf("error does not say how far the run got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "manifest was not saved") {
+		t.Errorf("error does not say the manifest is unsaved: %v", err)
+	}
+
+	// The manifest must be untouched, or the failure would have left a
+	// declared secret the keyring never received.
+	m, loadErr := manifest.Load(config.ManifestPath("vpb"))
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	if _, ok := m.Vars["SECOND_TOKEN"]; ok {
+		t.Error("the manifest was saved despite the keyring write failing")
+	}
+	if _, ok := m.Vars["APP_URL"]; !ok {
+		t.Error("the manifest lost a variable the failed session never touched")
+	}
+}
+
+// The count must be truthful at the boundary too: a failure on the very first
+// write means nothing was applied, and "0 of N" must not read as though
+// something was.
+func TestEditReportsZeroWhenTheFirstKeyringWriteFails(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+
+	h.opts.NewStore = func(*config.Config, string) (store.Store, error) {
+		return failOnSetStore{Store: h.mem, failOn: "ALPHA_TOKEN"}, nil
+	}
+	h.opts.RunTUI = func(tui.Model, func(string) (string, error)) (tui.Model, error) {
+		return markSaved(tui.New("vpb", []tui.Row{
+			{Name: "ALPHA_TOKEN", Secret: true, Value: "first", Dirty: true},
+			{Name: "SECOND_TOKEN", Secret: true, Value: "second", Dirty: true},
+		})), nil
+	}
+
+	err := h.run("edit")
+	if err == nil {
+		t.Fatal("edit succeeded despite a failing keyring write")
+	}
+	if !strings.Contains(err.Error(), "already applied 0 of 2 keyring writes") {
+		t.Errorf("error does not truthfully report that nothing was applied: %v", err)
+	}
+}
+
+// failOnSetStore fails a store for one variable's item, so a test can arrange
+// a partial success -- some writes applied, one not -- rather than an
+// all-or-nothing failure.
+type failOnSetStore struct {
+	store.Store
+	failOn string
+}
+
+func (f failOnSetStore) Set(service, value string) error {
+	if strings.HasSuffix(service, "/"+f.failOn) {
+		return errors.New("keyring is locked")
+	}
+	return f.Store.Set(service, value)
 }
 
 // markSaved drives a model through w so tests can build a finished model.

@@ -87,6 +87,25 @@ type storeOp struct {
 	value   string
 }
 
+// partialWriteError reports a keyring write that failed partway through a
+// save, in the shape unset, profile rm and project rm all use: name the item,
+// say how far the run got, say what survived, say what to do.
+//
+// "of %d" rather than a bare count: edit's ops are a mixed batch of stores and
+// deletes, so the denominator is what tells the reader whether a run stopped
+// at the start or near the end -- and it reads correctly at zero, which a bare
+// count does not.
+//
+// Re-running edit reopens the table from the manifest on disk, so the session
+// that failed is genuinely lost rather than merely postponed. The message says
+// "edit again", not "re-run", because those are not the same promise.
+func partialWriteError(verb, service string, err error, applied, total int) error {
+	return fmt.Errorf(
+		"%s %s: %w\n  already applied %d of %d keyring writes; the manifest was not"+
+			" saved, so this session's edits were not kept -- fix this and edit again",
+		verb, service, err, applied, total)
+}
+
 // applyRows writes the result of an editing session: plain values into the
 // manifest, secret values into the keyring, deletions to both.
 //
@@ -149,24 +168,40 @@ func applyRows(opts *Options, app *appContext, rows []tui.Row) error {
 
 	// Then the keyring, and only then the manifest -- same ordering as
 	// `secret set`, for the same reason. The store is resolved lazily, so an
-	// unusable backend reports itself here, before the manifest is touched,
-	// and an interrupted run leaves at worst an unreferenced keyring item
-	// rather than a manifest entry whose secret was never stored.
+	// unusable backend reports itself here, before the manifest is touched.
+	//
+	// A failure partway through cannot be unwound: every op before it has
+	// already hit the keyring for good. What is left depends on which kind
+	// stopped -- an applied Set leaves an item the unsaved manifest does not
+	// reference, an applied Delete leaves a still-declared secret whose item
+	// is gone and which status will report MISSING. Either way the count has
+	// to be reported, because a user told nothing happened is a user who does
+	// not go looking.
+	//
+	// applied counts only ops that changed the keyring. A Delete for an item
+	// that was never stored is the ordinary case, not a failure, so
+	// ErrNotFound is skipped and must not inflate the count.
 	if len(ops) > 0 {
 		s, err := app.store()
 		if err != nil {
 			return err
 		}
+		applied := 0
 		for _, op := range ops {
 			if op.del {
-				if err := s.Delete(op.service); err != nil && !errors.Is(err, store.ErrNotFound) {
-					return err
+				if err := s.Delete(op.service); err != nil {
+					if errors.Is(err, store.ErrNotFound) {
+						continue
+					}
+					return partialWriteError("delete", op.service, err, applied, len(ops))
 				}
+				applied++
 				continue
 			}
 			if err := s.Set(op.service, op.value); err != nil {
-				return err
+				return partialWriteError("store", op.service, err, applied, len(ops))
 			}
+			applied++
 		}
 	}
 
