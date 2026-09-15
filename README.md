@@ -37,6 +37,8 @@ root, so it inherits the manifest.
 | `envctl init` | register this project and create its manifest |
 | `envctl import <sample file>` | seed the manifest from a sample `.env` or `.json` file |
 | `envctl set <NAME> <VALUE>` | set a plain (non-secret) variable |
+| `envctl get <NAME> [target]` | print one variable's value, secret or plain |
+| `envctl show [target]` | list a target's variables, secrets masked unless `--reveal` |
 | `envctl secret set <NAME>` | store or rotate a secret in the keyring |
 | `envctl secret rm <NAME>` | delete a secret's value from the keyring, keeping the variable |
 | `envctl unset <NAME>` | remove a variable from the manifest and its secret from the keyring |
@@ -66,6 +68,7 @@ command can actually act on:
 
 | command | offers |
 |---|---|
+| `envctl get <TAB>` | every variable |
 | `envctl set <TAB>` | plain variables (`secret set` handles the rest) |
 | `envctl secret set <TAB>` | secret variables |
 | `envctl secret rm <TAB>` | secret variables |
@@ -79,6 +82,36 @@ a dialog. Values are never read, and never shown.
 
 Outside a registered project, or on a backend that will not open, completion
 is silent rather than an error.
+
+## Reading values back
+
+`get` prints one value and nothing else, so it composes:
+
+```bash
+envctl get DB_PASSWORD | pbcopy
+PGPASSWORD=$(envctl get DB_PASSWORD) psql
+```
+
+Only the named variable is resolved. Reading one value costs at most one
+keyring read, and does not fail because some other secret in the target has
+not been stored yet.
+
+`show` lists a whole target. Secrets are masked, and a masked table never
+opens the keyring at all -- it is free, and it never prompts:
+
+```
+$ envctl show
+APP_MODE     development
+DB_PASSWORD  ••••••••  (keyring)
+LOG_LEVEL    info
+```
+
+`--reveal` prints the real values. `--format dotenv|json` writes what `render`
+would write, to stdout instead of a file, and implies `--reveal` because a
+masked dotenv file would be a file full of bullets.
+
+Whether a secret is actually stored is `envctl status`'s question, not
+`show`'s: a masked row says "this is a secret", not "this is present".
 
 ## Where things live
 

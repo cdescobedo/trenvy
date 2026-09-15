@@ -189,6 +189,8 @@ func Execute(opts Options, args []string) error {
 		newImportCmd(&opts),
 		newEditCmd(&opts),
 		newSetCmd(&opts),
+		newGetCmd(&opts),
+		newShowCmd(&opts),
 		newSecretCmd(&opts),
 		newUnsetCmd(&opts),
 		newRenderCmd(&opts),
