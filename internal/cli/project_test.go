@@ -1,12 +1,16 @@
 package cli_test
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/cdescobedo/envctl/internal/config"
+	"github.com/cdescobedo/envctl/internal/manifest"
+	"github.com/cdescobedo/envctl/internal/store"
 )
 
 func TestProjectInitRegistersTheProject(t *testing.T) {
@@ -166,5 +170,253 @@ func TestProjectMoveWarnsWhenTheOldRootStillExists(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "envctl project init") {
 		t.Errorf("stderr does not suggest envctl project init:\n%s", stderr)
+	}
+}
+
+func TestProjectRmDeletesEverySecretAcrossEveryProfile(t *testing.T) {
+	h := newHarness(t)
+	m := fixtureManifest(t)
+	m.Project.Profiles = []string{"dev", "prod"}
+	h.register("vpb", m)
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "d")
+	h.mem.Seed("envctl/vpb/prod/ALPHA_TOKEN", "p")
+
+	if err := h.run("project", "rm", "vpb", "--yes"); err != nil {
+		t.Fatalf("project rm: %v", err)
+	}
+
+	calls := strings.Join(h.mem.Calls(), " ")
+	for _, want := range []string{
+		"Delete envctl/vpb/dev/ALPHA_TOKEN",
+		"Delete envctl/vpb/prod/ALPHA_TOKEN",
+	} {
+		if !strings.Contains(calls, want) {
+			t.Errorf("missing %q in %v", want, h.mem.Calls())
+		}
+	}
+}
+
+func TestProjectRmClearsTheRegistryManifestAndState(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+
+	// The state file has to exist before the run, or the assertion that it
+	// is gone afterwards would hold for a command that never removed it:
+	// LoadState invents an empty state rather than writing one, so a project
+	// that has never rendered has no state file to begin with.
+	st, err := config.LoadState("vpb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Record(config.RenderEntry{
+		Worktree: filepath.Join(h.root, "main"), Output: "docker", Path: "src/.env",
+	})
+	if err := st.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(config.StatePath("vpb")); err != nil {
+		t.Fatalf("arranging the state file: %v", err)
+	}
+
+	if err := h.run("project", "rm", "vpb", "--yes"); err != nil {
+		t.Fatalf("project rm: %v", err)
+	}
+
+	reg, err := config.LoadRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := reg.Find("vpb"); ok {
+		t.Error("the registry entry survived")
+	}
+	if _, err := os.Stat(config.ManifestPath("vpb")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the manifest survived: %v", err)
+	}
+	if _, err := os.Stat(config.StatePath("vpb")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the state file survived: %v", err)
+	}
+}
+
+// The manifest is the only inventory of which keyring items exist. If a delete
+// fails, destroying the manifest would strand the rest with no record of them,
+// so nothing else may be touched and the command must be safe to re-run.
+//
+// This is also what pins the ordering: an implementation that removed the
+// manifest, the state file or the registry entry before touching the keyring
+// would still return this error, but would fail these assertions.
+func TestProjectRmKeepsTheManifestWhenAKeyringDeleteFails(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+	attempts := 0
+	h.opts.NewStore = func(*config.Config, string) (store.Store, error) {
+		return failingDeleteStore{Store: h.mem, attempts: &attempts}, nil
+	}
+
+	err := h.run("project", "rm", "vpb", "--yes")
+	if err == nil {
+		t.Fatal("project rm succeeded despite a failing keyring delete")
+	}
+	// Without these two, the assertions below would also hold for a command
+	// that failed before it ever reached the keyring -- a missing flag, an
+	// unknown subcommand -- and the test would pin nothing.
+	if attempts == 0 {
+		t.Error("no keyring delete was attempted")
+	}
+	if !strings.Contains(err.Error(), "envctl/vpb/dev/ALPHA_TOKEN") {
+		t.Errorf("error does not name the item that could not be deleted: %v", err)
+	}
+
+	if _, err := os.Stat(config.ManifestPath("vpb")); err != nil {
+		t.Errorf("the manifest was destroyed after a failed delete: %v", err)
+	}
+	if _, err := os.Stat(config.StatePath("vpb")); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("stat state: %v", err)
+	}
+	reg, err := config.LoadRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := reg.Find("vpb"); !ok {
+		t.Error("the registry entry was removed after a failed delete")
+	}
+}
+
+type failingDeleteStore struct {
+	store.Store
+	attempts *int
+}
+
+func (f failingDeleteStore) Delete(string) error {
+	*f.attempts++
+	return errors.New("keyring is locked")
+}
+
+// A secret that is declared but was never stored is the ordinary case, not a
+// failure: most projects declare secrets they only fill in under one profile.
+// store.ErrNotFound on an individual item must therefore be tolerated -- and
+// the count reported must not claim an item that was never there was deleted.
+func TestProjectRmToleratesSecretsThatWereNeverStored(t *testing.T) {
+	h := newHarness(t)
+	m := fixtureManifest(t)
+	m.Vars["OTHER_TOKEN"] = manifest.Var{Secret: true}
+	h.register("vpb", m)
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "d") // OTHER_TOKEN deliberately not seeded
+
+	if err := h.run("project", "rm", "vpb", "--yes"); err != nil {
+		t.Fatalf("project rm: %v", err)
+	}
+
+	calls := strings.Join(h.mem.Calls(), " ")
+	if !strings.Contains(calls, "Delete envctl/vpb/dev/OTHER_TOKEN") {
+		t.Errorf("the never-stored secret was not attempted: %v", h.mem.Calls())
+	}
+	if !strings.Contains(h.out.String(), "1 keyring items deleted") {
+		t.Errorf("output claims a count that includes the item that was never stored:\n%s", h.out)
+	}
+}
+
+// Without --yes the id must be typed in full: y/N is too easy to fire off for
+// something with no undo.
+func TestProjectRmRequiresTheIdTypedBack(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+	h.opts.Stdin = strings.NewReader("wrong\n")
+
+	if err := h.run("project", "rm", "vpb"); err == nil {
+		t.Fatal("project rm proceeded on a mistyped confirmation")
+	}
+	if _, err := os.Stat(config.ManifestPath("vpb")); err != nil {
+		t.Errorf("the manifest was removed despite a mistyped confirmation: %v", err)
+	}
+	if calls := h.mem.Calls(); len(calls) != 0 {
+		t.Errorf("the keyring was touched despite a mistyped confirmation: %v", calls)
+	}
+}
+
+// The other half of the confirmation: a correctly typed id must go through,
+// or "always abort without --yes" would pass the test above.
+func TestProjectRmProceedsWhenTheIdIsTypedBack(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+	h.opts.Stdin = strings.NewReader("vpb\n")
+
+	if err := h.run("project", "rm", "vpb"); err != nil {
+		t.Fatalf("project rm: %v", err)
+	}
+	if _, err := os.Stat(config.ManifestPath("vpb")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the manifest survived a confirmed removal: %v", err)
+	}
+}
+
+// Rendered files live in worktrees and may have been hand-edited, so this
+// command never deletes them -- it names them, both before asking and after
+// the fact, so nobody is left unaware that they are still on disk.
+func TestProjectRmLeavesRenderedFilesInPlaceAndNamesThem(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+
+	worktree := filepath.Join(h.root, "main")
+	rendered := filepath.Join(worktree, "src", ".env")
+	if err := mkdirAll(filepath.Dir(rendered)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rendered, []byte("X=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := config.LoadState("vpb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Record(config.RenderEntry{Worktree: worktree, Output: "docker", Path: "src/.env"})
+	if err := st.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	h.opts.Stdin = strings.NewReader("vpb\n")
+	if err := h.run("project", "rm", "vpb"); err != nil {
+		t.Fatalf("project rm: %v", err)
+	}
+
+	if _, err := os.Stat(rendered); err != nil {
+		t.Errorf("the rendered file was deleted: %v", err)
+	}
+	if !strings.Contains(h.errb.String(), rendered) {
+		t.Errorf("the confirmation prompt does not name the rendered file:\n%s", h.errb)
+	}
+	if !strings.Contains(h.out.String(), "left in place") {
+		t.Errorf("output does not say the rendered files were left:\n%s", h.out)
+	}
+}
+
+func TestProjectRmRejectsAnUnknownProject(t *testing.T) {
+	h := newHarness(t)
+
+	err := h.run("project", "rm", "nope", "--yes")
+
+	if err == nil {
+		t.Fatal("project rm accepted an unknown id")
+	}
+	// Pinned to the friendlier message, not just any error: without the
+	// registry check the command would still fail, but on manifest.Load's
+	// bare no-such-file, which names a path nobody asked about.
+	if !strings.Contains(err.Error(), "envctl project list") {
+		t.Errorf("error does not point at envctl project list: %v", err)
+	}
+}
+
+// A project with no secrets must not pay for a store it never uses: the file
+// backend errors outright when no passphrase is configured, and a project
+// that never stored a secret would then be undeletable.
+func TestProjectRmDoesNotOpenTheStoreWithoutSecrets(t *testing.T) {
+	h := newHarness(t)
+	m := fixtureManifest(t)
+	delete(m.Vars, "ALPHA_TOKEN")
+	h.register("vpb", m)
+	h.opts.NewStore = func(*config.Config, string) (store.Store, error) {
+		return nil, errors.New("no passphrase configured")
+	}
+
+	if err := h.run("project", "rm", "vpb", "--yes"); err != nil {
+		t.Fatalf("project rm on a project with no secrets: %v", err)
 	}
 }

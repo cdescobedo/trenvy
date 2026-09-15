@@ -1,14 +1,21 @@
 package cli
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
 	"github.com/cdescobedo/envctl/internal/config"
+	"github.com/cdescobedo/envctl/internal/manifest"
+	"github.com/cdescobedo/envctl/internal/store"
 )
 
 func newProjectCmd(opts *Options) *cobra.Command {
@@ -16,7 +23,10 @@ func newProjectCmd(opts *Options) *cobra.Command {
 		Use:   "project",
 		Short: "Register, list, move and remove projects",
 	}
-	cmd.AddCommand(newInitCmd(opts), newProjectListCmd(opts), newProjectMoveCmd(opts))
+	cmd.AddCommand(
+		newInitCmd(opts), newProjectListCmd(opts),
+		newProjectMoveCmd(opts), newProjectRmCmd(opts),
+	)
 	return cmd
 }
 
@@ -113,4 +123,129 @@ func newProjectMoveCmd(opts *Options) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// newProjectRmCmd deletes a project outright: its manifest, its render state,
+// its registry entry and every keyring item it owns, across every profile.
+//
+// It deliberately does not use resolveApp. Every other project-scoped command
+// asks "which project owns this directory?"; this one is told an id, and must
+// work from anywhere on disk -- including from outside every registered root,
+// which is exactly where someone stands after deleting a project's checkout.
+func newProjectRmCmd(opts *Options) *cobra.Command {
+	var yes bool
+
+	c := &cobra.Command{
+		Use:   "rm <id>",
+		Short: "Delete a project: its manifest, state, registration and every secret",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id := args[0]
+
+			reg, err := config.LoadRegistry()
+			if err != nil {
+				return err
+			}
+			if _, ok := reg.Find(id); !ok {
+				return fmt.Errorf("no project registered with id %q; see: envctl project list", id)
+			}
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			m, err := manifest.Load(config.ManifestPath(id))
+			if err != nil {
+				return err
+			}
+			st, err := config.LoadState(id)
+			if err != nil {
+				return err
+			}
+
+			secrets := secretNames(m)
+			items := len(secrets) * len(m.Project.Profiles)
+
+			// Typed id, not y/N. This is the only command that destroys a
+			// whole project's secrets with no undo, and y/N is one keystroke
+			// away from a habit; typing the id makes the answer specific to
+			// the project being removed.
+			if !yes {
+				fmt.Fprintf(opts.Stderr,
+					"This deletes the manifest, the render state, the registry entry,\n"+
+						"and %d keyring items (%d secrets across %d profiles). It cannot be undone.\n",
+					items, len(secrets), len(m.Project.Profiles))
+				if len(st.Renders) > 0 {
+					fmt.Fprintf(opts.Stderr, "Rendered files are NOT removed; %d remain:\n", len(st.Renders))
+					for _, e := range st.Renders {
+						fmt.Fprintf(opts.Stderr, "  %s\n", filepath.Join(e.Worktree, e.Path))
+					}
+				}
+				fmt.Fprintf(opts.Stderr, "Type the project id to confirm: ")
+				line, err := bufio.NewReader(opts.Stdin).ReadString('\n')
+				if err != nil && !errors.Is(err, io.EOF) {
+					return err
+				}
+				if strings.TrimSpace(line) != id {
+					return errors.New("aborted")
+				}
+			}
+
+			// Keyring first, and abort on any failure with nothing else
+			// touched. The manifest is the only inventory of which items
+			// exist, so destroying it before them would strand the remainder
+			// with no record. Aborting early keeps the command re-runnable.
+			//
+			// The service name is built from cfg directly with the profile
+			// being iterated: app.service would bind whichever profile is
+			// active, and would therefore delete one profile's item len(
+			// Profiles) times while leaving the others untouched.
+			//
+			// deleted counts only items actually removed. A declared secret
+			// that was never stored under a given profile is the ordinary
+			// case, not a failure, so ErrNotFound is skipped -- and it must
+			// not inflate the count reported back.
+			deleted := 0
+			if items > 0 {
+				s, err := opts.NewStore(cfg, opts.Backend)
+				if err != nil {
+					return err
+				}
+				for _, profile := range m.Project.Profiles {
+					for _, n := range secrets {
+						svc := cfg.Keyring.ServiceName(id, profile, n)
+						if err := s.Delete(svc); err != nil {
+							if errors.Is(err, store.ErrNotFound) {
+								continue
+							}
+							return fmt.Errorf(
+								"delete %s: %w\n  nothing else was removed; fix this and re-run", svc, err)
+						}
+						deleted++
+					}
+				}
+			}
+
+			if err := os.Remove(config.ManifestPath(id)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+			if err := os.Remove(config.StatePath(id)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+			reg.Remove(id)
+			if err := reg.Save(); err != nil {
+				return err
+			}
+
+			fmt.Fprintf(opts.Stdout, "removed %s (%d keyring items deleted)\n", id, deleted)
+			// Rendered files stay: they live in worktrees, they may have been
+			// hand-edited, and `clean` already guards exactly that case. Say
+			// so rather than leaving them silently behind.
+			if len(st.Renders) > 0 {
+				fmt.Fprintf(opts.Stdout, "  %d rendered files were left in place\n", len(st.Renders))
+			}
+			return nil
+		},
+	}
+	c.Flags().BoolVar(&yes, "yes", false, "do not ask for confirmation")
+	return c
 }
