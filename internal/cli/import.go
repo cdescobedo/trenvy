@@ -175,3 +175,49 @@ func outputFor(samplePath, fallbackRoot string) (manifest.Output, error) {
 		Include: []string{"*"},
 	}, nil
 }
+
+// deriveOutputName picks a short name for the output import creates, from the
+// directory the sample lives in -- the part of the path that distinguishes one
+// output from another.
+//
+// The last dot-separated segment is kept because the .NET layout this tool was
+// built against names directories Company.Product.Api, where "api" is the
+// memorable half. That is wrong for a directory like my.app.v2, which yields
+// "v2"; the trade is accepted because dots in directory names are otherwise
+// rare and `trenvy output rename` is one command away. import prints the name
+// it chose for exactly that reason.
+func deriveOutputName(relPath, format string, taken map[string]manifest.Output) string {
+	base := "root"
+	if dir := filepath.Dir(relPath); dir != "." {
+		base = filepath.Base(dir)
+	}
+	base = strings.ToLower(base)
+	if i := strings.LastIndexByte(base, '.'); i >= 0 {
+		base = base[i+1:]
+	}
+
+	var b strings.Builder
+	for _, c := range base {
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
+			b.WriteRune(c)
+			continue
+		}
+		b.WriteByte('-')
+	}
+	name := b.String()
+	for strings.Contains(name, "--") {
+		name = strings.ReplaceAll(name, "--", "-")
+	}
+	name = strings.Trim(name, "-")
+	if !manifest.ValidOutputName(name) {
+		name = format
+	}
+
+	out := name
+	for i := 2; ; i++ {
+		if _, clash := taken[out]; !clash {
+			return out
+		}
+		out = fmt.Sprintf("%s-%d", name, i)
+	}
+}
