@@ -83,6 +83,36 @@ secret = true
 	}
 }
 
+// A manifest with no Profiles set at all (the zero value, nil) must round-trip
+// as nil, not as a non-nil empty slice. Without `omitempty` on the toml tag,
+// Marshal writes `profiles = []` for a nil slice, and Parse reads that back as
+// []string{} -- a distinction that TestValidateRequiresAtLeastOneProfile does
+// not care about (both are "empty"), but reflect.DeepEqual does, and it is the
+// kind of quiet drift that is easy to reintroduce by touching the tag later.
+func TestEncodePreservesNilProfiles(t *testing.T) {
+	original := &manifest.Manifest{
+		Project: manifest.Project{ID: "p", DefaultTarget: "local"},
+		Targets: map[string]manifest.Target{
+			"local": {Dest: manifest.DestProcess},
+		},
+		Vars: map[string]manifest.Var{},
+	}
+
+	data, err := original.Encode()
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	reparsed, err := manifest.Parse(data)
+	if err != nil {
+		t.Fatalf("Parse(Encode(m)): %v\n%s", err, data)
+	}
+
+	if reparsed.Project.Profiles != nil {
+		t.Errorf("Profiles = %#v, want nil", reparsed.Project.Profiles)
+	}
+}
+
 func TestEncodeIsStable(t *testing.T) {
 	m := parseOrFatal(t, backendTOML)
 	first, err := m.Encode()

@@ -16,7 +16,7 @@ type Project struct {
 	// Profiles names every value set this project understands. A profile
 	// selects what a variable's value is, including which keyring item a
 	// secret reads, and is independent of which output it is written to.
-	Profiles []string `toml:"profiles"`
+	Profiles []string `toml:"profiles,omitempty"`
 	// DefaultProfile is used when neither --profile nor ENVCTL_PROFILE says
 	// otherwise. It must be one of Profiles.
 	DefaultProfile string `toml:"default_profile"`

@@ -172,14 +172,14 @@ value = "a"
 `
 
 func TestValidateAcceptsDeclaredProfiles(t *testing.T) {
-	m := mustParse(t, profileTOML)
+	m := parseOrFatal(t, profileTOML)
 	if err := m.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
 }
 
 func TestValidateRequiresAtLeastOneProfile(t *testing.T) {
-	m := mustParse(t, profileTOML)
+	m := parseOrFatal(t, profileTOML)
 	m.Project.Profiles = nil
 
 	err := m.Validate()
@@ -190,7 +190,7 @@ func TestValidateRequiresAtLeastOneProfile(t *testing.T) {
 }
 
 func TestValidateRejectsADefaultProfileThatIsNotDeclared(t *testing.T) {
-	m := mustParse(t, profileTOML)
+	m := parseOrFatal(t, profileTOML)
 	m.Project.DefaultProfile = "staging"
 
 	err := m.Validate()
@@ -201,7 +201,7 @@ func TestValidateRejectsADefaultProfileThatIsNotDeclared(t *testing.T) {
 }
 
 func TestValidateRejectsADuplicateProfile(t *testing.T) {
-	m := mustParse(t, profileTOML)
+	m := parseOrFatal(t, profileTOML)
 	m.Project.Profiles = []string{"dev", "dev"}
 
 	err := m.Validate()
@@ -214,7 +214,7 @@ func TestValidateRejectsADuplicateProfile(t *testing.T) {
 // A profile name becomes a segment of the keyring service name, so a slash
 // would silently reshape the namespace rather than fail.
 func TestValidateRejectsAProfileNameWithASlash(t *testing.T) {
-	m := mustParse(t, profileTOML)
+	m := parseOrFatal(t, profileTOML)
 	m.Project.Profiles = []string{"dev/local"}
 	m.Project.DefaultProfile = "dev/local"
 
@@ -223,13 +223,4 @@ func TestValidateRejectsAProfileNameWithASlash(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "dev/local") {
 		t.Errorf("error = %v, want it to reject the name", err)
 	}
-}
-
-func mustParse(t *testing.T, src string) *manifest.Manifest {
-	t.Helper()
-	m, err := manifest.Parse([]byte(src))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
-	return m
 }
