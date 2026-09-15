@@ -470,6 +470,25 @@ func TestImportRefusesABadOutputName(t *testing.T) {
 	}
 }
 
+// The --output/--no-output conflict must be caught before the sample file is
+// even read, let alone before the interactive review runs: catching it only
+// after would discard a whole review session over a flag typo. A sample path
+// that does not exist on disk proves the ordering -- if the conflict were
+// checked after the read, the error would be a read failure instead.
+func TestImportChecksTheFlagConflictBeforeReadingTheSample(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+
+	err := h.run("import", "/does/not/exist/.env_example", "--output", "x", "--no-output")
+
+	if err == nil {
+		t.Fatal("import accepted both flags")
+	}
+	if !strings.Contains(err.Error(), "--no-output") {
+		t.Errorf("error = %v, want the flag conflict, checked before the sample is read", err)
+	}
+}
+
 func TestImportRefusesToClobberExistingVariables(t *testing.T) {
 	h := newHarness(t)
 	if err := h.run("project", "init", "--id", "vpb"); err != nil {

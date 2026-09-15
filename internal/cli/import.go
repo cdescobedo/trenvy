@@ -23,6 +23,23 @@ func newImportCmd(opts *Options) *cobra.Command {
 		Short: "Seed the manifest from a sample .env or .json file",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Checked first, before the sample is even read and before the
+			// interactive review runs: catching a flag typo only after would
+			// discard a whole review session.
+			if noOutput && outputName != "" {
+				return fmt.Errorf("--output and --no-output cannot both be given")
+			}
+			if outputName != "" {
+				// Checked here, not left to Manifest.Validate, so a bad
+				// --output name is reported as the argument problem it is
+				// instead of "invalid manifest", and before anything is
+				// written to disk. output add and rename already call this
+				// at output.go:116 and :179; import named outputs too.
+				if err := requireValidOutputName(outputName); err != nil {
+					return err
+				}
+			}
+
 			app, err := opts.resolveApp()
 			if err != nil {
 				return err
@@ -64,19 +81,6 @@ func newImportCmd(opts *Options) *cobra.Command {
 				app.Manifest.Vars[e.Name] = v
 			}
 
-			if noOutput && outputName != "" {
-				return fmt.Errorf("--output and --no-output cannot both be given")
-			}
-			if outputName != "" {
-				// Checked here, not left to Manifest.Validate, so a bad
-				// --output name is reported as the argument problem it is
-				// instead of "invalid manifest", and before anything is
-				// written to disk. output add and rename already call this
-				// at output.go:116 and :179; import named outputs too.
-				if err := requireValidOutputName(outputName); err != nil {
-					return err
-				}
-			}
 			if !noOutput {
 				o, err := outputFor(samplePath, app.Worktree)
 				if err != nil {

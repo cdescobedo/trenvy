@@ -178,6 +178,12 @@ func TestRenderRejectsAnUnknownOutput(t *testing.T) {
 	if !strings.Contains(err.Error(), "local") {
 		t.Errorf("error does not name the output: %v", err)
 	}
+	// Matches the wording every output subcommand already uses (output.go's
+	// "no output named %q; list them with: trenvy output list") instead of a
+	// bare "unknown output: %q" that leaves the reader with no next step.
+	if !strings.Contains(err.Error(), "trenvy output list") {
+		t.Errorf("error = %v, want it to name the listing command", err)
+	}
 }
 
 func TestRenderReportsAMissingSecretWithTheFix(t *testing.T) {

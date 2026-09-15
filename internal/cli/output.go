@@ -173,11 +173,11 @@ func newOutputRenameCmd(opts *Options) *cobra.Command {
 			if !ok {
 				return fmt.Errorf("no output named %q; list them with: trenvy output list", old)
 			}
-			if _, taken := app.Manifest.Outputs[name]; taken {
-				return fmt.Errorf("output %q is already defined", name)
-			}
 			if err := requireValidOutputName(name); err != nil {
 				return err
+			}
+			if _, taken := app.Manifest.Outputs[name]; taken {
+				return fmt.Errorf("output %q is already defined", name)
 			}
 
 			// State first, then the manifest. Either order leaves the files

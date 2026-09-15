@@ -184,7 +184,7 @@ func (a *appContext) outputOrDefault(cmd *cobra.Command, name string) (string, e
 			"  define one in the manifest, or name it: %s <output>", cmd.CommandPath())
 	}
 	if _, ok := a.Manifest.Outputs[name]; !ok {
-		return "", fmt.Errorf("%w: %q", resolve.ErrUnknownOutput, name)
+		return "", fmt.Errorf("%w: %q; list them with: trenvy output list", resolve.ErrUnknownOutput, name)
 	}
 	return name, nil
 }
