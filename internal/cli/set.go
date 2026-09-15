@@ -215,7 +215,7 @@ func newUnsetCmd(opts *Options) *cobra.Command {
 
 	c := &cobra.Command{
 		Use:               "unset <NAME>",
-		Short:             "Remove a variable from the manifest and its secret from the keyring",
+		Short:             "Remove a variable from the manifest and its secret from every profile's keyring",
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: opts.completeVarNames(anyVar),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -260,11 +260,33 @@ func newUnsetCmd(opts *Options) *cobra.Command {
 				// this loop would delete that one profile's item len(profiles)
 				// times while leaving the rest untouched (the same hazard
 				// caught in profile rm and project rm).
+				//
+				// cleared counts only profiles actually cleared. A declared
+				// secret that was never stored under a given profile is the
+				// ordinary case, not a failure -- most projects only fill a
+				// secret in under one profile at a time -- so ErrNotFound is
+				// skipped, and it must not inflate the count reported below.
+				cleared := 0
 				for _, p := range profiles {
 					svc := app.Cfg.Keyring.ServiceName(app.Manifest.Project.ID, p, name)
-					if err := s.Delete(svc); err != nil && !errors.Is(err, store.ErrNotFound) {
-						return err
+					if err := s.Delete(svc); err != nil {
+						if errors.Is(err, store.ErrNotFound) {
+							continue
+						}
+						// Nothing below this has run: the manifest still
+						// declares the variable, so this is safe to re-run
+						// once the underlying store problem is fixed. Say how
+						// many profiles are already cleared rather than
+						// implying nothing happened -- by the time a delete
+						// fails, every profile before it has been cleared
+						// permanently, and false reassurance is how the rest
+						// never gets cleaned up.
+						return fmt.Errorf(
+							"delete %s: %w\n  %d profiles' items were already deleted; %s is"+
+								" still in the manifest -- fix this and re-run",
+							svc, err, cleared, name)
 					}
+					cleared++
 				}
 			}
 			delete(app.Manifest.Vars, name)

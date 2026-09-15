@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/cdescobedo/envctl/internal/config"
 	"github.com/cdescobedo/envctl/internal/manifest"
+	"github.com/cdescobedo/envctl/internal/store"
 )
 
 // set now writes the active profile's override, not the shared Value -- see
@@ -315,6 +317,120 @@ func TestUnsetDeletesTheSecretInEveryProfile(t *testing.T) {
 			t.Errorf("missing %q in %v", want, h.mem.Calls())
 		}
 	}
+}
+
+// A declared secret with no value stored under some profile is the ordinary
+// case, not a failure -- most projects only fill in a secret under one
+// profile at a time. unset's per-profile loop must tolerate store.ErrNotFound
+// on an individual item rather than abort, the same property already pinned
+// for profile rm's loop (TestProfileRmDeletesTheProfilesSecretsAndOverrides
+// in profile_test.go).
+func TestUnsetToleratesASecretNeverStoredInSomeProfiles(t *testing.T) {
+	h := newHarness(t)
+	m := fixtureManifest(t)
+	m.Project.Profiles = []string{"dev", "prod"}
+	h.register("vpb", m)
+	// Only dev has ever had a value stored; prod is declared but unseeded --
+	// its delete must return store.ErrNotFound rather than block the rest.
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "d")
+
+	if err := h.run("unset", "ALPHA_TOKEN", "--yes"); err != nil {
+		t.Fatalf("unset: %v", err)
+	}
+
+	calls := strings.Join(h.mem.Calls(), " ")
+	for _, want := range []string{
+		"Delete envctl/vpb/dev/ALPHA_TOKEN",
+		"Delete envctl/vpb/prod/ALPHA_TOKEN",
+	} {
+		if !strings.Contains(calls, want) {
+			t.Errorf("missing %q in %v", want, h.mem.Calls())
+		}
+	}
+}
+
+// The manifest is not touched until every profile's keyring item is gone, so
+// a failure partway through the loop must leave it intact and say so -- the
+// same property already pinned for project rm's keyring loop
+// (TestProjectRmKeepsTheManifestWhenAKeyringDeleteFails in project_test.go).
+func TestUnsetKeepsTheManifestWhenAKeyringDeleteFails(t *testing.T) {
+	h := newHarness(t)
+	m := fixtureManifest(t)
+	m.Project.Profiles = []string{"dev", "prod"}
+	h.register("vpb", m)
+	attempts := 0
+	h.opts.NewStore = func(*config.Config, string) (store.Store, error) {
+		return failingDeleteStore{Store: h.mem, attempts: &attempts}, nil
+	}
+
+	err := h.run("unset", "ALPHA_TOKEN", "--yes")
+	if err == nil {
+		t.Fatal("unset succeeded despite a failing keyring delete")
+	}
+	if attempts == 0 {
+		t.Error("no keyring delete was attempted")
+	}
+	// The failure hits the very first profile in the loop, so truthfully
+	// zero profiles' items were deleted by the time it happened -- the error
+	// must not claim otherwise (Task 12's lesson about overstating progress).
+	if !strings.Contains(err.Error(), "0 profiles") {
+		t.Errorf("error does not truthfully report zero profiles cleared: %v", err)
+	}
+
+	got := reloadManifest(t, "vpb")
+	if _, ok := got.Vars["ALPHA_TOKEN"]; !ok {
+		t.Error("the variable was removed from the manifest despite the failure")
+	}
+}
+
+// A delete that fails partway through has already destroyed the items before
+// it, permanently -- telling the user nothing was removed is the kind of
+// false reassurance that stops them from re-running and losing the rest, the
+// same risk already fixed for project rm
+// (TestProjectRmSaysWhatWasAlreadyDeletedWhenADeleteFails in project_test.go).
+func TestUnsetSaysHowManyProfilesWereAlreadyClearedWhenADeleteFails(t *testing.T) {
+	h := newHarness(t)
+	m := fixtureManifest(t)
+	m.Project.Profiles = []string{"dev", "prod", "staging"}
+	h.register("vpb", m)
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "d")
+	h.mem.Seed("envctl/vpb/prod/ALPHA_TOKEN", "p")
+	// dev and prod succeed; staging fails, so exactly 2 profiles' items are
+	// already gone by the time the error is written.
+	h.opts.NewStore = func(*config.Config, string) (store.Store, error) {
+		return failOnProfileStore{Store: h.mem, failOn: "staging"}, nil
+	}
+
+	err := h.run("unset", "ALPHA_TOKEN", "--yes")
+	if err == nil {
+		t.Fatal("unset succeeded despite a failing keyring delete")
+	}
+	if !strings.Contains(err.Error(), "2 profiles") {
+		t.Errorf("error does not say how many profiles are already cleared: %v", err)
+	}
+	if !strings.Contains(err.Error(), "ALPHA_TOKEN") {
+		t.Errorf("error does not name the variable still in the manifest: %v", err)
+	}
+
+	got := reloadManifest(t, "vpb")
+	if _, ok := got.Vars["ALPHA_TOKEN"]; !ok {
+		t.Error("the variable was removed from the manifest despite the failure")
+	}
+}
+
+// failOnProfileStore fails a delete only for one profile's item, so a test
+// can arrange a partial success (some profiles cleared, one not) rather than
+// an all-or-nothing failure.
+type failOnProfileStore struct {
+	store.Store
+	failOn string
+}
+
+func (f failOnProfileStore) Delete(service string) error {
+	if strings.Contains(service, "/"+f.failOn+"/") {
+		return errors.New("keyring is locked")
+	}
+	return f.Store.Delete(service)
 }
 
 func TestUnsetWithoutConfirmationRefuses(t *testing.T) {
