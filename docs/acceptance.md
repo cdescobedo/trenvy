@@ -15,10 +15,10 @@ keychain (or platform equivalent) and network access to your `psql` target.
 
 **Stay in one shell for the whole walkthrough.** Every command below,
 including the Frontend section and Teardown, assumes `TRENVY_CONFIG_DIR` is
-still exported from the first command. Criteria 4 and 5 start a long-lived
+still exported from the first command. Criteria 5 and 6 start a long-lived
 `dotnet run` and an interactive `psql` session — natural moments to open a
 second terminal — but a fresh shell has no `TRENVY_CONFIG_DIR`, and
-`trenvy init` in that shell would register against your **real**
+`trenvy project init` in that shell would register against your **real**
 `~/.config/trenvy/registry.toml` instead of the scratch one. If you do need a
 new terminal at any point, note the path printed below and re-export it
 there first: `export TRENVY_CONFIG_DIR=<that path>`.
@@ -31,13 +31,17 @@ echo "$TRENVY_CONFIG_DIR"   # note this path in case you open a new terminal
 go build -o /tmp/trenvy ./cmd/trenvy
 cd ~/workspace/demo/demo-backend
 
-/tmp/trenvy init --id vpb-test
-/tmp/trenvy import main/src/DemoApp.Api/.env_example --target docker
+/tmp/trenvy project init --id vpb-test
+/tmp/trenvy import main/src/DemoApp.Api/.env_example --output docker
 /tmp/trenvy status                       # expect three MISSING secrets
+/tmp/trenvy secret set ALPHA_TOKEN
 /tmp/trenvy secret set BETA_TOKEN
 /tmp/trenvy secret set GAMMA_TOKEN
-/tmp/trenvy secret set ALPHA_TOKEN
 /tmp/trenvy status                       # expect all present, docker not rendered
+
+/tmp/trenvy profile add prod
+/tmp/trenvy profile
+/tmp/trenvy -p prod secret set GAMMA_TOKEN
 
 cd main
 /tmp/trenvy render docker
@@ -49,11 +53,10 @@ diff <(grep -v '^#' src/DemoApp.Api/.env | sort) \
 
 The `import` command above opens the interactive table instead of skipping
 straight to the manifest. Review each row: confirm the three placeholder
-values (`BETA_TOKEN`, `GAMMA_TOKEN`,
-`ALPHA_TOKEN`) are marked secret (`s` toggles) and everything else is not,
-then press `w` to save. This is what actually exercises criterion 1 below —
-reviewing secret-ness is a TUI step, not something `--no-tui` can stand in
-for.
+values (`ALPHA_TOKEN`, `BETA_TOKEN`, `GAMMA_TOKEN`) are marked secret (`s`
+toggles) and everything else is not, then press `w` to save. This is what
+actually exercises criterion 1 below — reviewing secret-ness is a TUI step,
+not something `--no-tui` can stand in for.
 
 Confirm, one criterion at a time:
 
@@ -61,13 +64,19 @@ Confirm, one criterion at a time:
    the saved manifest lists the same variables as `.env_example` with the
    three placeholders flagged secret
 2. `status` reports every secret present after the three `secret set` calls
-3. the rendered `.env` is `0600` and parses as the same key/value set
-4. `trenvy exec local -- dotnet run --no-launch-profile --project src/DemoApp.Api`
+3. `profile add prod` declares a new profile without disturbing anything
+   already stored under `dev`, and `-p prod secret set GAMMA_TOKEN` stores a
+   value under a keyring item separate from `dev`'s -- `trenvy profile`
+   names `dev` as active (from the manifest default) before the flag is
+   passed, and `-p prod` overrides that for exactly the one command it is
+   passed to
+4. the rendered `.env` is `0600` and parses as the same key/value set
+5. `trenvy exec -- dotnet run --no-launch-profile --project src/DemoApp.Api`
    starts the API with no file written
-5. `trenvy shell local`, then `psql "$APP_DB_CONNECTION"`, connects
-6. `git worktree add ../FEAT-TEST && cd ../FEAT-TEST && /tmp/trenvy render docker`
+6. `trenvy shell`, then `psql "$APP_DB_CONNECTION"`, connects
+7. `git worktree add ../FEAT-TEST && cd ../FEAT-TEST && /tmp/trenvy render docker`
    works with no setup
-7. `trenvy edit`, change one value, save, then `status` reports the rendered
+8. `trenvy edit`, change one value, save, then `status` reports the rendered
    file `STALE`
 
 ## Frontend
@@ -76,8 +85,8 @@ Confirm, one criterion at a time:
 # Same shell as above — confirm with: echo "$TRENVY_CONFIG_DIR"
 # If it's empty (new terminal), re-export the path you noted earlier first.
 cd ~/workspace/demo/demo-frontend
-/tmp/trenvy init --id vpfe-test
-/tmp/trenvy import main/public/env.json.example --no-tui --target web
+/tmp/trenvy project init --id vpfe-test
+/tmp/trenvy import main/public/env.json.example --no-tui --output web
 cd main && /tmp/trenvy render web && cat public/env.json
 ```
 
@@ -96,9 +105,10 @@ Still in the same shell, with `TRENVY_CONFIG_DIR` still exported:
 
 ```bash
 cd ~/workspace/demo/demo-backend
+/tmp/trenvy secret rm ALPHA_TOKEN --yes
 /tmp/trenvy secret rm BETA_TOKEN --yes
 /tmp/trenvy secret rm GAMMA_TOKEN --yes
-/tmp/trenvy secret rm ALPHA_TOKEN --yes
+/tmp/trenvy -p prod secret rm GAMMA_TOKEN --yes
 
 cd main
 git worktree remove ../FEAT-TEST
@@ -108,14 +118,14 @@ rm -rf "$TRENVY_CONFIG_DIR"
 
 If the scratch config is already gone or `secret rm` isn't an option, delete
 the entries directly instead: the service-name pattern is
-`trenvy/{project}/{name}`, so for this walkthrough the exact keychain
-services are `trenvy/vpb-test/BETA_TOKEN`,
-`trenvy/vpb-test/GAMMA_TOKEN`, and
-`trenvy/vpb-test/ALPHA_TOKEN` — find and remove these in Keychain Access
+`trenvy/{project}/{profile}/{name}`, so for this walkthrough the exact
+keychain services are `trenvy/vpb-test/dev/ALPHA_TOKEN`,
+`trenvy/vpb-test/dev/BETA_TOKEN`, `trenvy/vpb-test/dev/GAMMA_TOKEN`, and
+`trenvy/vpb-test/prod/GAMMA_TOKEN` — find and remove these in Keychain Access
 (or your platform's Secret Service / Credential Manager UI).
 
 This leaves your real `~/.config/trenvy` (if any) untouched, removes the
-scratch config directory, the `../FEAT-TEST` worktree, and the three keychain
+scratch config directory, the `../FEAT-TEST` worktree, and the four keychain
 entries created above. Once you've confirmed all criteria above, the real
 `mise.toml` in these repositories is redundant and can be retired.
 
