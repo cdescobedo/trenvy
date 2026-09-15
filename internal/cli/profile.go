@@ -242,9 +242,14 @@ func newProfileRmCmd(opts *Options) *cobra.Command {
 						// Nothing below this has run yet, so the profile is
 						// still fully declared and this command is safe to
 						// re-run once the underlying store problem is fixed.
+						// svc (the full service name), not n (the bare
+						// variable), matches what unset and project rm name
+						// in the equivalent error; and the count of secrets
+						// already gone permanently is stated rather than
+						// implied to be zero.
 						return fmt.Errorf(
-							"deleting %s: %w; profile %s was not removed, re-run to finish",
-							n, err, name)
+							"deleting %s: %w; %d secrets were already deleted, profile %s was not removed, re-run to finish",
+							svc, err, deleted, name)
 					}
 					deleted++
 				}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -61,7 +62,22 @@ func newSetCmd(opts *Options) *cobra.Command {
 				return err
 			}
 			if shared {
-				fmt.Fprintf(opts.Stdout, "set %s for every profile\n", name)
+				// v.Profiles is untouched by the --shared branch above, so it
+				// still lists exactly the profiles whose own override makes
+				// them immune to the default just written -- resolve.Value
+				// consults Profiles[profile] before Value. Naming them here
+				// is free, and is what keeps this line from claiming an
+				// effect on profiles it did not actually have.
+				fmt.Fprintf(opts.Stdout, "set %s as the default for every profile without its own value\n", name)
+				if len(v.Profiles) > 0 {
+					overridden := make([]string, 0, len(v.Profiles))
+					for p := range v.Profiles {
+						overridden = append(overridden, p)
+					}
+					sort.Strings(overridden)
+					fmt.Fprintf(opts.Stdout, "  unaffected (their own value takes precedence): %s\n",
+						strings.Join(overridden, ", "))
+				}
 			} else {
 				fmt.Fprintf(opts.Stdout, "set %s for profile %s\n", name, app.Profile.Name)
 			}
@@ -202,8 +218,18 @@ func newSecretRmCmd(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := s.Delete(app.service(name)); err != nil && !errors.Is(err, store.ErrNotFound) {
-				return err
+			if err := s.Delete(app.service(name)); err != nil {
+				if !errors.Is(err, store.ErrNotFound) {
+					return err
+				}
+				// Against a profile with nothing stored, this is not a
+				// deletion -- and in a tool whose headline hazard is acting
+				// on the wrong profile, telling the user "deleted" here
+				// would read identically to a real one, when in fact
+				// nothing was ever there to remove.
+				fmt.Fprintf(opts.Stdout, "%s was not stored for profile %s; nothing to delete\n",
+					name, app.Profile.Name)
+				return nil
 			}
 			fmt.Fprintf(opts.Stdout, "deleted %s from the keyring\n", name)
 			return nil
@@ -251,6 +277,12 @@ func newUnsetCmd(opts *Options) *cobra.Command {
 				}
 			}
 
+			// cleared counts only profiles actually cleared, and is
+			// reported in the success message below -- unset's own
+			// prompt promises "delete its secret in N profiles", so the
+			// success line says how many it actually cleared rather
+			// than leaving that unstated.
+			cleared := 0
 			if v.Secret {
 				s, err := app.store()
 				if err != nil {
@@ -264,12 +296,11 @@ func newUnsetCmd(opts *Options) *cobra.Command {
 				// times while leaving the rest untouched (the same hazard
 				// caught in profile rm and project rm).
 				//
-				// cleared counts only profiles actually cleared. A declared
-				// secret that was never stored under a given profile is the
-				// ordinary case, not a failure -- most projects only fill a
-				// secret in under one profile at a time -- so ErrNotFound is
-				// skipped, and it must not inflate the count reported below.
-				cleared := 0
+				// A declared secret that was never stored under a given
+				// profile is the ordinary case, not a failure -- most
+				// projects only fill a secret in under one profile at a
+				// time -- so ErrNotFound is skipped, and it must not
+				// inflate the count reported below.
 				for _, p := range profiles {
 					svc := app.Cfg.Keyring.ServiceName(app.Manifest.Project.ID, p, name)
 					if err := s.Delete(svc); err != nil {
@@ -296,7 +327,11 @@ func newUnsetCmd(opts *Options) *cobra.Command {
 			if err := manifest.Save(config.ManifestPath(app.Entry.ID), app.Manifest); err != nil {
 				return err
 			}
-			fmt.Fprintf(opts.Stdout, "removed %s\n", name)
+			if v.Secret {
+				fmt.Fprintf(opts.Stdout, "removed %s (%d secrets deleted)\n", name, cleared)
+			} else {
+				fmt.Fprintf(opts.Stdout, "removed %s\n", name)
+			}
 			return nil
 		},
 	}

@@ -145,6 +145,31 @@ func TestSecretRmDeletesFromTheStore(t *testing.T) {
 	if _, ok := m.Vars["ALPHA_TOKEN"]; !ok {
 		t.Error("secret rm removed the variable from the manifest")
 	}
+	if !strings.Contains(h.out.String(), "deleted ALPHA_TOKEN from the keyring") {
+		t.Errorf("stdout = %q, want confirmation of a real deletion", h.out.String())
+	}
+}
+
+// Against a profile with nothing stored, secret rm swallowed ErrNotFound and
+// printed the same "deleted" line as a real deletion -- in a tool whose
+// headline hazard is acting on the wrong profile, that tells a user who ran
+// it against the wrong one that the secret is gone when it never existed
+// there. The two cases must read differently.
+func TestSecretRmDistinguishesNothingStoredFromARealDeletion(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+	// ALPHA_TOKEN is declared but never seeded in the store.
+
+	if err := h.run("secret", "rm", "ALPHA_TOKEN", "--yes"); err != nil {
+		t.Fatalf("secret rm: %v", err)
+	}
+	out := h.out.String()
+	if strings.Contains(out, "deleted ALPHA_TOKEN from the keyring") {
+		t.Errorf("stdout claims a deletion that never happened: %q", out)
+	}
+	if !strings.Contains(out, "nothing to delete") {
+		t.Errorf("stdout does not say nothing was stored: %q", out)
+	}
 }
 
 func TestUnsetRemovesTheVariableAndItsSecret(t *testing.T) {
@@ -201,6 +226,47 @@ func TestSetSharedWritesTheDefaultValue(t *testing.T) {
 	}
 	if _, ok := got.Profiles["prod"]; ok {
 		t.Error("--shared wrote a profile override")
+	}
+}
+
+// The success line must match what --shared's own flag help says it does:
+// write the default used by every profile without its own value. "set %s
+// for every profile" overclaims -- resolve.Value consults a profile's own
+// override first, so any profile holding one is unaffected.
+func TestSetSharedMessageMatchesItsOwnSemantics(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+
+	if err := h.run("set", "APP_URL", "http://shared", "--shared"); err != nil {
+		t.Fatalf("set --shared: %v", err)
+	}
+	out := h.out.String()
+	if !strings.Contains(out, "without its own value") {
+		t.Errorf("success message does not match --shared's help text: %q", out)
+	}
+}
+
+// Reproduces the bug directly: a profile with its own override is unaffected
+// by --shared, so the success line must name it as such rather than
+// implying every profile just changed.
+func TestSetSharedNamesProfilesWithTheirOwnOverrideAsUnaffected(t *testing.T) {
+	h := newHarness(t)
+	m := fixtureManifest(t)
+	m.Project.Profiles = []string{"dev", "prod"}
+	h.register("vpb", m)
+	if err := h.run("-p", "prod", "set", "APP_URL", "http://prod-only"); err != nil {
+		t.Fatalf("set prod override: %v", err)
+	}
+
+	if err := h.run("set", "APP_URL", "http://shared-default", "--shared"); err != nil {
+		t.Fatalf("set --shared: %v", err)
+	}
+	out := h.out.String()
+	if !strings.Contains(out, "prod") {
+		t.Errorf("success message does not name the unaffected profile: %q", out)
+	}
+	if strings.Contains(out, "set APP_URL for every profile\n") {
+		t.Errorf("success message still claims every profile changed: %q", out)
 	}
 }
 
@@ -337,6 +403,12 @@ func TestUnsetDeletesTheSecretInEveryProfile(t *testing.T) {
 			t.Errorf("missing %q in %v", want, h.mem.Calls())
 		}
 	}
+	// unset's own prompt promised "delete its secret in 2 profiles"; the
+	// success line must say how many it actually cleared, the same way
+	// profile rm and project rm report their counts.
+	if !strings.Contains(h.out.String(), "removed ALPHA_TOKEN (2 secrets deleted)") {
+		t.Errorf("stdout = %q, want it to report how many secrets were cleared", h.out.String())
+	}
 }
 
 // A declared secret with no value stored under some profile is the ordinary
@@ -366,6 +438,11 @@ func TestUnsetToleratesASecretNeverStoredInSomeProfiles(t *testing.T) {
 		if !strings.Contains(calls, want) {
 			t.Errorf("missing %q in %v", want, h.mem.Calls())
 		}
+	}
+	// prod's delete hit ErrNotFound and must not inflate the count: only
+	// dev's item was ever actually removed.
+	if !strings.Contains(h.out.String(), "removed ALPHA_TOKEN (1 secrets deleted)") {
+		t.Errorf("stdout = %q, want it to report exactly 1 secret actually deleted", h.out.String())
 	}
 }
 

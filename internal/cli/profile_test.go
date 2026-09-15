@@ -8,6 +8,7 @@ import (
 
 	"github.com/cdescobedo/trenvy/internal/config"
 	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/store"
 )
 
 func profileHarness(t *testing.T) *harness {
@@ -266,6 +267,37 @@ func TestProfileRmDeletesTheProfilesSecretsAndOverrides(t *testing.T) {
 	// must say 1, not 2.
 	if out := h.out.String(); !strings.Contains(out, "(1 secrets deleted)") {
 		t.Errorf("stdout = %q, want it to report 1 secret actually deleted", out)
+	}
+}
+
+// A delete that fails partway through has already destroyed the items
+// before it, permanently. The other three partial-failure paths (unset,
+// project rm) say how many items are already gone and name the full
+// service, not the bare variable name; profile rm's error dropped both.
+func TestProfileRmSaysHowManyWereAlreadyDeletedWhenADeleteFails(t *testing.T) {
+	h := profileHarness(t)
+	m := reloadManifest(t, "vpb")
+	m.Vars["OTHER_API_KEY"] = manifest.Var{Secret: true}
+	if err := manifest.Save(config.ManifestPath("vpb"), m); err != nil {
+		t.Fatal(err)
+	}
+	h.mem.Seed("trenvy/vpb/prod/ALPHA_TOKEN", "a")
+	h.mem.Seed("trenvy/vpb/prod/OTHER_API_KEY", "b")
+	// secretNames sorts, so ALPHA_TOKEN is deleted before OTHER_API_KEY
+	// fails: one item really is gone by the time the error is written.
+	h.opts.NewStore = func(*config.Config, string) (store.Store, error) {
+		return failOnStore{Store: h.mem, failOn: "OTHER_API_KEY"}, nil
+	}
+
+	err := h.run("profile", "rm", "prod", "--yes")
+	if err == nil {
+		t.Fatal("profile rm succeeded despite a failing keyring delete")
+	}
+	if !strings.Contains(err.Error(), "1 secrets were already deleted") {
+		t.Errorf("error does not say how many secrets are already gone: %v", err)
+	}
+	if !strings.Contains(err.Error(), "trenvy/vpb/prod/OTHER_API_KEY") {
+		t.Errorf("error does not name the failing service (svc, not the bare var name): %v", err)
 	}
 }
 
