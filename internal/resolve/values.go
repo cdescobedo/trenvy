@@ -10,8 +10,8 @@ import (
 	"github.com/cdescobedo/envctl/internal/store"
 )
 
-// ErrUnknownTarget is returned when a target name is not defined.
-var ErrUnknownTarget = errors.New("unknown target")
+// ErrUnknownOutput is returned when an output name is not defined.
+var ErrUnknownOutput = errors.New("unknown output")
 
 // ErrUnknownVar is returned when a variable name is not in the manifest.
 var ErrUnknownVar = errors.New("unknown variable")
@@ -21,61 +21,43 @@ var ErrUnknownVar = errors.New("unknown variable")
 // patterns, and so tests can supply values without a store at all.
 type SecretLookup func(varName string) (string, error)
 
-// Resolved is a target's fully resolved variable set. Names is sorted, which
-// is what makes rendering and hashing deterministic.
+// Resolved is one output's fully resolved variable set under one profile.
+// Names is sorted, which is what makes rendering and hashing deterministic.
+//
+// Output is empty for a set that belongs to no output -- what All returns.
 type Resolved struct {
-	Target string
-	Names  []string
-	Values map[string]string
+	Profile string
+	Output  string
+	Names   []string
+	Values  map[string]string
 }
 
-// Values resolves every variable selected by target.
+// Values resolves every variable the output selects, under profile.
 //
-// For each variable the order is: per-target override, then per-profile
-// override, then default value, then the keyring for secrets. A variable with
-// no value is an error unless it is optional, in which case it is omitted.
-func Values(m *manifest.Manifest, target string, secret SecretLookup) (Resolved, error) {
-	t, ok := m.Targets[target]
+// The two string parameters are the two axes and they are not
+// interchangeable: profile decides what each variable is worth, output
+// decides which variables are in the set at all.
+func Values(m *manifest.Manifest, profile, output string, secret SecretLookup) (Resolved, error) {
+	o, ok := m.Outputs[output]
 	if !ok {
-		return Resolved{}, fmt.Errorf("%w: %q", ErrUnknownTarget, target)
+		return Resolved{}, fmt.Errorf("%w: %q", ErrUnknownOutput, output)
 	}
 
-	out := Resolved{Target: target, Values: map[string]string{}}
+	out := Resolved{Profile: profile, Output: output, Values: map[string]string{}}
 
-	names := make([]string, 0, len(m.Vars))
-	for name := range m.Vars {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	for _, name := range names {
+	for _, name := range sortedVarNames(m) {
 		// Selection happens before any value is fetched, so a secret this
-		// target excludes never costs an authorization prompt.
-		sel, err := selected(name, t.Include, t.Exclude)
+		// output excludes never costs an authorization prompt.
+		sel, err := selected(name, o.Include, o.Exclude)
 		if err != nil {
-			return Resolved{}, fmt.Errorf("target %q: %w", target, err)
+			return Resolved{}, fmt.Errorf("output %q: %w", output, err)
 		}
 		if !sel {
 			continue
 		}
-
-		// Scaffolding for Task 5-7: Values still resolves by target, not by
-		// profile, so it cannot yet delegate the per-target override to
-		// Value (whose second parameter is now a profile, not a target).
-		// Checking v.Targets here directly keeps
-		// TestValuesPrefersPerTargetOverride green in the interim. Task 8
-		// deletes this block along with Var.Targets, once Values itself
-		// takes a profile parameter and callers have moved to
-		// output-shaped targets.
-		var val string
-		var ok bool
-		if override, has := m.Vars[name].Targets[target]; has {
-			val, ok = override, true
-		} else {
-			val, ok, err = Value(m, m.Project.DefaultProfile, name, secret)
-			if err != nil {
-				return Resolved{}, err
-			}
+		val, ok, err := Value(m, profile, name, secret)
+		if err != nil {
+			return Resolved{}, err
 		}
 		if !ok {
 			continue
@@ -83,8 +65,38 @@ func Values(m *manifest.Manifest, target string, secret SecretLookup) (Resolved,
 		out.Names = append(out.Names, name)
 		out.Values[name] = val
 	}
-
 	return out, nil
+}
+
+// All resolves every variable in the manifest under profile, with no output
+// subset. exec and shell use it: an output's include list is about a file's
+// audience, and a process wants its whole environment.
+func All(m *manifest.Manifest, profile string, secret SecretLookup) (Resolved, error) {
+	out := Resolved{Profile: profile, Values: map[string]string{}}
+	for _, name := range sortedVarNames(m) {
+		val, ok, err := Value(m, profile, name, secret)
+		if err != nil {
+			return Resolved{}, err
+		}
+		if !ok {
+			continue
+		}
+		out.Names = append(out.Names, name)
+		out.Values[name] = val
+	}
+	return out, nil
+}
+
+// sortedVarNames is the iteration order both resolvers use. Go randomises map
+// iteration, so without sorting here a rendered file's byte order -- and so
+// its recorded file digest -- would differ run to run.
+func sortedVarNames(m *manifest.Manifest) []string {
+	names := make([]string, 0, len(m.Vars))
+	for name := range m.Vars {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // Value resolves one variable under one profile, applying the precedence:
@@ -95,10 +107,9 @@ func Values(m *manifest.Manifest, target string, secret SecretLookup) (Resolved,
 // asking for a plain variable costs nothing and asking for a secret costs one
 // authorization rather than one per variable in an output.
 //
-// Value deliberately does not validate that profile is declared: the CLI
-// already validates the active profile (Task 4), and a manifest-internal
-// caller like Values passes m.Project.DefaultProfile, which Validate already
-// guarantees is declared.
+// Value deliberately does not validate that profile is declared: every CLI
+// command resolves and validates the active profile before its body runs, so
+// a name reaching here has already been checked against project.profiles.
 func Value(m *manifest.Manifest, profile, name string, secret SecretLookup) (string, bool, error) {
 	v, ok := m.Vars[name]
 	if !ok {
@@ -132,34 +143,34 @@ func Value(m *manifest.Manifest, profile, name string, secret SecretLookup) (str
 	return "", false, fmt.Errorf("%s has no value for profile %q", name, profile)
 }
 
-// Selects reports whether target's include and exclude globs cover name.
-func Selects(m *manifest.Manifest, target, name string) (bool, error) {
-	t, ok := m.Targets[target]
+// Selects reports whether output's include and exclude globs cover name.
+func Selects(m *manifest.Manifest, output, name string) (bool, error) {
+	o, ok := m.Outputs[output]
 	if !ok {
-		return false, fmt.Errorf("%w: %q", ErrUnknownTarget, target)
+		return false, fmt.Errorf("%w: %q", ErrUnknownOutput, output)
 	}
-	sel, err := selected(name, t.Include, t.Exclude)
+	sel, err := selected(name, o.Include, o.Exclude)
 	if err != nil {
-		return false, fmt.Errorf("target %q: %w", target, err)
+		return false, fmt.Errorf("output %q: %w", output, err)
 	}
 	return sel, nil
 }
 
-// TargetHasSecret reports whether target selects at least one secret
+// OutputHasSecret reports whether output selects at least one secret
 // variable, without reading any value. status uses this under --quick to
-// decide whether freshness for a target is even knowable without a read.
-func TargetHasSecret(m *manifest.Manifest, target string) (bool, error) {
-	t, ok := m.Targets[target]
+// decide whether freshness for an output is even knowable without a read.
+func OutputHasSecret(m *manifest.Manifest, output string) (bool, error) {
+	o, ok := m.Outputs[output]
 	if !ok {
-		return false, fmt.Errorf("%w: %q", ErrUnknownTarget, target)
+		return false, fmt.Errorf("%w: %q", ErrUnknownOutput, output)
 	}
 	for name, v := range m.Vars {
 		if !v.Secret {
 			continue
 		}
-		sel, err := selected(name, t.Include, t.Exclude)
+		sel, err := selected(name, o.Include, o.Exclude)
 		if err != nil {
-			return false, fmt.Errorf("target %q: %w", target, err)
+			return false, fmt.Errorf("output %q: %w", output, err)
 		}
 		if sel {
 			return true, nil
@@ -168,7 +179,7 @@ func TargetHasSecret(m *manifest.Manifest, target string) (bool, error) {
 	return false, nil
 }
 
-// selected applies the target's include and exclude globs. An empty include
+// selected applies the output's include and exclude globs. An empty include
 // list means everything; exclude is subtracted afterwards.
 func selected(name string, include, exclude []string) (bool, error) {
 	in := len(include) == 0

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/cdescobedo/envctl/internal/manifest"
 )
 
 func TestExecPassesValuesThroughTheEnvironment(t *testing.T) {
@@ -17,7 +19,7 @@ func TestExecPassesValuesThroughTheEnvironment(t *testing.T) {
 	var captured *exec.Cmd
 	h.opts.Run = func(c *exec.Cmd) error { captured = c; return nil }
 
-	if err := h.run("exec", "local", "--", "printenv"); err != nil {
+	if err := h.run("exec", "--", "printenv"); err != nil {
 		t.Fatalf("exec: %v", err)
 	}
 	if captured == nil {
@@ -50,7 +52,7 @@ func TestExecPutsNoValueInArgv(t *testing.T) {
 	var captured *exec.Cmd
 	h.opts.Run = func(c *exec.Cmd) error { captured = c; return nil }
 
-	if err := h.run("exec", "local", "--", "echo", "hi"); err != nil {
+	if err := h.run("exec", "--", "echo", "hi"); err != nil {
 		t.Fatal(err)
 	}
 	for _, arg := range captured.Args {
@@ -67,7 +69,7 @@ func TestExecWritesNoFile(t *testing.T) {
 	h.opts.Run = func(*exec.Cmd) error { return nil }
 
 	before := listDir(t, h.root)
-	if err := h.run("exec", "local", "--", "true"); err != nil {
+	if err := h.run("exec", "--", "true"); err != nil {
 		t.Fatal(err)
 	}
 	if after := listDir(t, h.root); len(after) != len(before) {
@@ -87,7 +89,7 @@ func TestExecRunsInTheWorktree(t *testing.T) {
 
 	var captured *exec.Cmd
 	h.opts.Run = func(c *exec.Cmd) error { captured = c; return nil }
-	if err := h.run("exec", "local", "--", "true"); err != nil {
+	if err := h.run("exec", "--", "true"); err != nil {
 		t.Fatal(err)
 	}
 	if captured.Dir != sub {
@@ -95,18 +97,24 @@ func TestExecRunsInTheWorktree(t *testing.T) {
 	}
 }
 
-func TestExecRequiresACommand(t *testing.T) {
+// Cobra needs the -- separator: without it there is no reliable way to tell a
+// flag meant for envctl from one meant for the child, so a missing dash is an
+// error rather than a guess.
+func TestExecRequiresTheDashSeparator(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
-	if err := h.run("exec", "local"); err == nil {
-		t.Fatal("exec ran with no command")
+	err := h.run("exec", "printenv")
+	if err == nil {
+		t.Fatal("exec ran a command given without --")
+	}
+	if !strings.Contains(err.Error(), "envctl exec -- <command>") {
+		t.Errorf("error does not give the usage: %v", err)
 	}
 }
 
-// exec only checks staleness for the target it is actually running: another
-// target's staleness is not relevant to this invocation (and checking every
-// file target would re-resolve, and so re-read, every secret once per
-// target). So this warns when the stale target IS the one being exec'd.
+// A stale .env silently beats an injected environment in frameworks that load
+// dotenv files over the process environment, so a rendered file this worktree
+// holds that no longer matches the manifest has to be called out.
 func TestExecWarnsAboutAStaleRenderedFile(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")
@@ -120,7 +128,7 @@ func TestExecWarnsAboutAStaleRenderedFile(t *testing.T) {
 	}
 
 	h.opts.Run = func(*exec.Cmd) error { return nil }
-	if err := h.run("exec", "docker", "--", "true"); err != nil {
+	if err := h.run("exec", "--", "true"); err != nil {
 		t.Fatal(err)
 	}
 	// A stale .env silently overrides what exec injects; this warning is the
@@ -130,27 +138,28 @@ func TestExecWarnsAboutAStaleRenderedFile(t *testing.T) {
 	}
 }
 
-// The mirror image of the above: a target other than the one being exec'd
-// being stale must produce no warning at all, and must cost no extra secret
-// read for that unrelated target.
-func TestExecDoesNotWarnAboutAnUnrelatedStaleTarget(t *testing.T) {
+// The mirror image of the above, reframed for the output axis: exec no longer
+// has a target to be "the one being run", so the line that matters now is
+// which outputs it looks at. Only a file envctl actually rendered into THIS
+// worktree can shadow the injected environment; an output that was never
+// rendered here must produce no warning and no file read.
+func TestExecDoesNotWarnAboutAnOutputNeverRenderedHere(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")
 	h.register("vpb", fixtureManifest(t))
 	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "k")
-	if err := h.run("render", "docker"); err != nil {
-		t.Fatal(err)
-	}
+	// Deliberately no render: the manifest defines "docker", but nothing has
+	// ever written src/.env in this worktree.
 	if err := h.run("set", "APP_URL", "http://+:9999"); err != nil {
 		t.Fatal(err)
 	}
 
 	h.opts.Run = func(*exec.Cmd) error { return nil }
-	if err := h.run("exec", "local", "--", "true"); err != nil {
+	if err := h.run("exec", "--", "true"); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(h.errb.String(), "STALE") {
-		t.Errorf("exec warned about a target other than the one it ran:\n%s", h.errb.String())
+		t.Errorf("exec warned about an output it never rendered here:\n%s", h.errb.String())
 	}
 }
 
@@ -165,7 +174,7 @@ func TestExecStripsThePassphraseFromTheChildEnvironment(t *testing.T) {
 	var captured *exec.Cmd
 	h.opts.Run = func(c *exec.Cmd) error { captured = c; return nil }
 
-	if err := h.run("exec", "local", "--", "true"); err != nil {
+	if err := h.run("exec", "--", "true"); err != nil {
 		t.Fatal(err)
 	}
 	for _, kv := range captured.Env {
@@ -189,7 +198,7 @@ func TestExecSurfacesTheChildsExitErrorUnwrapped(t *testing.T) {
 	want := &exec.ExitError{ProcessState: &ps}
 	h.opts.Run = func(*exec.Cmd) error { return want }
 
-	err := h.run("exec", "local", "--", "false")
+	err := h.run("exec", "--", "false")
 	var got *exec.ExitError
 	if !errors.As(err, &got) {
 		t.Fatalf("err = %v, want an *exec.ExitError", err)
@@ -208,20 +217,29 @@ func TestShellRunsTheUsersShell(t *testing.T) {
 	var captured *exec.Cmd
 	h.opts.Run = func(c *exec.Cmd) error { captured = c; return nil }
 
-	if err := h.run("shell", "local"); err != nil {
+	if err := h.run("shell"); err != nil {
 		t.Fatalf("shell: %v", err)
 	}
 	if captured.Path != "/bin/sh" && !strings.HasSuffix(captured.Path, "/sh") {
 		t.Errorf("Path = %q, want the user's shell", captured.Path)
 	}
-	var sawMarker bool
+	// ENVCTL_PROFILE is both the prompt marker and the variable resolve.Profile
+	// reads, so envctl run from inside the subshell stays on the profile the
+	// subshell was loaded with.
+	var gotProfile, gotProject string
 	for _, kv := range captured.Env {
-		if strings.HasPrefix(kv, "ENVCTL_TARGET=") {
-			sawMarker = true
+		if v, ok := strings.CutPrefix(kv, "ENVCTL_PROFILE="); ok {
+			gotProfile = v
+		}
+		if v, ok := strings.CutPrefix(kv, "ENVCTL_PROJECT="); ok {
+			gotProject = v
 		}
 	}
-	if !sawMarker {
-		t.Error("the subshell has no ENVCTL_TARGET marker to prompt from")
+	if gotProfile != "dev" {
+		t.Errorf("ENVCTL_PROFILE = %q, want the active profile", gotProfile)
+	}
+	if gotProject != "vpb" {
+		t.Errorf("ENVCTL_PROJECT = %q, want the project id", gotProject)
 	}
 }
 
@@ -236,4 +254,71 @@ func listDir(t *testing.T, dir string) []string {
 		names = append(names, e.Name())
 	}
 	return names
+}
+
+// An output's include list is about a file's audience; a process wants its
+// whole environment. So exec resolves every variable the profile has, with no
+// subset applied -- even when every output in the manifest narrows one.
+func TestExecLoadsEveryVariableIgnoringOutputSubsets(t *testing.T) {
+	h := newHarness(t)
+	m, err := manifest.Parse([]byte(`
+[project]
+id = "fe"
+profiles = ["dev"]
+default_profile = "dev"
+output = "web"
+salt = "abc123"
+
+[outputs.web]
+format = "json"
+path = "public/env.json"
+include = ["PUBLIC_*"]
+
+[vars.APP_MODE]
+value = "development"
+
+[vars.PUBLIC_API]
+value = "/"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.register("fe", m)
+
+	var captured *exec.Cmd
+	h.opts.Run = func(c *exec.Cmd) error { captured = c; return nil }
+
+	if err := h.run("exec", "--", "true"); err != nil {
+		t.Fatalf("exec: %v", err)
+	}
+	env := map[string]string{}
+	for _, kv := range captured.Env {
+		k, v, _ := strings.Cut(kv, "=")
+		env[k] = v
+	}
+	if env["PUBLIC_API"] != "/" {
+		t.Errorf("PUBLIC_API = %q, want the resolved value", env["PUBLIC_API"])
+	}
+	if env["APP_MODE"] != "development" {
+		t.Errorf("APP_MODE = %q; exec applied an output's include list to a process",
+			env["APP_MODE"])
+	}
+}
+
+// `envctl exec local -- cmd` was the old spelling. It must not be read as a
+// command now that the argument is gone: silently running "local" would be
+// the worst possible answer to a stale muscle memory.
+func TestExecRejectsAnArgumentBeforeTheDash(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+	h.opts.Run = func(*exec.Cmd) error { t.Error("exec ran a command"); return nil }
+
+	err := h.run("exec", "local", "--", "true")
+
+	if err == nil {
+		t.Fatal("exec accepted an argument before --")
+	}
+	if !strings.Contains(err.Error(), "envctl exec -- <command>") {
+		t.Errorf("error does not give the new spelling: %v", err)
+	}
 }

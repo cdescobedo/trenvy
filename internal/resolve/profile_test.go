@@ -13,11 +13,6 @@ const profileManifestTOML = `
 id = "p"
 profiles = ["dev", "prod"]
 default_profile = "dev"
-default_target = "local"
-
-[targets.local]
-dest = "process"
-include = ["*"]
 `
 
 func TestProfileFallsBackToTheManifestDefault(t *testing.T) {

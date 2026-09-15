@@ -52,12 +52,12 @@ func TestImportSeedsTheManifestFromADotenvSample(t *testing.T) {
 	}
 }
 
-func TestImportCreatesAFileTargetForTheSamplesRealPath(t *testing.T) {
+func TestImportCreatesAnOutputForTheSamplesRealPath(t *testing.T) {
 	h := newHarness(t)
 	if err := h.run("init", "--id", "vpb"); err != nil {
 		t.Fatal(err)
 	}
-	// targetFor resolves the sample's path against the git worktree it is
+	// outputFor resolves the sample's path against the git worktree it is
 	// actually inside; real samples always live inside one.
 	h.gitInit("")
 	dir := filepath.Join(h.root, "src", "DemoApp.Api")
@@ -69,30 +69,30 @@ func TestImportCreatesAFileTargetForTheSamplesRealPath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := h.run("import", sample, "--no-tui", "--target", "docker"); err != nil {
+	if err := h.run("import", sample, "--no-tui", "--output", "docker"); err != nil {
 		t.Fatalf("import: %v", err)
 	}
 
 	m, _ := manifest.Load(config.ManifestPath("vpb"))
-	tgt, ok := m.Targets["docker"]
+	out, ok := m.Outputs["docker"]
 	if !ok {
-		t.Fatal("import did not create the target")
+		t.Fatal("import did not create the output")
 	}
 	// The sample's own path, minus the _example suffix, is the obvious guess.
-	if tgt.Path != filepath.Join("src", "DemoApp.Api", ".env") {
-		t.Errorf("target path = %q", tgt.Path)
+	if out.Path != filepath.Join("src", "DemoApp.Api", ".env") {
+		t.Errorf("output path = %q", out.Path)
 	}
-	if tgt.Format != manifest.FormatDotenv {
-		t.Errorf("target format = %q", tgt.Format)
+	if out.Format != manifest.FormatDotenv {
+		t.Errorf("output format = %q", out.Format)
 	}
 }
 
 // A project need not be version controlled: resolve.WorktreeRoot says so
-// explicitly. When no repository contains the sample, the target path must
+// explicitly. When no repository contains the sample, the output path must
 // still be relative to the project root, not collapse to the sample's own
 // basename -- which is what happens if the sample's own directory is mistaken
 // for a worktree root.
-func TestImportTargetPathInANonGitProject(t *testing.T) {
+func TestImportOutputPathInANonGitProject(t *testing.T) {
 	h := newHarness(t)
 	if err := h.run("init", "--id", "vpb"); err != nil {
 		t.Fatal(err)
@@ -106,24 +106,24 @@ func TestImportTargetPathInANonGitProject(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := h.run("import", sample, "--no-tui", "--target", "docker"); err != nil {
+	if err := h.run("import", sample, "--no-tui", "--output", "docker"); err != nil {
 		t.Fatalf("import: %v", err)
 	}
 
 	m, _ := manifest.Load(config.ManifestPath("vpb"))
-	tgt, ok := m.Targets["docker"]
+	out, ok := m.Outputs["docker"]
 	if !ok {
-		t.Fatal("import did not create the target")
+		t.Fatal("import did not create the output")
 	}
 	want := filepath.Join("src", "DemoApp.Api", ".env")
-	if tgt.Path != want {
-		t.Errorf("target path = %q, want %q", tgt.Path, want)
+	if out.Path != want {
+		t.Errorf("output path = %q, want %q", out.Path, want)
 	}
 }
 
 // A directory whose name happens to contain one of the example suffixes must
 // survive intact: only the sample's own filename is stripped.
-func TestImportTargetPathLeavesDirectoryNamesIntact(t *testing.T) {
+func TestImportOutputPathLeavesDirectoryNamesIntact(t *testing.T) {
 	h := newHarness(t)
 	if err := h.run("init", "--id", "vpb"); err != nil {
 		t.Fatal(err)
@@ -137,28 +137,28 @@ func TestImportTargetPathLeavesDirectoryNamesIntact(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := h.run("import", sample, "--no-tui", "--target", "docker"); err != nil {
+	if err := h.run("import", sample, "--no-tui", "--output", "docker"); err != nil {
 		t.Fatalf("import: %v", err)
 	}
 
 	m, _ := manifest.Load(config.ManifestPath("vpb"))
-	tgt, ok := m.Targets["docker"]
+	out, ok := m.Outputs["docker"]
 	if !ok {
-		t.Fatal("import did not create the target")
+		t.Fatal("import did not create the output")
 	}
 	want := filepath.Join("test_example_project", ".env")
-	if tgt.Path != want {
-		t.Errorf("target path = %q, want %q (directory name must survive intact)", tgt.Path, want)
+	if out.Path != want {
+		t.Errorf("output path = %q, want %q (directory name must survive intact)", out.Path, want)
 	}
 }
 
 // This is the C2 regression: import is run from the project root (the
 // directory holding every worktree, itself not a git repository), while the
-// sample lives inside "main", a real worktree of its own. The stored target
+// sample lives inside "main", a real worktree of its own. The stored output
 // path must be relative to "main", not to the project root import was run
 // from -- otherwise a later render against "main" doubles the segment into
 // main/main/src/Api/.env.
-func TestImportTargetIsRelativeToTheSamplesOwnWorktreeNotTheCurrentDirectory(t *testing.T) {
+func TestImportOutputIsRelativeToTheSamplesOwnWorktreeNotTheCurrentDirectory(t *testing.T) {
 	h := newHarness(t)
 	if err := h.run("init", "--id", "vpb"); err != nil {
 		t.Fatal(err)
@@ -188,7 +188,7 @@ func TestImportTargetIsRelativeToTheSamplesOwnWorktreeNotTheCurrentDirectory(t *
 
 	// h.opts.Dir is still the project root: import is run from there, per the
 	// documented workflow.
-	if err := h.run("import", sample, "--no-tui", "--target", "docker"); err != nil {
+	if err := h.run("import", sample, "--no-tui", "--output", "docker"); err != nil {
 		t.Fatalf("import: %v", err)
 	}
 
@@ -196,13 +196,13 @@ func TestImportTargetIsRelativeToTheSamplesOwnWorktreeNotTheCurrentDirectory(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	tgt, ok := m.Targets["docker"]
+	out, ok := m.Outputs["docker"]
 	if !ok {
-		t.Fatal("import did not create the target")
+		t.Fatal("import did not create the output")
 	}
 	want := filepath.Join("src", "Api", ".env")
-	if tgt.Path != want {
-		t.Errorf("target path = %q, want %q (relative to main/, not the project root)", tgt.Path, want)
+	if out.Path != want {
+		t.Errorf("output path = %q, want %q (relative to main/, not the project root)", out.Path, want)
 	}
 
 	// Rendering from inside main/ must then land the file exactly where the
@@ -217,7 +217,7 @@ func TestImportTargetIsRelativeToTheSamplesOwnWorktreeNotTheCurrentDirectory(t *
 	}
 }
 
-func TestImportJSONSampleCreatesAJSONTarget(t *testing.T) {
+func TestImportJSONSampleCreatesAJSONOutput(t *testing.T) {
 	h := newHarness(t)
 	if err := h.run("init", "--id", "fe"); err != nil {
 		t.Fatal(err)
@@ -232,17 +232,17 @@ func TestImportJSONSampleCreatesAJSONTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := h.run("import", sample, "--no-tui", "--target", "web"); err != nil {
+	if err := h.run("import", sample, "--no-tui", "--output", "web"); err != nil {
 		t.Fatalf("import: %v", err)
 	}
 
 	m, _ := manifest.Load(config.ManifestPath("fe"))
-	tgt := m.Targets["web"]
-	if tgt.Format != manifest.FormatJSON {
-		t.Errorf("format = %q, want json", tgt.Format)
+	out := m.Outputs["web"]
+	if out.Format != manifest.FormatJSON {
+		t.Errorf("format = %q, want json", out.Format)
 	}
-	if tgt.Path != filepath.Join("public", "env.json") {
-		t.Errorf("path = %q", tgt.Path)
+	if out.Path != filepath.Join("public", "env.json") {
+		t.Errorf("path = %q", out.Path)
 	}
 	if _, ok := m.Vars["backendAPI"]; !ok {
 		t.Error("free-form json keys were not imported")
@@ -279,7 +279,7 @@ func TestImportRefusesToClobberExistingVariables(t *testing.T) {
 // filepath.Rel always succeeded and the guard below could not trip. With a
 // real base it can -- a sample outside the project has no sensible rendered
 // path, and guessing one would write a credentials file somewhere unrelated.
-func TestImportTargetRejectsASampleOutsideTheProject(t *testing.T) {
+func TestImportOutputRejectsASampleOutsideTheProject(t *testing.T) {
 	h := newHarness(t)
 	if err := h.run("init", "--id", "vpb"); err != nil {
 		t.Fatal(err)
@@ -293,7 +293,7 @@ func TestImportTargetRejectsASampleOutsideTheProject(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := h.run("import", sample, "--no-tui", "--target", "docker")
+	err := h.run("import", sample, "--no-tui", "--output", "docker")
 	if err == nil {
 		t.Fatal("import accepted a sample outside the project")
 	}

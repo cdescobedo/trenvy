@@ -18,7 +18,7 @@ func TestStateRecordAndFind(t *testing.T) {
 
 	e := config.RenderEntry{
 		Worktree: "/w/main",
-		Target:   "docker",
+		Output:   "docker",
 		Path:     "src/.env",
 		Sum:      "abc",
 		File:     "def",
@@ -35,13 +35,13 @@ func TestStateRecordAndFind(t *testing.T) {
 	}
 }
 
-// A rendered file is per-worktree: the same target in a different worktree is
+// A rendered file is per-worktree: the same output in a different worktree is
 // a different record, and one being fresh says nothing about the other.
-func TestStateKeysOnWorktreeAndTarget(t *testing.T) {
+func TestStateKeysOnWorktreeAndOutput(t *testing.T) {
 	t.Setenv("ENVCTL_CONFIG_DIR", t.TempDir())
 	s, _ := config.LoadState("p")
-	s.Record(config.RenderEntry{Worktree: "/w/main", Target: "docker", Sum: "one"})
-	s.Record(config.RenderEntry{Worktree: "/w/FEAT-4001", Target: "docker", Sum: "two"})
+	s.Record(config.RenderEntry{Worktree: "/w/main", Output: "docker", Sum: "one"})
+	s.Record(config.RenderEntry{Worktree: "/w/FEAT-4001", Output: "docker", Sum: "two"})
 
 	main, _ := s.Find("/w/main", "docker")
 	other, _ := s.Find("/w/FEAT-4001", "docker")
@@ -49,15 +49,15 @@ func TestStateKeysOnWorktreeAndTarget(t *testing.T) {
 		t.Errorf("records collided: %q %q", main.Sum, other.Sum)
 	}
 	if _, ok := s.Find("/w/main", "web"); ok {
-		t.Error("Find matched a different target")
+		t.Error("Find matched a different output")
 	}
 }
 
 func TestStateRecordReplacesRatherThanAppends(t *testing.T) {
 	t.Setenv("ENVCTL_CONFIG_DIR", t.TempDir())
 	s, _ := config.LoadState("p")
-	s.Record(config.RenderEntry{Worktree: "/w", Target: "t", Sum: "one"})
-	s.Record(config.RenderEntry{Worktree: "/w", Target: "t", Sum: "two"})
+	s.Record(config.RenderEntry{Worktree: "/w", Output: "t", Sum: "one"})
+	s.Record(config.RenderEntry{Worktree: "/w", Output: "t", Sum: "two"})
 
 	if len(s.Renders) != 1 {
 		t.Errorf("Renders has %d entries, want 1", len(s.Renders))
@@ -71,7 +71,7 @@ func TestStateRecordReplacesRatherThanAppends(t *testing.T) {
 func TestStateForgetRemovesTheRecord(t *testing.T) {
 	t.Setenv("ENVCTL_CONFIG_DIR", t.TempDir())
 	s, _ := config.LoadState("p")
-	s.Record(config.RenderEntry{Worktree: "/w", Target: "t", Sum: "one"})
+	s.Record(config.RenderEntry{Worktree: "/w", Output: "t", Sum: "one"})
 	s.Forget("/w", "t")
 	if _, ok := s.Find("/w", "t"); ok {
 		t.Error("Find still returns a forgotten record")
@@ -81,7 +81,7 @@ func TestStateForgetRemovesTheRecord(t *testing.T) {
 func TestStateRoundTripsThroughDisk(t *testing.T) {
 	t.Setenv("ENVCTL_CONFIG_DIR", t.TempDir())
 	s, _ := config.LoadState("p")
-	s.Record(config.RenderEntry{Worktree: "/w", Target: "t", Sum: "abc", At: time.Now().UTC().Truncate(time.Second)})
+	s.Record(config.RenderEntry{Worktree: "/w", Output: "t", Sum: "abc", At: time.Now().UTC().Truncate(time.Second)})
 	if err := s.Save(); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestStateSaveWritesFileWith0600Mode(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("ENVCTL_CONFIG_DIR", tmpDir)
 	s, _ := config.LoadState("p")
-	s.Record(config.RenderEntry{Worktree: "/w", Target: "t", Sum: "abc"})
+	s.Record(config.RenderEntry{Worktree: "/w", Output: "t", Sum: "abc"})
 	if err := s.Save(); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestStateSaveCreatesDir0700(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("ENVCTL_CONFIG_DIR", tmpDir)
 	s, _ := config.LoadState("p")
-	s.Record(config.RenderEntry{Worktree: "/w", Target: "t", Sum: "abc"})
+	s.Record(config.RenderEntry{Worktree: "/w", Output: "t", Sum: "abc"})
 	if err := s.Save(); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestStateSaveTightensExistingFilePermissions(t *testing.T) {
 
 	// Save should tighten it to 0o600
 	s, _ := config.LoadState("p")
-	s.Record(config.RenderEntry{Worktree: "/w", Target: "t", Sum: "abc"})
+	s.Record(config.RenderEntry{Worktree: "/w", Output: "t", Sum: "abc"})
 	if err := s.Save(); err != nil {
 		t.Fatalf("Save: %v", err)
 	}

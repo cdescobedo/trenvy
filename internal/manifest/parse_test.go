@@ -9,17 +9,12 @@ import (
 const backendTOML = `
 [project]
 id = "demo-backend"
-profiles = ["dev"]
+profiles = ["dev", "docker"]
 default_profile = "dev"
-default_target = "local"
+output = "docker"
 salt = "b7c1de"
 
-[targets.local]
-dest = "process"
-include = ["*"]
-
-[targets.docker]
-dest = "file"
+[outputs.docker]
 format = "dotenv"
 path = "src/DemoApp.Api/.env"
 include = ["*"]
@@ -29,7 +24,8 @@ value = "http://+:8080"
 
 [vars.APP_DB_CONNECTION]
 value = "Server=localhost;Port=8675;"
-targets = { docker = "Server=host.docker.internal;Port=8675;" }
+[vars.APP_DB_CONNECTION.profiles]
+docker = "Server=host.docker.internal;Port=8675;"
 
 [vars.ALPHA_TOKEN]
 secret = true
@@ -44,14 +40,14 @@ func TestParseBackendManifest(t *testing.T) {
 	if m.Project.ID != "demo-backend" {
 		t.Errorf("Project.ID = %q, want %q", m.Project.ID, "demo-backend")
 	}
-	if m.Project.DefaultTarget != "local" {
-		t.Errorf("Project.DefaultTarget = %q, want %q", m.Project.DefaultTarget, "local")
+	if m.Project.Output != "docker" {
+		t.Errorf("Project.Output = %q, want %q", m.Project.Output, "docker")
 	}
-	if got := m.Targets["docker"].Path; got != "src/DemoApp.Api/.env" {
-		t.Errorf("docker target Path = %q", got)
+	if got := m.Outputs["docker"].Path; got != "src/DemoApp.Api/.env" {
+		t.Errorf("docker output Path = %q", got)
 	}
-	if got := m.Targets["local"].Dest; got != "process" {
-		t.Errorf("local target Dest = %q, want %q", got, "process")
+	if got := m.Outputs["docker"].Format; got != manifest.FormatDotenv {
+		t.Errorf("docker output Format = %q, want %q", got, manifest.FormatDotenv)
 	}
 
 	urls := m.Vars["APP_URL"]
@@ -63,8 +59,8 @@ func TestParseBackendManifest(t *testing.T) {
 	}
 
 	db := m.Vars["APP_DB_CONNECTION"]
-	if got := db.Targets["docker"]; got != "Server=host.docker.internal;Port=8675;" {
-		t.Errorf("docker override = %q", got)
+	if got := db.Profiles["docker"]; got != "Server=host.docker.internal;Port=8675;" {
+		t.Errorf("docker profile override = %q", got)
 	}
 
 	key := m.Vars["ALPHA_TOKEN"]
@@ -95,17 +91,17 @@ func TestParseDistinguishesEmptyValueFromAbsent(t *testing.T) {
 
 // Maps must be non-nil even when sections are absent, so downstream code
 // can write into them without panicking (e.g., envctl set writes to
-// m.Vars[name] and later tasks write to m.Targets[targetName]).
+// m.Vars[name] and envctl import writes to m.Outputs[outputName]).
 func TestParseNormalizesNilMapsToEmpty(t *testing.T) {
 	m, err := manifest.Parse([]byte("[project]\nid = \"test\"\n"))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if m.Targets == nil {
-		t.Error("Targets is nil, want empty map")
+	if m.Outputs == nil {
+		t.Error("Outputs is nil, want empty map")
 	}
-	if len(m.Targets) != 0 {
-		t.Errorf("Targets has %d entries, want 0", len(m.Targets))
+	if len(m.Outputs) != 0 {
+		t.Errorf("Outputs has %d entries, want 0", len(m.Outputs))
 	}
 	if m.Vars == nil {
 		t.Error("Vars is nil, want empty map")

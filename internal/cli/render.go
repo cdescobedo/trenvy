@@ -22,47 +22,44 @@ func newRenderCmd(opts *Options) *cobra.Command {
 	var force, allowTracked bool
 
 	c := &cobra.Command{
-		Use:   "render [target]",
-		Short: "Write a file target into this worktree",
+		Use:   "render [output]",
+		Short: "Write an output's file into this worktree",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app, err := opts.resolveApp()
 			if err != nil {
 				return err
 			}
-			name, err := app.targetOrDefault(firstOrEmpty(args))
+			name, err := app.outputOrDefault(firstOrEmpty(args))
 			if err != nil {
 				return err
 			}
-			t := app.Manifest.Targets[name]
-			if t.Dest != manifest.DestFile {
-				return fmt.Errorf(
-					"target %q writes to the process, not a file; use: envctl exec %s -- <command>",
-					name, name)
-			}
+			// No kind check: every output is a file. Process delivery is the
+			// verb -- exec and shell -- not a configurable destination.
+			o := app.Manifest.Outputs[name]
 
-			values, err := resolve.Values(app.Manifest, name, app.secretLookup())
+			values, err := resolve.Values(app.Manifest, app.Profile.Name, name, app.secretLookup())
 			if err != nil {
 				return err
 			}
 
 			var data []byte
-			switch t.Format {
+			switch o.Format {
 			case manifest.FormatDotenv:
 				data, err = render.Dotenv(values)
 			case manifest.FormatJSON:
 				data, err = render.JSON(values)
 			default:
-				err = fmt.Errorf("target %q: unsupported format %q", name, t.Format)
+				err = fmt.Errorf("output %q: unsupported format %q", name, o.Format)
 			}
 			if err != nil {
 				return err
 			}
 
-			abs := filepath.Join(app.Worktree, t.Path)
+			abs := filepath.Join(app.Worktree, o.Path)
 
 			if !allowTracked {
-				ignored, err := guard.GitIgnored(app.Worktree, t.Path)
+				ignored, err := guard.GitIgnored(app.Worktree, o.Path)
 				if err != nil {
 					return err
 				}
@@ -70,7 +67,7 @@ func newRenderCmd(opts *Options) *cobra.Command {
 					return fmt.Errorf(
 						"%s is not ignored by git\n  add to .gitignore:\n    %s\n"+
 							"  or re-run with --allow-tracked",
-						t.Path, t.Path)
+						o.Path, o.Path)
 				}
 			}
 
@@ -89,8 +86,8 @@ func newRenderCmd(opts *Options) *cobra.Command {
 			}
 			app.State.Record(config.RenderEntry{
 				Worktree: app.Worktree,
-				Target:   name,
-				Path:     t.Path,
+				Output:   name,
+				Path:     o.Path,
 				Sum:      wantSum,
 				File:     render.FileSum(data),
 				At:       time.Now().UTC(),
@@ -106,7 +103,7 @@ func newRenderCmd(opts *Options) *cobra.Command {
 				}
 			}
 			fmt.Fprintf(opts.Stdout, "wrote %s  (%d vars, %d from the keyring, 0600)\n",
-				t.Path, len(values.Names), secrets)
+				o.Path, len(values.Names), secrets)
 			return nil
 		},
 	}
@@ -119,7 +116,7 @@ func newCleanCmd(opts *Options) *cobra.Command {
 	var force bool
 
 	c := &cobra.Command{
-		Use:   "clean [target]",
+		Use:   "clean [output]",
 		Short: "Remove a rendered file from this worktree",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -127,16 +124,13 @@ func newCleanCmd(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			name, err := app.targetOrDefault(firstOrEmpty(args))
+			name, err := app.outputOrDefault(firstOrEmpty(args))
 			if err != nil {
 				return err
 			}
-			t := app.Manifest.Targets[name]
-			if t.Dest != manifest.DestFile {
-				return fmt.Errorf("target %q writes no file", name)
-			}
+			o := app.Manifest.Outputs[name]
 
-			abs := filepath.Join(app.Worktree, t.Path)
+			abs := filepath.Join(app.Worktree, o.Path)
 
 			// The same guard render uses: a FOREIGN or MODIFIED file must not
 			// be deleted without --force, or clean would silently destroy a
@@ -158,9 +152,9 @@ func newCleanCmd(opts *Options) *cobra.Command {
 			err = os.Remove(abs)
 			switch {
 			case err == nil:
-				fmt.Fprintf(opts.Stdout, "removed %s\n", t.Path)
+				fmt.Fprintf(opts.Stdout, "removed %s\n", o.Path)
 			case errors.Is(err, fs.ErrNotExist):
-				fmt.Fprintf(opts.Stdout, "no %s here\n", t.Path)
+				fmt.Fprintf(opts.Stdout, "no %s here\n", o.Path)
 			default:
 				return fmt.Errorf("remove %s: %w", abs, err)
 			}

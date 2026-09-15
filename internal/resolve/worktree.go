@@ -1,4 +1,4 @@
-// Package resolve turns a working directory and a target name into concrete
+// Package resolve turns a working directory, a profile and an output into concrete
 // values and paths.
 package resolve
 
@@ -13,7 +13,7 @@ import (
 //
 // This is deliberately distinct from the project root in the registry. The
 // project root is the directory holding every worktree; the worktree root is
-// the specific checkout a target's relative path resolves against. Keeping
+// the specific checkout an output's relative path resolves against. Keeping
 // them separate is what lets one manifest serve every worktree, including ones
 // created long after the project was registered.
 func WorktreeRoot(dir string) (string, error) {

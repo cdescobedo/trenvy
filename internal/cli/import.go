@@ -15,7 +15,7 @@ import (
 )
 
 func newImportCmd(opts *Options) *cobra.Command {
-	var targetName string
+	var outputName string
 	var noTUI, force bool
 
 	cmd := &cobra.Command{
@@ -63,12 +63,12 @@ func newImportCmd(opts *Options) *cobra.Command {
 				app.Manifest.Vars[e.Name] = v
 			}
 
-			if targetName != "" {
-				tgt, err := targetFor(samplePath, app.Worktree)
+			if outputName != "" {
+				out, err := outputFor(samplePath, app.Worktree)
 				if err != nil {
 					return err
 				}
-				app.Manifest.Targets[targetName] = tgt
+				app.Manifest.Outputs[outputName] = out
 			}
 			if err := app.Manifest.Validate(); err != nil {
 				return err
@@ -92,13 +92,13 @@ func newImportCmd(opts *Options) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&targetName, "target", "", "also create a file target rendering to the sample's real path")
+	cmd.Flags().StringVar(&outputName, "output", "", "also create an output rendering to the sample's real path")
 	cmd.Flags().BoolVar(&noTUI, "no-tui", false, "skip the interactive review")
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite variables already in the manifest")
 	return cmd
 }
 
-// targetFor guesses a target from the sample's own location: a sample at
+// outputFor guesses an output from the sample's own location: a sample at
 // src/Api/.env_example is a sample of src/Api/.env.
 //
 // The resulting path is stored relative to the worktree that will actually
@@ -109,7 +109,7 @@ func newImportCmd(opts *Options) *cobra.Command {
 // such as main/. Using the wrong base bakes that worktree's own name into the
 // stored path, so a later render re-interprets it against a different
 // worktree root and doubles the segment (main/main/src/Api/.env).
-func targetFor(samplePath, fallbackRoot string) (manifest.Target, error) {
+func outputFor(samplePath, fallbackRoot string) (manifest.Output, error) {
 	abs, err := filepath.Abs(samplePath)
 	if err != nil {
 		abs = samplePath
@@ -121,7 +121,7 @@ func targetFor(samplePath, fallbackRoot string) (manifest.Target, error) {
 	// Only a real repository root may serve as the base. resolve.WorktreeRoot
 	// would answer "the sample's own directory" for an unversioned project,
 	// which passes filepath.Rel happily and silently collapses the path to a
-	// bare basename -- a target written to the worktree root instead of
+	// bare basename -- an output written to the worktree root instead of
 	// src/Api/.env. An unversioned project falls back to the worktree the
 	// command is running in, which is what the project root is.
 	base, ok := resolve.GitWorktreeRoot(filepath.Dir(abs))
@@ -130,9 +130,9 @@ func targetFor(samplePath, fallbackRoot string) (manifest.Target, error) {
 	}
 	rel, err := filepath.Rel(base, abs)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return manifest.Target{}, fmt.Errorf(
+		return manifest.Output{}, fmt.Errorf(
 			"%s is not inside a worktree under the project root; "+
-				"--target needs a sample checked into a worktree so it can guess the rendered path",
+				"--output needs a sample checked into a worktree so it can guess the rendered path",
 			samplePath)
 	}
 
@@ -160,8 +160,7 @@ func targetFor(samplePath, fallbackRoot string) (manifest.Target, error) {
 	}
 	real := filepath.Join(dir, base)
 
-	return manifest.Target{
-		Dest:    manifest.DestFile,
+	return manifest.Output{
 		Format:  format,
 		Path:    real,
 		Include: []string{"*"},

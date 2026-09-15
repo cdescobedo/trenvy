@@ -13,20 +13,14 @@ const oneValueTOML = `
 id = "p"
 profiles = ["dev"]
 default_profile = "dev"
-default_target = "local"
+output = "all"
 
-[targets.local]
-dest = "process"
-include = ["*"]
-
-[targets.docker]
-dest = "file"
+[outputs.all]
 format = "dotenv"
 path = ".env"
 include = ["*"]
 
-[targets.web]
-dest = "file"
+[outputs.web]
 format = "json"
 path = "public/env.json"
 include = ["PUBLIC_*"]
@@ -36,7 +30,6 @@ value = "/"
 
 [vars.DB]
 value = "Server=localhost"
-targets = { docker = "Server=host.docker.internal" }
 
 [vars.TOKEN]
 secret = true
@@ -72,7 +65,7 @@ func TestValueReadsASecretFromTheLookup(t *testing.T) {
 	}
 }
 
-// One variable means one read. Resolving a whole target to answer for a single
+// One variable means one read. Resolving a whole output to answer for a single
 // name would cost an authorization prompt per secret on a prompting backend.
 func TestValueReadsOnlyTheNamedSecret(t *testing.T) {
 	m := mustParse(t, oneValueTOML)
@@ -139,34 +132,34 @@ func TestValueRejectsAnUnknownVariable(t *testing.T) {
 	}
 }
 
-func TestSelectsAppliesTheTargetGlobs(t *testing.T) {
+func TestSelectsAppliesTheOutputGlobs(t *testing.T) {
 	m := mustParse(t, oneValueTOML)
 
 	for _, tc := range []struct {
-		target, name string
+		output, name string
 		want         bool
 	}{
 		{"web", "PUBLIC_API", true},
 		{"web", "DB", false},
-		{"local", "DB", true},
+		{"all", "DB", true},
 	} {
-		got, err := resolve.Selects(m, tc.target, tc.name)
+		got, err := resolve.Selects(m, tc.output, tc.name)
 		if err != nil {
-			t.Fatalf("Selects(%s, %s): %v", tc.target, tc.name, err)
+			t.Fatalf("Selects(%s, %s): %v", tc.output, tc.name, err)
 		}
 		if got != tc.want {
-			t.Errorf("Selects(%s, %s) = %v, want %v", tc.target, tc.name, got, tc.want)
+			t.Errorf("Selects(%s, %s) = %v, want %v", tc.output, tc.name, got, tc.want)
 		}
 	}
 }
 
-func TestSelectsRejectsAnUnknownTarget(t *testing.T) {
+func TestSelectsRejectsAnUnknownOutput(t *testing.T) {
 	m := mustParse(t, oneValueTOML)
 
 	_, err := resolve.Selects(m, "nope", "DB")
 
-	if !errors.Is(err, resolve.ErrUnknownTarget) {
-		t.Errorf("error = %v, want ErrUnknownTarget", err)
+	if !errors.Is(err, resolve.ErrUnknownOutput) {
+		t.Errorf("error = %v, want ErrUnknownOutput", err)
 	}
 }
 
@@ -175,11 +168,6 @@ const profileValueTOML = `
 id = "p"
 profiles = ["dev", "prod"]
 default_profile = "dev"
-default_target = "local"
-
-[targets.local]
-dest = "process"
-include = ["*"]
 
 [vars.DB]
 value = "Server=localhost"

@@ -10,7 +10,7 @@ import (
 
 // JSON renders values as a flat object of strings.
 //
-// Nothing is added to the object. A json target's typical destination is a
+// Nothing is added to the object. A json output's typical destination is a
 // file served to a browser, so it carries the application's configuration and
 // nothing else; envctl's own bookkeeping lives in the state file.
 func JSON(r resolve.Resolved) ([]byte, error) {

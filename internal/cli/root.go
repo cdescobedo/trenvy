@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -165,13 +166,21 @@ func (a *appContext) service(name string) string {
 	return a.Cfg.Keyring.ServiceName(a.Manifest.Project.ID, a.Profile.Name, name)
 }
 
-// targetOrDefault returns name, or the manifest's default target when empty.
-func (a *appContext) targetOrDefault(name string) (string, error) {
+// outputOrDefault returns name, or the manifest's default output when empty.
+//
+// An empty result is its own error rather than a lookup miss: a project that
+// only ever feeds exec and shell legitimately declares no outputs at all, so
+// "" here means nothing was configured, not that something was misspelled.
+func (a *appContext) outputOrDefault(name string) (string, error) {
 	if name == "" {
-		name = a.Manifest.Project.DefaultTarget
+		name = a.Manifest.Project.Output
 	}
-	if _, ok := a.Manifest.Targets[name]; !ok {
-		return "", fmt.Errorf("%w: %q", resolve.ErrUnknownTarget, name)
+	if name == "" {
+		return "", errors.New("no output given and project.output is not set;\n" +
+			"  define one in the manifest, or name it: envctl render <output>")
+	}
+	if _, ok := a.Manifest.Outputs[name]; !ok {
+		return "", fmt.Errorf("%w: %q", resolve.ErrUnknownOutput, name)
 	}
 	return name, nil
 }

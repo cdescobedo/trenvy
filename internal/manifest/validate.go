@@ -18,7 +18,7 @@ func (e *ValidationError) Error() string {
 }
 
 // Validate checks the manifest's internal consistency. Error messages name
-// variables and targets, never values.
+// variables and outputs, never values.
 func (m *Manifest) Validate() error {
 	var problems []string
 	add := func(format string, args ...any) {
@@ -47,42 +47,39 @@ func (m *Manifest) Validate() error {
 	} else if !seen[m.Project.DefaultProfile] {
 		add("project.default_profile %q is not a declared profile", m.Project.DefaultProfile)
 	}
-	if m.Project.DefaultTarget == "" {
-		add("project.default_target is required")
-	} else if _, ok := m.Targets[m.Project.DefaultTarget]; !ok {
-		add("project.default_target %q is not a defined target", m.Project.DefaultTarget)
+	// A pre-profile manifest is refused by name rather than half-read. toml
+	// ignores unknown keys, so an old [targets.*] block would otherwise
+	// vanish and the project would look like one with no outputs at all --
+	// which is now a legal shape, so nothing downstream would complain.
+	if len(m.LegacyTargets) > 0 || m.Project.LegacyDefaultTarget != "" {
+		add("this manifest predates profiles: [targets] and default_target are gone.\n" +
+			"    Targets split into profiles (values) and outputs (format, path, subset),\n" +
+			"    and process targets are gone because exec and shell are the verb.\n" +
+			"    Recreate it with: envctl project init, then envctl import, then re-enter secrets")
 	}
-	if len(m.Targets) == 0 {
-		add("at least one target is required")
+	// No output is required: a project that only ever feeds exec and shell
+	// has nowhere to write, and the old model's dummy process target existed
+	// only so that `exec local` had a noun to name.
+	if m.Project.Output != "" {
+		if _, ok := m.Outputs[m.Project.Output]; !ok {
+			add("project.output %q is not a defined output", m.Project.Output)
+		}
 	}
 
-	for _, name := range sortedKeys(m.Targets) {
-		t := m.Targets[name]
-		switch t.Dest {
-		case DestProcess:
-			if t.Path != "" {
-				add("target %q: dest = %q takes no path", name, DestProcess)
-			}
-		case DestFile:
-			if t.Path == "" {
-				add("target %q: dest = %q requires path", name, DestFile)
-			} else if err := checkRelPath(t.Path); err != nil {
-				add("target %q: %v", name, err)
-			}
-			if t.Format != FormatDotenv && t.Format != FormatJSON {
-				add("target %q: format must be %q or %q", name, FormatDotenv, FormatJSON)
-			}
-		default:
-			add("target %q: dest must be %q or %q", name, DestFile, DestProcess)
+	for _, name := range sortedKeys(m.Outputs) {
+		o := m.Outputs[name]
+		if o.Path == "" {
+			add("output %q: path is required", name)
+		} else if err := checkRelPath(o.Path); err != nil {
+			add("output %q: %v", name, err)
+		}
+		if o.Format != FormatDotenv && o.Format != FormatJSON {
+			add("output %q: format must be %q or %q", name, FormatDotenv, FormatJSON)
 		}
 	}
 
 	for _, name := range sortedKeys(m.Vars) {
 		v := m.Vars[name]
-		if v.Secret && len(v.Targets) > 0 {
-			add("var %q: a secret may not have per-target values; "+
-				"storing one credential under several keyring items invites silent drift", name)
-		}
 		if v.Secret && v.Value != nil {
 			add("var %q: a secret may not also carry a plain value; "+
 				"the manifest must never contain a secret value", name)
@@ -91,17 +88,12 @@ func (m *Manifest) Validate() error {
 			add("var %q: a secret may not carry a plain per-profile value; "+
 				"its value belongs in the keyring, per profile", name)
 		}
-		if !v.Secret && v.Value == nil && len(v.Profiles) == 0 && len(v.Targets) == 0 && !v.Optional {
-			add("var %q: needs value, targets, secret = true, or optional = true", name)
+		if !v.Secret && v.Value == nil && len(v.Profiles) == 0 && !v.Optional {
+			add("var %q: needs value, a profile value, secret = true, or optional = true", name)
 		}
 		for _, pname := range sortedKeys(v.Profiles) {
 			if !seen[pname] {
 				add("var %q: override names undeclared profile %q", name, pname)
-			}
-		}
-		for _, tname := range sortedKeys(v.Targets) {
-			if _, ok := m.Targets[tname]; !ok {
-				add("var %q: override names unknown target %q", name, tname)
 			}
 		}
 	}
@@ -113,7 +105,7 @@ func (m *Manifest) Validate() error {
 }
 
 // checkRelPath rejects paths that are absolute or that escape the worktree.
-// A target path is always resolved against a worktree root, so neither is
+// An output path is always resolved against a worktree root, so neither is
 // meaningful and both are dangerous.
 func checkRelPath(p string) error {
 	if filepath.IsAbs(p) {

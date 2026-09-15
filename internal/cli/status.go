@@ -22,7 +22,7 @@ func newStatusCmd(opts *Options) *cobra.Command {
 
 	c := &cobra.Command{
 		Use:   "status",
-		Short: "Show the resolved project, its secrets and its targets",
+		Short: "Show the resolved project, its secrets and its outputs",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			app, err := opts.resolveApp()
@@ -32,6 +32,10 @@ func newStatusCmd(opts *Options) *cobra.Command {
 			out := opts.Stdout
 
 			fmt.Fprintf(out, "project   %s\n", app.Entry.ID)
+			// The profile decides every value below, and a stale exported
+			// ENVCTL_PROFILE is invisible until something names it -- so the
+			// header reports where the name came from, not just what it is.
+			fmt.Fprintf(out, "profile   %s  (%s)\n", app.Profile.Name, app.Profile.Source)
 			fmt.Fprintf(out, "manifest  %s\n", config.ManifestPath(app.Entry.ID))
 			fmt.Fprintf(out, "worktree  %s\n", app.Worktree)
 			fmt.Fprintf(out, "backend   %s (%s)\n\n", store.ResolveBackendName(opts.Backend), runtime.GOOS)
@@ -74,32 +78,28 @@ func newStatusCmd(opts *Options) *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintln(out, "\ntargets")
+			fmt.Fprintln(out, "\noutputs")
 			w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-			for _, name := range sortedTargetNames(app.Manifest) {
-				t := app.Manifest.Targets[name]
-				if t.Dest != manifest.DestFile {
-					fmt.Fprintf(w, "  %s\tprocess\n", name)
-					continue
-				}
-				state := describeTarget(opts, app, name, t, missing > 0, quick)
-				fmt.Fprintf(w, "  %s\t%s\t%s\n", name, t.Path, state)
+			for _, name := range sortedOutputNames(app.Manifest) {
+				o := app.Manifest.Outputs[name]
+				state := describeOutput(opts, app, name, o, missing > 0, quick)
+				fmt.Fprintf(w, "  %s\t%s\t%s\n", name, o.Path, state)
 			}
 			return w.Flush()
 		},
 	}
 	c.Flags().BoolVar(&quick, "quick", false,
-		"skip reading secret values; freshness for a target with at least one secret is reported as unknown")
+		"skip reading secret values; freshness for an output with at least one secret is reported as unknown")
 	return c
 }
 
-// describeTarget classifies a file target. Freshness is an HMAC over the
+// describeOutput classifies one output's file. Freshness is an HMAC over the
 // resolved values, so detecting a keyring change fundamentally requires
 // reading it -- that read is status's default behaviour and its whole
-// purpose. --quick skips it: any target selecting at least one secret then
+// purpose. --quick skips it: any output selecting at least one secret then
 // reports its freshness as unknown rather than paying for the read.
-func describeTarget(opts *Options, app *appContext, name string, t manifest.Target, secretsMissing, quick bool) string {
-	abs := filepath.Join(app.Worktree, t.Path)
+func describeOutput(opts *Options, app *appContext, name string, o manifest.Output, secretsMissing, quick bool) string {
+	abs := filepath.Join(app.Worktree, o.Path)
 	entry, have := app.State.Find(app.Worktree, name)
 
 	if secretsMissing {
@@ -115,7 +115,7 @@ func describeTarget(opts *Options, app *appContext, name string, t manifest.Targ
 	}
 
 	if quick {
-		hasSecret, err := resolve.TargetHasSecret(app.Manifest, name)
+		hasSecret, err := resolve.OutputHasSecret(app.Manifest, name)
 		if err != nil {
 			fmt.Fprintf(opts.Stderr, "envctl: status: %s: %v\n", name, err)
 			return "?"
@@ -125,7 +125,7 @@ func describeTarget(opts *Options, app *appContext, name string, t manifest.Targ
 		}
 	}
 
-	values, err := resolve.Values(app.Manifest, name, app.secretLookup())
+	values, err := resolve.Values(app.Manifest, app.Profile.Name, name, app.secretLookup())
 	if err != nil {
 		fmt.Fprintf(opts.Stderr, "envctl: status: %s: %v\n", name, err)
 		return "?"
@@ -141,9 +141,9 @@ func describeTarget(opts *Options, app *appContext, name string, t manifest.Targ
 	return st.String()
 }
 
-func sortedTargetNames(m *manifest.Manifest) []string {
-	out := make([]string, 0, len(m.Targets))
-	for n := range m.Targets {
+func sortedOutputNames(m *manifest.Manifest) []string {
+	out := make([]string, 0, len(m.Outputs))
+	for n := range m.Outputs {
 		out = append(out, n)
 	}
 	sort.Strings(out)

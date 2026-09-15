@@ -63,7 +63,7 @@ func TestStatusQuickSkipsSecretReadsButStillReportsPresence(t *testing.T) {
 		t.Errorf("--quick did not report the secret present:\n%s", out)
 	}
 	if !strings.Contains(out, "unknown (--quick)") {
-		t.Errorf("--quick did not mark the target's freshness unknown:\n%s", out)
+		t.Errorf("--quick did not mark the output's freshness unknown:\n%s", out)
 	}
 	for _, call := range h.mem.Calls() {
 		if strings.HasPrefix(call, "Get ") {
@@ -72,10 +72,10 @@ func TestStatusQuickSkipsSecretReadsButStillReportsPresence(t *testing.T) {
 	}
 }
 
-// A target with no secrets at all must still report real freshness under
+// An output with no secrets at all must still report real freshness under
 // --quick: the flag exists to skip reads that are unavoidable, not to make
-// every target vaguer than it has to be.
-func TestStatusQuickReportsRealFreshnessForATargetWithNoSecrets(t *testing.T) {
+// every output vaguer than it has to be.
+func TestStatusQuickReportsRealFreshnessForAnOutputWithNoSecrets(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("public/env.json\n")
 	m, err := manifest.Parse([]byte(`
@@ -83,13 +83,9 @@ func TestStatusQuickReportsRealFreshnessForATargetWithNoSecrets(t *testing.T) {
 id = "fe"
 profiles = ["dev"]
 default_profile = "dev"
-default_target = "local"
+output = "web"
 salt = "abc123"
-[targets.local]
-dest = "process"
-include = ["*"]
-[targets.web]
-dest = "file"
+[outputs.web]
 format = "json"
 path = "public/env.json"
 include = ["*"]
@@ -108,7 +104,7 @@ value = "https://example.com"
 		t.Fatal(err)
 	}
 	if !strings.Contains(h.out.String(), "fresh") {
-		t.Errorf("--quick reported a secret-free target as anything but its real freshness:\n%s", h.out)
+		t.Errorf("--quick reported a secret-free output as anything but its real freshness:\n%s", h.out)
 	}
 }
 
@@ -125,7 +121,7 @@ func TestStatusNeverPrintsASecretValue(t *testing.T) {
 	}
 }
 
-func TestStatusReportsTargetFreshness(t *testing.T) {
+func TestStatusReportsOutputFreshness(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")
 	h.register("vpb", fixtureManifest(t))
@@ -138,7 +134,7 @@ func TestStatusReportsTargetFreshness(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(h.out.String(), "fresh") {
-		t.Errorf("a just-rendered target is not reported fresh:\n%s", h.out)
+		t.Errorf("a just-rendered output is not reported fresh:\n%s", h.out)
 	}
 
 	// Change a plain value; the rendered file is now behind.
@@ -149,7 +145,7 @@ func TestStatusReportsTargetFreshness(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(h.out.String(), "STALE") {
-		t.Errorf("a target behind the manifest is not reported stale:\n%s", h.out)
+		t.Errorf("an output behind the manifest is not reported stale:\n%s", h.out)
 	}
 }
 
@@ -182,11 +178,33 @@ func TestStatusShowsTheBackendAndWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := h.out.String()
-	for _, want := range []string{"project", "manifest", "worktree", "vars", "targets"} {
+	for _, want := range []string{"project", "profile", "manifest", "worktree", "vars", "outputs"} {
 		t.Run(want, func(t *testing.T) {
 			if !strings.Contains(out, want) {
 				t.Errorf("status output has no %q section:\n%s", want, out)
 			}
 		})
+	}
+}
+
+// Which profile is in force decides every value status reports on, and a
+// stale exported ENVCTL_PROFILE is invisible until something names it. So the
+// header says both the profile and where it came from.
+func TestStatusNamesTheActiveProfileAndItsSource(t *testing.T) {
+	h := newHarness(t)
+	m := fixtureManifest(t)
+	m.Project.Profiles = []string{"dev", "prod"}
+	h.register("vpb", m)
+	t.Setenv("ENVCTL_PROFILE", "prod")
+
+	if err := h.run("status"); err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	out := h.out.String()
+	if !strings.Contains(out, "profile") || !strings.Contains(out, "prod") {
+		t.Errorf("status does not name the active profile:\n%s", out)
+	}
+	if !strings.Contains(out, "ENVCTL_PROFILE") {
+		t.Errorf("status does not say where the profile came from:\n%s", out)
 	}
 }

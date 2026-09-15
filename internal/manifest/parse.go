@@ -14,8 +14,8 @@ func Parse(data []byte) (*Manifest, error) {
 	if err := toml.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("parse manifest: %w", err)
 	}
-	if m.Targets == nil {
-		m.Targets = map[string]Target{}
+	if m.Outputs == nil {
+		m.Outputs = map[string]Output{}
 	}
 	if m.Vars == nil {
 		m.Vars = map[string]Var{}

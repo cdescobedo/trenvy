@@ -20,7 +20,7 @@ import (
 // so a hand edit is detectable as something different from staleness.
 type RenderEntry struct {
 	Worktree string    `toml:"worktree"`
-	Target   string    `toml:"target"`
+	Output   string    `toml:"output"`
 	Path     string    `toml:"path"`
 	Sum      string    `toml:"sum"`
 	File     string    `toml:"file"`
@@ -30,7 +30,7 @@ type RenderEntry struct {
 // State is one project's render bookkeeping.
 //
 // It lives beside the manifest rather than inside the rendered file because a
-// json target has no comment syntax, and because public/env.json is served to
+// json output has no comment syntax, and because public/env.json is served to
 // browsers and must carry nothing but the application's own configuration.
 type State struct {
 	id      string
@@ -53,11 +53,11 @@ func LoadState(id string) (*State, error) {
 	return s, nil
 }
 
-// Find returns the record for one worktree and target.
-func (s *State) Find(worktree, target string) (RenderEntry, bool) {
+// Find returns the record for one worktree and output.
+func (s *State) Find(worktree, output string) (RenderEntry, bool) {
 	worktree = filepath.Clean(worktree)
 	for _, e := range s.Renders {
-		if filepath.Clean(e.Worktree) == worktree && e.Target == target {
+		if filepath.Clean(e.Worktree) == worktree && e.Output == output {
 			return e, true
 		}
 	}
@@ -65,11 +65,11 @@ func (s *State) Find(worktree, target string) (RenderEntry, bool) {
 }
 
 // Record stores an entry, replacing any existing one for the same worktree and
-// target.
+// output.
 func (s *State) Record(e RenderEntry) {
 	e.Worktree = filepath.Clean(e.Worktree)
 	for i, existing := range s.Renders {
-		if filepath.Clean(existing.Worktree) == e.Worktree && existing.Target == e.Target {
+		if filepath.Clean(existing.Worktree) == e.Worktree && existing.Output == e.Output {
 			s.Renders[i] = e
 			return
 		}
@@ -78,11 +78,11 @@ func (s *State) Record(e RenderEntry) {
 }
 
 // Forget removes a record, used when a rendered file is cleaned.
-func (s *State) Forget(worktree, target string) {
+func (s *State) Forget(worktree, output string) {
 	worktree = filepath.Clean(worktree)
 	out := s.Renders[:0]
 	for _, e := range s.Renders {
-		if filepath.Clean(e.Worktree) == worktree && e.Target == target {
+		if filepath.Clean(e.Worktree) == worktree && e.Output == output {
 			continue
 		}
 		out = append(out, e)

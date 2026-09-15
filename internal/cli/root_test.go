@@ -78,15 +78,10 @@ func fixtureManifest(t *testing.T) *manifest.Manifest {
 id = "vpb"
 profiles = ["dev"]
 default_profile = "dev"
-default_target = "local"
+output = "docker"
 salt = "abc123"
 
-[targets.local]
-dest = "process"
-include = ["*"]
-
-[targets.docker]
-dest = "file"
+[outputs.docker]
 format = "dotenv"
 path = "src/.env"
 include = ["*"]
@@ -195,15 +190,10 @@ func TestZeroSecretProjectWorksWithTheFileBackendAndNoPassphrase(t *testing.T) {
 id = "fe"
 profiles = ["dev"]
 default_profile = "dev"
-default_target = "local"
+output = "web"
 salt = "abc123"
 
-[targets.local]
-dest = "process"
-include = ["*"]
-
-[targets.web]
-dest = "file"
+[outputs.web]
 format = "json"
 path = "public/env.json"
 include = ["*"]

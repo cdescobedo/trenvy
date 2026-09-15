@@ -35,10 +35,6 @@ func TestEncodePreservesEmptyStringVsNilValue(t *testing.T) {
 id = "test"
 profiles = ["dev"]
 default_profile = "dev"
-default_target = "local"
-
-[targets.local]
-dest = "process"
 
 [vars.EMPTY]
 value = ""
@@ -91,9 +87,9 @@ secret = true
 // kind of quiet drift that is easy to reintroduce by touching the tag later.
 func TestEncodePreservesNilProfiles(t *testing.T) {
 	original := &manifest.Manifest{
-		Project: manifest.Project{ID: "p", DefaultTarget: "local"},
-		Targets: map[string]manifest.Target{
-			"local": {Dest: manifest.DestProcess},
+		Project: manifest.Project{ID: "p", Output: "local"},
+		Outputs: map[string]manifest.Output{
+			"local": {Format: manifest.FormatDotenv, Path: ".env"},
 		},
 		Vars: map[string]manifest.Var{},
 	}

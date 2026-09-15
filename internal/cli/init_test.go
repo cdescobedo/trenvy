@@ -36,9 +36,6 @@ func TestInitRegistersTheProjectAndWritesAManifest(t *testing.T) {
 	if m.Project.Salt == "" {
 		t.Error("init did not generate a salt")
 	}
-	if _, ok := m.Targets[m.Project.DefaultTarget]; !ok {
-		t.Errorf("default_target %q is not defined", m.Project.DefaultTarget)
-	}
 }
 
 // The project root is the directory holding the worktrees, not the worktree
@@ -104,5 +101,29 @@ func TestInitGivesEachProjectADifferentSalt(t *testing.T) {
 
 	if ma.Project.Salt == mb.Project.Salt {
 		t.Error("two projects share a salt")
+	}
+}
+
+// A fresh project needs no output: exec and shell are the verb, and the old
+// model's dummy process target existed only so `exec local` had a noun. init
+// must therefore produce a manifest that validates with no outputs at all.
+func TestInitCreatesAManifestWithNoOutputs(t *testing.T) {
+	h := newHarness(t)
+	if err := h.run("init", "--id", "vpb"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	m, err := manifest.Load(config.ManifestPath("vpb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Validate(); err != nil {
+		t.Errorf("a freshly created manifest does not validate: %v", err)
+	}
+	if len(m.Outputs) != 0 {
+		t.Errorf("Outputs = %v, want none", m.Outputs)
+	}
+	if m.Project.Output != "" {
+		t.Errorf("project.output = %q, want empty", m.Project.Output)
 	}
 }

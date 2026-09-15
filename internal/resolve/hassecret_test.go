@@ -9,11 +9,11 @@ import (
 	"github.com/cdescobedo/envctl/internal/resolve"
 )
 
-// TargetHasSecret decides whether "status --quick" can report real freshness
-// for a target or must report it unknown. Getting it wrong in the permissive
+// OutputHasSecret decides whether "status --quick" can report real freshness
+// for an output or must report it unknown. Getting it wrong in the permissive
 // direction makes --quick read secrets it promised not to; in the strict
-// direction it hides freshness a secret-free target could have reported.
-func TestTargetHasSecret(t *testing.T) {
+// direction it hides freshness a secret-free output could have reported.
+func TestOutputHasSecret(t *testing.T) {
 	plain := "x"
 	m := &manifest.Manifest{
 		Vars: map[string]manifest.Var{
@@ -21,7 +21,7 @@ func TestTargetHasSecret(t *testing.T) {
 			"DB_PASS":   {Secret: true},
 			"LOG_LEVEL": {Value: &plain},
 		},
-		Targets: map[string]manifest.Target{
+		Outputs: map[string]manifest.Output{
 			"all":           {Include: []string{"*"}},
 			"plain-only":    {Include: []string{"LOG_*"}},
 			"excluded":      {Include: []string{"*"}, Exclude: []string{"API_KEY", "DB_PASS"}},
@@ -32,7 +32,7 @@ func TestTargetHasSecret(t *testing.T) {
 
 	cases := []struct {
 		name   string
-		target string
+		output string
 		want   bool
 	}{
 		{"a wildcard include selects the secrets", "all", true},
@@ -42,37 +42,37 @@ func TestTargetHasSecret(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := resolve.TargetHasSecret(m, c.target)
+			got, err := resolve.OutputHasSecret(m, c.output)
 			if err != nil {
-				t.Fatalf("TargetHasSecret(%q): %v", c.target, err)
+				t.Fatalf("OutputHasSecret(%q): %v", c.output, err)
 			}
 			if got != c.want {
-				t.Errorf("TargetHasSecret(%q) = %v, want %v", c.target, got, c.want)
+				t.Errorf("OutputHasSecret(%q) = %v, want %v", c.output, got, c.want)
 			}
 		})
 	}
 
-	t.Run("an unknown target is named, not silently false", func(t *testing.T) {
-		_, err := resolve.TargetHasSecret(m, "nope")
-		if !errors.Is(err, resolve.ErrUnknownTarget) {
-			t.Fatalf("error = %v, want ErrUnknownTarget", err)
+	t.Run("an unknown output is named, not silently false", func(t *testing.T) {
+		_, err := resolve.OutputHasSecret(m, "nope")
+		if !errors.Is(err, resolve.ErrUnknownOutput) {
+			t.Fatalf("error = %v, want ErrUnknownOutput", err)
 		}
 		if !strings.Contains(err.Error(), "nope") {
-			t.Errorf("error does not name the target: %v", err)
+			t.Errorf("error does not name the output: %v", err)
 		}
 	})
 
 	// A malformed glob makes path.Match return an error rather than a
 	// non-match. Discarding it would make every variable look unselected, so
-	// a target with a typo'd include would quietly claim it has no secrets
+	// an output with a typo'd include would quietly claim it has no secrets
 	// and --quick would report freshness it never actually checked.
 	t.Run("a malformed include glob is an error, not a non-match", func(t *testing.T) {
-		_, err := resolve.TargetHasSecret(m, "bad-glob")
+		_, err := resolve.OutputHasSecret(m, "bad-glob")
 		if err == nil {
 			t.Fatal("a malformed include pattern was silently treated as a non-match")
 		}
 		if !strings.Contains(err.Error(), "bad-glob") {
-			t.Errorf("error does not name the target: %v", err)
+			t.Errorf("error does not name the output: %v", err)
 		}
 	})
 }

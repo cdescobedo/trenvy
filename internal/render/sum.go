@@ -10,7 +10,7 @@ import (
 	"github.com/cdescobedo/envctl/internal/resolve"
 )
 
-// Sum returns a keyed digest of a target's resolved values, used to detect
+// Sum returns a keyed digest of an output's resolved values, used to detect
 // that a rendered file is stale.
 //
 // It is keyed by the project salt rather than a plain hash. The digest is

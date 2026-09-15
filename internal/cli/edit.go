@@ -57,7 +57,7 @@ func rowsFromManifest(app *appContext) ([]tui.Row, error) {
 	var rows []tui.Row
 	for _, name := range sortedVarNames(app.Manifest) {
 		v := app.Manifest.Vars[name]
-		row := tui.Row{Name: name, Secret: v.Secret, Overrides: len(v.Targets)}
+		row := tui.Row{Name: name, Secret: v.Secret, Overrides: len(v.Profiles)}
 		if v.Value != nil {
 			row.Value = *v.Value
 		}

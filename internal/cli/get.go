@@ -17,16 +17,16 @@ import (
 // from a plain value that happens to look like bullets.
 const maskedSecret = "••••••••  (keyring)"
 
-// unsetValue marks a variable the target selects but that resolves to nothing.
+// unsetValue marks a variable the output selects but that resolves to nothing.
 const unsetValue = "(unset)"
 
 func newGetCmd(opts *Options) *cobra.Command {
 	return &cobra.Command{
-		Use:   "get <NAME> [target]",
+		Use:   "get <NAME> [output]",
 		Short: "Print one variable's value",
 		Long: "Print one variable's value, secret or plain, and nothing else.\n\n" +
 			"Only the named variable is resolved, so reading one value costs at most\n" +
-			"one keyring read and does not depend on the target's other secrets\n" +
+			"one keyring read and does not depend on the output's other secrets\n" +
 			"being stored.",
 		Args:              cobra.RangeArgs(1, 2),
 		ValidArgsFunction: opts.completeVarNames(anyVar),
@@ -36,24 +36,24 @@ func newGetCmd(opts *Options) *cobra.Command {
 				return err
 			}
 			name := args[0]
-			target, err := app.targetOrDefault(secondOrEmpty(args))
+			output, err := app.outputOrDefault(secondOrEmpty(args))
 			if err != nil {
 				return err
 			}
 
 			// Three ways to have no value, each with its own fix: the name is
-			// unknown, the target does not select it, or it is optional and
+			// unknown, the output does not select it, or it is optional and
 			// unset under the active profile. Collapsing them into one
 			// message would send the reader looking in the wrong place.
 			if _, ok := app.Manifest.Vars[name]; !ok {
 				return fmt.Errorf("%s is not in the manifest of %s", name, app.Entry.ID)
 			}
-			sel, err := resolve.Selects(app.Manifest, target, name)
+			sel, err := resolve.Selects(app.Manifest, output, name)
 			if err != nil {
 				return err
 			}
 			if !sel {
-				return fmt.Errorf("%s is not included in target %q", name, target)
+				return fmt.Errorf("%s is not included in output %q", name, output)
 			}
 
 			value, ok, err := resolve.Value(app.Manifest, app.Profile.Name, name, app.secretLookup())
@@ -77,8 +77,8 @@ func newShowCmd(opts *Options) *cobra.Command {
 	var format string
 
 	c := &cobra.Command{
-		Use:   "show [target]",
-		Short: "List a target's variables, with secrets masked unless revealed",
+		Use:   "show [output]",
+		Short: "List an output's variables, with secrets masked unless revealed",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Reject a bad format before anything is resolved, so the message
@@ -94,7 +94,7 @@ func newShowCmd(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			target, err := app.targetOrDefault(firstOrEmpty(args))
+			output, err := app.outputOrDefault(firstOrEmpty(args))
 			if err != nil {
 				return err
 			}
@@ -105,10 +105,10 @@ func newShowCmd(opts *Options) *cobra.Command {
 				reveal = true
 			}
 			if !reveal {
-				return showMasked(opts, app, target)
+				return showMasked(opts, app, output)
 			}
 
-			values, err := resolve.Values(app.Manifest, target, app.secretLookup())
+			values, err := resolve.Values(app.Manifest, app.Profile.Name, output, app.secretLookup())
 			if err != nil {
 				return err
 			}
@@ -142,14 +142,14 @@ func newShowCmd(opts *Options) *cobra.Command {
 	return c
 }
 
-// showMasked lists the target's variables without reading a single secret.
+// showMasked lists the output's variables without reading a single secret.
 // The store is never opened: a masked table has no use for a value, and on a
 // prompting backend reading one per secret just to print bullets would make
 // `envctl show` cost more than `envctl render`.
-func showMasked(opts *Options, app *appContext, target string) error {
+func showMasked(opts *Options, app *appContext, output string) error {
 	names := make([]string, 0, len(app.Manifest.Vars))
 	for name := range app.Manifest.Vars {
-		sel, err := resolve.Selects(app.Manifest, target, name)
+		sel, err := resolve.Selects(app.Manifest, output, name)
 		if err != nil {
 			return err
 		}
@@ -161,15 +161,16 @@ func showMasked(opts *Options, app *appContext, target string) error {
 
 	w := tabwriter.NewWriter(opts.Stdout, 0, 0, 2, ' ', 0)
 	for _, name := range names {
-		fmt.Fprintf(w, "%s\t%s\n", name, maskedDisplay(app, name))
+		fmt.Fprintf(w, "%s\t%s\n", name, maskedDisplay(app, app.Profile.Name, name))
 	}
 	return w.Flush()
 }
 
-// maskedDisplay is what one variable looks like with secrets withheld. It
-// resolves under the active profile, not the target: a target only decides
-// which variables are selected, never which value a selected one gets.
-func maskedDisplay(app *appContext, name string) string {
+// maskedDisplay is what one variable looks like with secrets withheld. The
+// profile is an explicit parameter rather than read off app, because it is
+// the axis that decides the value: an output only ever decides which
+// variables are selected, never what a selected one is worth.
+func maskedDisplay(app *appContext, profile, name string) string {
 	v := app.Manifest.Vars[name]
 	if v.Secret {
 		return maskedSecret
@@ -178,7 +179,7 @@ func maskedDisplay(app *appContext, name string) string {
 	// good here, so the only error resolve.Value can still return for a plain
 	// variable is "required and unset" -- which is a row to print, not a
 	// reason to hide every other variable.
-	value, ok, err := resolve.Value(app.Manifest, app.Profile.Name, name, nil)
+	value, ok, err := resolve.Value(app.Manifest, profile, name, nil)
 	if err != nil || !ok {
 		return unsetValue
 	}

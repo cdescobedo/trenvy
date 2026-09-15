@@ -45,7 +45,7 @@ func (s Status) String() string {
 }
 
 // Inspect classifies the file at absPath given what the manifest would produce
-// now (wantSum) and what was recorded for this worktree and target.
+// now (wantSum) and what was recorded for this worktree and output.
 func Inspect(absPath, wantSum string, entry config.RenderEntry, haveEntry bool) (Status, error) {
 	if _, err := os.Stat(absPath); errors.Is(err, fs.ErrNotExist) {
 		return StatusAbsent, nil

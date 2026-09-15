@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -8,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/cdescobedo/envctl/internal/config"
+	"github.com/cdescobedo/envctl/internal/manifest"
+	"github.com/cdescobedo/envctl/internal/resolve"
 )
 
 // gitInit turns the harness root into a repo with a .gitignore, since the
@@ -24,7 +27,7 @@ func (h *harness) gitInit(ignore string) {
 	}
 }
 
-func TestRenderWritesTheTargetFile(t *testing.T) {
+func TestRenderWritesTheOutputFile(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")
 	h.register("vpb", fixtureManifest(t))
@@ -156,17 +159,24 @@ func TestRenderRefusesToClobberAForeignFile(t *testing.T) {
 	}
 }
 
-func TestRenderRefusesAProcessTarget(t *testing.T) {
+// Successor to the old "render refuses a process target": there is no second
+// kind of output any more, so the remaining way to name something render
+// cannot write is to name something that does not exist. The refusal must
+// still say what was wrong rather than writing an empty file to "".
+func TestRenderRejectsAnUnknownOutput(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("")
 	h.register("vpb", fixtureManifest(t))
 
 	err := h.run("render", "local")
 	if err == nil {
-		t.Fatal("render accepted a process target")
+		t.Fatal("render accepted an output that is not defined")
 	}
-	if !strings.Contains(err.Error(), "envctl exec") {
-		t.Errorf("error does not point at exec: %v", err)
+	if !errors.Is(err, resolve.ErrUnknownOutput) {
+		t.Errorf("error = %v, want ErrUnknownOutput", err)
+	}
+	if !strings.Contains(err.Error(), "local") {
+		t.Errorf("error does not name the output: %v", err)
 	}
 }
 
@@ -247,11 +257,44 @@ func TestCleanRefusesAForeignFile(t *testing.T) {
 	}
 }
 
-func TestCleanOnAnAlreadyCleanTargetIsNotAnError(t *testing.T) {
+func TestCleanOnAnAlreadyCleanOutputIsNotAnError(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")
 	h.register("vpb", fixtureManifest(t))
 	if err := h.run("clean", "docker"); err != nil {
 		t.Errorf("clean on a missing file: %v", err)
+	}
+}
+
+// An output is no longer implied by a project: one that only ever feeds exec
+// and shell has none at all. A bare `render` there must say what is missing
+// and how to name one, not fail on an empty map lookup.
+func TestRenderWithNoOutputAndNoDefaultSaysSo(t *testing.T) {
+	h := newHarness(t)
+	m, err := manifest.Parse([]byte(`
+[project]
+id = "proc"
+profiles = ["dev"]
+default_profile = "dev"
+salt = "abc123"
+
+[vars.APP_MODE]
+value = "development"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.register("proc", m)
+
+	err = h.run("render")
+
+	if err == nil {
+		t.Fatal("render succeeded with no output named and none configured")
+	}
+	if !strings.Contains(err.Error(), "project.output") {
+		t.Errorf("error does not name the missing setting: %v", err)
+	}
+	if !strings.Contains(err.Error(), "envctl render <output>") {
+		t.Errorf("error does not say how to name one: %v", err)
 	}
 }

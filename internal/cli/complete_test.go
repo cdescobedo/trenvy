@@ -19,12 +19,7 @@ func completionFixture(t *testing.T) *manifest.Manifest {
 id = "vpb"
 profiles = ["dev"]
 default_profile = "dev"
-default_target = "local"
 salt = "abc123"
-
-[targets.local]
-dest = "process"
-include = ["*"]
 
 [vars.APP_MODE]
 value = "development"

@@ -36,7 +36,7 @@ func golden(t *testing.T, name string, got []byte) {
 }
 
 func resolved(values map[string]string) resolve.Resolved {
-	r := resolve.Resolved{Target: "t", Values: values}
+	r := resolve.Resolved{Profile: "dev", Output: "t", Values: values}
 	for k := range values {
 		r.Names = append(r.Names, k)
 	}
@@ -132,7 +132,7 @@ func TestDotenvFailsOnABadNameNamingIt(t *testing.T) {
 }
 
 // The header is cosmetic. It carries no hash, because render bookkeeping lives
-// in the state file so that json targets can be tracked too.
+// in the state file so that json outputs can be tracked too.
 func TestDotenvHeaderCarriesNoHash(t *testing.T) {
 	got, err := render.Dotenv(resolved(map[string]string{"A": "1"}))
 	if err != nil {

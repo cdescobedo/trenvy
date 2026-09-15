@@ -41,20 +41,21 @@ func newInitCmd(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// A process target is the only one that needs no further decisions,
-			// so a fresh manifest is valid and immediately usable with exec.
+			// No outputs, and no project.output. An output is a file --
+			// its format, path and subset -- and a fresh project has no way
+			// to guess any of the three. It needs none either: exec and
+			// shell are the verb, so a manifest with one profile and nothing
+			// else is valid and immediately usable. `envctl import --output`
+			// or a hand edit adds a file destination when there is one.
 			m := &manifest.Manifest{
 				Project: manifest.Project{
 					ID:             id,
 					Profiles:       []string{"dev"},
 					DefaultProfile: "dev",
-					DefaultTarget:  "local",
 					Salt:           salt,
 				},
-				Targets: map[string]manifest.Target{
-					"local": {Dest: manifest.DestProcess, Include: []string{"*"}},
-				},
-				Vars: map[string]manifest.Var{},
+				Outputs: map[string]manifest.Output{},
+				Vars:    map[string]manifest.Var{},
 			}
 			if err := m.Validate(); err != nil {
 				return err

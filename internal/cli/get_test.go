@@ -11,9 +11,8 @@ import (
 )
 
 // readbackFixture covers every case get and show have to tell apart: a plain
-// var, a per-target override, a per-profile override, a stored secret, a
-// secret that is not stored, an optional secret with no value, and a target
-// that selects only some.
+// var, a per-profile override, a stored secret, a secret that is not stored,
+// an optional secret with no value, and an output that selects only some.
 func readbackFixture(t *testing.T) *manifest.Manifest {
 	t.Helper()
 	m, err := manifest.Parse([]byte(`
@@ -21,15 +20,15 @@ func readbackFixture(t *testing.T) *manifest.Manifest {
 id = "vpb"
 profiles = ["dev", "prod"]
 default_profile = "dev"
-default_target = "local"
+output = "local"
 salt = "abc123"
 
-[targets.local]
-dest = "process"
+[outputs.local]
+format = "dotenv"
+path = ".env"
 include = ["*"]
 
-[targets.web]
-dest = "file"
+[outputs.web]
 format = "json"
 path = "public/env.json"
 include = ["PUBLIC_*"]
@@ -39,7 +38,6 @@ value = "development"
 
 [vars.PUBLIC_API]
 value = "/"
-targets = { web = "https://api.example.test" }
 [vars.PUBLIC_API.profiles]
 prod = "https://api.example.test"
 
@@ -69,7 +67,7 @@ func getHarness(t *testing.T) *harness {
 	return h
 }
 
-// showHarness stores both required secrets, so a whole-target resolve works.
+// showHarness stores both required secrets, so a whole-output resolve works.
 func showHarness(t *testing.T) *harness {
 	t.Helper()
 	h := getHarness(t)
@@ -113,7 +111,7 @@ func TestGetHonoursAProfileOverride(t *testing.T) {
 	}
 }
 
-func TestGetFallsBackToTheDefaultTarget(t *testing.T) {
+func TestGetFallsBackToTheDefaultOutput(t *testing.T) {
 	h := getHarness(t)
 
 	if err := h.run("get", "PUBLIC_API"); err != nil {
@@ -121,7 +119,7 @@ func TestGetFallsBackToTheDefaultTarget(t *testing.T) {
 	}
 
 	if got := h.out.String(); got != "/\n" {
-		t.Errorf("stdout = %q, want the default-target value", got)
+		t.Errorf("stdout = %q, want the value the default output selects", got)
 	}
 }
 
@@ -180,18 +178,18 @@ func TestGetRejectsAnUnknownName(t *testing.T) {
 	}
 }
 
-// PUBLIC_* is all the web target selects, so APP_MODE has no value there and
-// the error has to say which target refused it rather than claim it is unset.
-func TestGetSaysWhenATargetDoesNotSelectTheName(t *testing.T) {
+// PUBLIC_* is all the web output selects, so APP_MODE is not in it and the
+// error has to say which output refused it rather than claim it is unset.
+func TestGetSaysWhenAnOutputDoesNotSelectTheName(t *testing.T) {
 	h := getHarness(t)
 
 	err := h.run("get", "APP_MODE", "web")
 
 	if err == nil {
-		t.Fatal("get succeeded for a name the target excludes")
+		t.Fatal("get succeeded for a name the output excludes")
 	}
 	if !strings.Contains(err.Error(), "web") {
-		t.Errorf("error does not name the target: %v", err)
+		t.Errorf("error does not name the output: %v", err)
 	}
 }
 
@@ -222,10 +220,10 @@ func TestGetReportsAnOptionalSecretWithNoValue(t *testing.T) {
 }
 
 // Resolving whether an optional variable has a value is purely a function of
-// the active profile now (Task 5) -- a target only ever decides selection.
-// The message must say so, or a reader debugging an unset optional goes
-// looking at the wrong axis.
-func TestGetOptionalMissingValueNamesTheProfileNotTheTarget(t *testing.T) {
+// the active profile -- an output only ever decides selection. The message
+// must say so, or a reader debugging an unset optional goes looking at the
+// wrong axis.
+func TestGetOptionalMissingValueNamesTheProfileNotTheOutput(t *testing.T) {
 	h := getHarness(t)
 
 	err := h.run("get", "SPARE_TOKEN")
@@ -239,18 +237,18 @@ func TestGetOptionalMissingValueNamesTheProfileNotTheTarget(t *testing.T) {
 	if !strings.Contains(err.Error(), "profile") {
 		t.Errorf("error does not name the profile: %v", err)
 	}
-	if strings.Contains(err.Error(), "target") {
-		t.Errorf("error still names the target, which no longer decides the value: %v", err)
+	if strings.Contains(err.Error(), "output") {
+		t.Errorf("error still names the output, which never decides the value: %v", err)
 	}
 }
 
-func TestGetRejectsAnUnknownTarget(t *testing.T) {
+func TestGetRejectsAnUnknownOutput(t *testing.T) {
 	h := getHarness(t)
 
 	err := h.run("get", "APP_MODE", "nope")
 
 	if err == nil {
-		t.Fatal("get succeeded for an unknown target")
+		t.Fatal("get succeeded for an unknown output")
 	}
 }
 
@@ -311,7 +309,11 @@ func TestShowRevealPrintsSecretValues(t *testing.T) {
 	}
 }
 
-func TestShowRestrictsToTheNamedTarget(t *testing.T) {
+// An output narrows which variables are listed and nothing else. This used to
+// lean on a per-target value override as its evidence; with values owned by
+// the profile, the include list is the whole of what an output decides, so
+// that is what the test pins: what is in the subset, and what is left out.
+func TestShowRestrictsToTheNamedOutput(t *testing.T) {
 	h := showHarness(t)
 
 	if err := h.run("show", "web", "--reveal"); err != nil {
@@ -319,11 +321,14 @@ func TestShowRestrictsToTheNamedTarget(t *testing.T) {
 	}
 
 	out := h.out.String()
-	if !strings.Contains(out, "https://api.example.test") {
-		t.Errorf("show did not apply the web override:\n%s", out)
+	if !strings.Contains(out, "PUBLIC_API") {
+		t.Errorf("show omitted a var the web output includes:\n%s", out)
 	}
 	if strings.Contains(out, "APP_MODE") {
-		t.Errorf("show listed a var the web target excludes:\n%s", out)
+		t.Errorf("show listed a var the web output excludes:\n%s", out)
+	}
+	if strings.Contains(out, "ALPHA_TOKEN") {
+		t.Errorf("show listed a secret the web output excludes:\n%s", out)
 	}
 }
 

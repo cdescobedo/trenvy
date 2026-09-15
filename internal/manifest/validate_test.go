@@ -24,29 +24,6 @@ func TestValidateAcceptsAGoodManifest(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsSecretWithPerTargetValues(t *testing.T) {
-	m := parseOrFatal(t, `
-[project]
-id = "p"
-default_target = "local"
-[targets.local]
-dest = "process"
-[vars.TOKEN]
-secret = true
-targets = { local = "nope" }
-`)
-	err := m.Validate()
-	if err == nil {
-		t.Fatal("Validate accepted a secret with per-target values")
-	}
-	if !strings.Contains(err.Error(), "TOKEN") {
-		t.Errorf("error does not name the variable: %v", err)
-	}
-	if strings.Contains(err.Error(), "nope") {
-		t.Errorf("error leaked a value: %v", err)
-	}
-}
-
 // The manifest must never contain a secret value: a hand edit that sets both
 // secret = true and a value leaves resolve.Values preferring the plaintext
 // while status reports the variable MISSING (it only checks the keyring).
@@ -54,9 +31,8 @@ func TestValidateRejectsSecretWithAPlainValue(t *testing.T) {
 	m := parseOrFatal(t, `
 [project]
 id = "p"
-default_target = "local"
-[targets.local]
-dest = "process"
+profiles = ["dev"]
+default_profile = "dev"
 [vars.TOKEN]
 secret = true
 value = "should-not-be-here"
@@ -74,57 +50,41 @@ value = "should-not-be-here"
 }
 
 func TestValidateRejectsBadShape(t *testing.T) {
+	// head is a project that is valid on every axis but the one each case
+	// breaks, so a failure names the rule under test and nothing else.
+	const head = "[project]\nid = \"p\"\nprofiles = [\"dev\"]\ndefault_profile = \"dev\"\n"
+
 	cases := map[string]struct {
 		src  string
 		want string
 	}{
 		"missing id": {
-			src:  "[project]\ndefault_target = \"local\"\n[targets.local]\ndest = \"process\"\n",
+			src:  "[project]\nprofiles = [\"dev\"]\ndefault_profile = \"dev\"\n",
 			want: "project.id",
 		},
-		"unknown default target": {
-			src:  "[project]\nid = \"p\"\ndefault_target = \"nope\"\n[targets.local]\ndest = \"process\"\n",
-			want: "default_target",
-		},
-		"bad dest": {
-			src:  "[project]\nid = \"p\"\ndefault_target = \"t\"\n[targets.t]\ndest = \"sideways\"\n",
-			want: "dest",
-		},
-		"file target without path": {
-			src:  "[project]\nid = \"p\"\ndefault_target = \"t\"\n[targets.t]\ndest = \"file\"\nformat = \"dotenv\"\n",
+		"output without path": {
+			src:  head + "[outputs.t]\nformat = \"dotenv\"\n",
 			want: "path",
 		},
-		"file target without format": {
-			src:  "[project]\nid = \"p\"\ndefault_target = \"t\"\n[targets.t]\ndest = \"file\"\npath = \".env\"\n",
+		"output without format": {
+			src:  head + "[outputs.t]\npath = \".env\"\n",
+			want: "format",
+		},
+		"output with an unknown format": {
+			src:  head + "[outputs.t]\nformat = \"yaml\"\npath = \".env\"\n",
 			want: "format",
 		},
 		"absolute path": {
-			src:  "[project]\nid = \"p\"\ndefault_target = \"t\"\n[targets.t]\ndest = \"file\"\nformat = \"dotenv\"\npath = \"/etc/passwd\"\n",
+			src:  head + "[outputs.t]\nformat = \"dotenv\"\npath = \"/etc/passwd\"\n",
 			want: "relative",
 		},
 		"path escapes worktree": {
-			src:  "[project]\nid = \"p\"\ndefault_target = \"t\"\n[targets.t]\ndest = \"file\"\nformat = \"dotenv\"\npath = \"../../.env\"\n",
+			src:  head + "[outputs.t]\nformat = \"dotenv\"\npath = \"../../.env\"\n",
 			want: "escape",
 		},
-		"override names unknown target": {
-			src:  "[project]\nid = \"p\"\ndefault_target = \"t\"\n[targets.t]\ndest = \"process\"\n[vars.A]\nvalue = \"x\"\ntargets = { ghost = \"y\" }\n",
-			want: "ghost",
-		},
 		"no value and not secret": {
-			src:  "[project]\nid = \"p\"\ndefault_target = \"t\"\n[targets.t]\ndest = \"process\"\n[vars.A]\n",
+			src:  head + "[vars.A]\n",
 			want: "A",
-		},
-		"empty default target": {
-			src:  "[project]\nid = \"p\"\ndefault_target = \"\"\n[targets.t]\ndest = \"process\"\n",
-			want: "required",
-		},
-		"no targets": {
-			src:  "[project]\nid = \"p\"\ndefault_target = \"t\"\n",
-			want: "at least one",
-		},
-		"process target with path": {
-			src:  "[project]\nid = \"p\"\ndefault_target = \"t\"\n[targets.t]\ndest = \"process\"\npath = \".env\"\n",
-			want: "takes no path",
 		},
 	}
 
@@ -143,7 +103,7 @@ func TestValidateRejectsBadShape(t *testing.T) {
 }
 
 func TestValidateReportsEveryProblemAtOnce(t *testing.T) {
-	m := parseOrFatal(t, "[project]\ndefault_target = \"ghost\"\n[targets.t]\ndest = \"sideways\"\n")
+	m := parseOrFatal(t, "[project]\noutput = \"ghost\"\n[outputs.t]\nformat = \"sideways\"\n")
 	err := m.Validate()
 	var verr *manifest.ValidationError
 	if !errors.As(err, &verr) {
@@ -161,11 +121,6 @@ const profileTOML = `
 id = "p"
 profiles = ["dev", "prod"]
 default_profile = "dev"
-default_target = "local"
-
-[targets.local]
-dest = "process"
-include = ["*"]
 
 [vars.A]
 value = "a"
@@ -243,11 +198,92 @@ func TestValidateRejectsAnOverrideForAnUndeclaredProfile(t *testing.T) {
 // secret exists to prevent, only slower.
 func TestValidateRejectsAPlainProfileValueOnASecret(t *testing.T) {
 	m := parseOrFatal(t, profileTOML)
-	m.Vars["S"] = manifest.Var{Secret: true, Profiles: map[string]string{"dev": "dummy"}}
+	m.Vars["S"] = manifest.Var{Secret: true, Profiles: map[string]string{"dev": "leaked-value"}}
 
 	err := m.Validate()
 
 	if err == nil || !strings.Contains(err.Error(), "S") {
 		t.Errorf("error = %v, want it to reject the plain value on a secret", err)
+	}
+	// The complaint is that a value is here at all, so the complaint itself
+	// must not repeat it.
+	if err != nil && strings.Contains(err.Error(), "leaked-value") {
+		t.Errorf("error leaked the value it is rejecting: %v", err)
+	}
+}
+
+// outputTOML is a minimal valid manifest on the output axis: a project whose
+// render destination is a file, with no notion of a process anywhere in it.
+const outputTOML = `
+[project]
+id = "p"
+profiles = ["dev"]
+default_profile = "dev"
+output = "env"
+
+[outputs.env]
+format = "dotenv"
+path = "src/.env"
+
+[vars.A]
+value = "a"
+`
+
+func TestValidateAcceptsOutputs(t *testing.T) {
+	m := parseOrFatal(t, outputTOML)
+	if err := m.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+}
+
+// A project that only ever feeds exec and shell needs no outputs, where the
+// old model forced a dummy process target.
+func TestValidateAcceptsAProjectWithNoOutputs(t *testing.T) {
+	m := parseOrFatal(t, `
+[project]
+id = "p"
+profiles = ["dev"]
+default_profile = "dev"
+
+[vars.A]
+value = "a"
+`)
+	if err := m.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+}
+
+func TestValidateRejectsADefaultOutputThatIsNotDefined(t *testing.T) {
+	m := parseOrFatal(t, outputTOML)
+	m.Project.Output = "nope"
+
+	err := m.Validate()
+
+	if err == nil || !strings.Contains(err.Error(), "nope") {
+		t.Errorf("error = %v, want it to name the undefined output", err)
+	}
+}
+
+// A pre-profile manifest must be refused by name rather than silently
+// half-read: toml ignores unknown keys, so without this a [targets.*] block
+// would vanish and the project would look empty.
+func TestValidateRejectsAPreProfileManifest(t *testing.T) {
+	m := parseOrFatal(t, `
+[project]
+id = "p"
+profiles = ["dev"]
+default_profile = "dev"
+default_target = "local"
+
+[targets.local]
+dest = "process"
+`)
+	err := m.Validate()
+
+	if err == nil {
+		t.Fatal("Validate accepted a pre-profile manifest")
+	}
+	if !strings.Contains(err.Error(), "envctl project init") {
+		t.Errorf("error does not say how to recover: %v", err)
 	}
 }
