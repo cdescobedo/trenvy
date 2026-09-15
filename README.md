@@ -1,7 +1,52 @@
 # trenvy
 
-One manifest per project, values scoped by profile, secrets in the OS
-keyring, rendered into any worktree.
+**One manifest per project. Values scoped by profile, secrets in the OS
+keyring, delivered to any worktree as a file or straight into a process.**
+
+Project environment variables have a way of going wrong in the same two ways.
+A `.env` file gets copied into a second worktree and the two quietly drift, so
+the bug you are chasing on a feature branch is a stale variable and not your
+code. And the credentials those files hold end up somewhere durable and
+unencrypted — a dotfile, a shell profile, a note — where they outlive the job
+they were for and get committed by accident.
+
+trenvy keeps one manifest per project, outside the repository. Names, formats
+and plain values live there; secret **values** live in your OS keyring and
+nowhere else. Any worktree, including one created months later, renders the
+same file with no setup — or skips the file entirely and gets the values
+injected into a single process.
+
+```console
+$ trenvy status
+project   myapp
+profile   dev  (default_profile in the manifest)
+manifest  /Users/you/.config/trenvy/projects/myapp.toml
+worktree  /Users/you/code/myapp
+backend   keychain (darwin)
+
+vars      3 total, 1 secret
+  present  API_TOKEN
+
+outputs
+  local  .env  fresh
+```
+
+---
+
+## Contents
+
+- [Install](#install)
+- [Quickstart](#quickstart)
+- [Concepts](#concepts) — **start here**
+- [Command reference](#command-reference)
+- [Configuration](#configuration)
+- [Security model](#security-model)
+- [Shell completion](#shell-completion)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [Licence](#licence)
+
+---
 
 ## Install
 
@@ -9,98 +54,295 @@ keyring, rendered into any worktree.
 go install github.com/cdescobedo/trenvy/cmd/trenvy@latest
 ```
 
-## Quick start
+Requires Go 1.27 or newer, and puts `trenvy` in `$(go env GOPATH)/bin`.
+
+**Be aware of what you are installing.** There are no tagged releases, no
+Homebrew formula, no `.deb`, no published binaries, and no checksums — this is
+a personal project and `@latest` resolves to the current default branch. Pin a
+commit if you want a stable footing:
 
 ```bash
-cd ~/workspace/demo/demo-backend   # the directory holding the worktrees
-trenvy project init --id demo-backend
-trenvy import main/src/DemoApp.Api/.env_example --output docker
-trenvy secret set GAMMA_TOKEN
+go install github.com/cdescobedo/trenvy/cmd/trenvy@<commit-sha>
+```
+
+There is also no `trenvy --version`; the commit you built is the version.
+
+Building from a clone works the same way:
+
+```bash
+git clone https://github.com/cdescobedo/trenvy && cd trenvy
+go build -o /tmp/trenvy ./cmd/trenvy
+```
+
+trenvy is cgo-free on every platform, so it cross-compiles anywhere Go does.
+
+## Quickstart
+
+Five minutes, from a repository that has a `.env.example` to a running process.
+This sequence is executed end to end against a real binary before release; it
+works as written.
+
+```bash
+cd ~/code/myapp          # any git repository
+
+# 0. trenvy will refuse to write a file git would track. Say so up front.
+echo '.env' >> .gitignore
+
+# 1. Register the project. The id defaults to the directory name.
+trenvy project init
+
+# 2. Seed the manifest from your sample file, and define where it renders.
+trenvy import .env.example --output local --no-tui
+
+# 3. Store the secret. It is prompted for, never typed on the command line.
+trenvy secret set API_TOKEN
+
+# 4. See where you stand.
 trenvy status
 ```
 
-Then, from any worktree:
+```console
+$ trenvy status
+project   myapp
+profile   dev  (default_profile in the manifest)
+manifest  /Users/you/.config/trenvy/projects/myapp.toml
+worktree  /Users/you/code/myapp
+backend   keychain (darwin)
 
-```bash
-trenvy render docker                  # writes src/DemoApp.Api/.env, 0600
-trenvy exec -- dotnet run             # injects into one process, writes nothing
-trenvy shell                          # a subshell with the profile's variables loaded
-trenvy clean docker                   # removes the rendered file
+vars      3 total, 1 secret
+  present  API_TOKEN
+
+outputs
+  local  .env  not rendered
 ```
 
-A worktree created later needs no setup — it is under the registered project
-root, so it inherits the manifest.
+Now deliver the values, whichever way suits:
 
-## Commands
+```bash
+trenvy render local                  # writes .env, mode 0600
+trenvy exec -- npm start             # injects into one process, writes nothing
+trenvy shell                         # a subshell with the values loaded
+trenvy clean local                   # removes the rendered file
+```
+
+```console
+$ trenvy render local
+wrote .env  (3 vars, 1 from the keyring, 0600)
+```
+
+Two things worth noticing. `import` normally opens an interactive table so you
+can review which variables are secret before anything is saved — `--no-tui`
+above skips it only so the block is pasteable; drop the flag and you get the
+review, or run `trenvy edit` later. And `--output local` is what creates an
+output named `local` pointing at the sample file's real path; without it you
+get variables and nowhere to put them.
+
+From here, a second worktree needs **no setup at all**:
+
+```bash
+git worktree add ../myapp-feature && cd ../myapp-feature
+trenvy render local                  # same manifest, same values
+```
+
+## Concepts
+
+Almost every mistake people make with trenvy comes from collapsing two ideas
+that it deliberately keeps apart. Read this section before the flag lists.
+
+### A profile decides *what the values are*
+
+A **profile** is a named value set: `dev`, `staging`, `prod`, `personal`. It
+decides what each variable resolves to — including **which keyring item a
+secret reads**.
+
+```console
+$ trenvy get APP_MODE
+development
+$ trenvy -p prod get APP_MODE
+production
+```
+
+That second point is the one that surprises people. Secrets are namespaced per
+profile, as `trenvy/{project}/{profile}/{name}`, so a variable's `dev` and
+`prod` credentials are genuinely different keyring items and cannot collide:
+
+```console
+$ trenvy status | grep API_TOKEN
+  present  API_TOKEN
+$ trenvy -p prod status | grep API_TOKEN
+  MISSING  API_TOKEN  -> trenvy secret set API_TOKEN
+```
+
+Same variable, same project, same command — a different profile, so a
+different item, which happens not to be filled in yet.
+
+The active profile comes from, in order: the `--profile`/`-p` flag, then the
+`TRENVY_PROFILE` environment variable, then `default_profile` in the manifest.
+Because a stale exported `TRENVY_PROFILE` is invisible until something names
+it, `trenvy profile` tells you both which one is active and why:
+
+```console
+$ trenvy profile
+dev  (default_profile in the manifest)
+```
+
+```bash
+trenvy -p prod render local           # one invocation
+eval "$(trenvy profile use prod)"     # this shell, until it exits
+trenvy profile default prod           # persisted in the manifest
+```
+
+`profile use` cannot change your shell by itself — no child process can — so it
+prints an export for the shell to evaluate. Its stdout carries that export and
+nothing else, which is what makes the `eval` safe.
+
+### An output decides *where they go*
+
+An **output** is a named destination: a format, a path, and optionally a subset
+of variables.
+
+```toml
+[outputs.local]
+format = 'dotenv'          # or 'json'
+path = '.env'              # relative to the worktree root
+include = ['*']            # optional globs; exclude works too
+```
+
+An output holds **no values whatsoever**. It cannot; there is no field for one.
+It decides which variables are written and in what syntax, never what they are
+worth.
+
+### They are independent axes
+
+That is the whole design:
+
+|  | decided by the **profile** | decided by the **output** |
+|---|---|---|
+| what `DATABASE_URL` equals | ✅ | ❌ |
+| which keyring item a secret reads | ✅ | ❌ |
+| dotenv or JSON | ❌ | ✅ |
+| which file, and where | ❌ | ✅ |
+| which variables are included | ❌ | ✅ |
+
+So they compose freely. The same profile can feed several outputs; the same
+output renders differently under each profile:
+
+```bash
+trenvy -p prod render docker     # prod values, docker's format/path/subset
+trenvy -p prod render web        # prod values, web's format/path/subset
+trenvy -p dev  render docker     # dev values, same file shape
+```
+
+Precedence for a single variable, in order: the **per-profile value**, then the
+**shared default** (`set --shared`), then the **keyring** if it is a secret.
+If nothing matches: omitted when the variable is optional, an error otherwise.
+
+### `exec` and `shell` take no output — on purpose
+
+```bash
+trenvy exec -- npm start
+trenvy shell
+```
+
+Neither accepts an output argument, and that is not an oversight. An output's
+include list describes **a file's audience** — which variables belong in that
+particular file. A process wants its whole environment. So process delivery is
+its own verb rather than a configured destination, and these two commands
+resolve every variable the profile defines.
+
+Choose the values with `--profile`. There is nothing else to choose.
+
+```bash
+trenvy -p prod exec -- ./deploy.sh
+```
+
+`exec` also exports `TRENVY_PROFILE` into the child, so if `deploy.sh` itself
+calls trenvy it stays on the same profile instead of quietly falling back to
+the default and reading a different keyring namespace.
+
+### Projects and worktrees
+
+A **project root** is the directory holding your worktrees; it is what gets
+registered, and it maps to one manifest. A **worktree root** is the particular
+checkout you are standing in, and it is what an output's relative path resolves
+against.
+
+Keeping them separate is what lets one manifest serve every worktree —
+including ones created long after `project init` — with no per-worktree setup.
+Lookup walks up from your working directory and the deepest registered ancestor
+wins, so a project nested inside a monorepo shadows the outer one.
+
+## Command reference
+
+Every description below is the command's own `Short` text. Run
+`trenvy <command> --help` for the full text and flags.
+
+**Global flags**, accepted by every command:
+
+| flag | meaning |
+|---|---|
+| `-p, --profile <name>` | profile to use: overrides `TRENVY_PROFILE` and the manifest default |
+| `--backend <name>` | secret backend: `keychain`, `system`, `file`, `mem` |
+
+### Projects
 
 | command | does |
 |---|---|
-| `trenvy project init` | register this project and create its manifest |
-| `trenvy project list` | list registered projects and their roots |
-| `trenvy project move <id> <root>` | repoint a project after its directory moved |
-| `trenvy project rm <id>` | delete a project, its state and its secrets in the current backend |
-| `trenvy profile` | show the active profile and where it came from |
-| `trenvy profile list` | list the project's profiles |
-| `trenvy profile add <name>` | declare a new profile |
-| `trenvy profile rm <name>` | remove a profile, its overrides and its secrets |
-| `trenvy profile use <name>` | emit a shell export switching profile for this session |
-| `trenvy profile default <name>` | set the project's default profile |
-| `trenvy import <sample file>` | seed the manifest from a sample `.env` or `.json` file |
-| `trenvy set <NAME> <VALUE>` | set a plain value for the active profile |
-| `trenvy get <NAME>` | print one variable's value under the active profile |
-| `trenvy show [output]` | list values, secrets masked unless `--reveal` |
-| `trenvy secret set\|rm <NAME>` | store or delete a secret for the active profile |
-| `trenvy unset <NAME>` | remove a variable and its secret in every profile |
-| `trenvy edit` | edit this project's variables interactively |
-| `trenvy render [output]` | write an output into this worktree |
-| `trenvy clean [output]` | remove a rendered file from this worktree |
-| `trenvy exec -- <command>` | run a command with the profile's variables in its environment |
-| `trenvy shell` | start a subshell with the profile's variables loaded |
-| `trenvy status` | show the resolved project, profile, secrets and outputs |
+| `trenvy project init` | Register this project and create its manifest |
+| `trenvy project list` | List registered projects and their roots |
+| `trenvy project move <id> <new-root>` | Repoint a project at a new root after its directory moved |
+| `trenvy project rm <id>` | Delete a project: its manifest, state, registration and its secrets in the current backend |
 
-Run `trenvy <command> --help` for a command's flags.
+`project init` takes `--id` (default: the root directory's name) and `--root`
+(default: the current directory). `project rm` takes `--yes`.
 
-`project rm` only ever reaches the currently selected secret backend (the
-`--backend` flag, `TRENVY_BACKEND`, or the platform default) — the same
-scoping every other command uses. A secret stored under a different backend
-survives the deletion, but the manifest `project rm` destroys was that
-secret's only inventory, so once it is gone there is no record left of the
-secret, or of which backend it is in.
+### Profiles
 
-## Shell completion
-
-```bash
-trenvy completion zsh > ~/.local/share/zsh/completions/_trenvy   # or your fpath
-trenvy completion bash > /usr/local/etc/bash_completion.d/trenvy
-```
-
-The generated script is a thin forwarder: it asks the binary for candidates on
-every TAB, so it never goes stale and does not need regenerating when commands
-change.
-
-Variable, output and profile names complete from this project's manifest,
-filtered to what the command can actually act on:
-
-| command | offers |
+| command | does |
 |---|---|
-| `trenvy get <TAB>` | every variable |
-| `trenvy set <TAB>` | plain variables |
-| `trenvy secret set\|rm <TAB>` | secret variables, tagged `stored` or `MISSING` |
-| `trenvy unset <TAB>` | every variable |
-| `trenvy render\|clean\|show <TAB>` | defined outputs, tagged with their path |
-| `trenvy -p <TAB>` | declared profiles |
-| `trenvy project move\|rm <TAB>` | registered project ids |
+| `trenvy profile` | Show the active profile; manage the project's profiles |
+| `trenvy profile list` | List the project's profiles |
+| `trenvy profile add <name>` | Declare a new profile |
+| `trenvy profile rm <name>` | Remove a profile, its overrides and its secrets |
+| `trenvy profile use <name>` | Emit a shell export switching profile for this session |
+| `trenvy profile default <name>` | Set the project's default profile |
 
-Secrets are tagged `stored` or `MISSING` where the backend can answer that
-cheaply, which on macOS it can -- the Keychain reports presence without an
-authorization prompt. The file and system backends answer only by decrypting
-or reading, so there the tag is dropped rather than making TAB stall or raise
-a dialog. Values are never read, and never shown.
+`profile rm` takes `--yes`.
 
-Outside a registered project, or on a backend that will not open, completion
-is silent rather than an error.
+### Values
 
-## Reading values back
+| command | does |
+|---|---|
+| `trenvy import <sample file>` | Seed the manifest from a sample `.env` or `.json` file |
+| `trenvy set <NAME> <VALUE>` | Set a plain value for the active profile |
+| `trenvy get <NAME>` | Print one variable's value |
+| `trenvy show [output]` | List the profile's variables, or one output's subset, secrets masked |
+| `trenvy secret set <NAME>` | Store or rotate a secret in the keyring |
+| `trenvy secret rm <NAME>` | Delete a secret's value from the keyring, keeping the variable |
+| `trenvy unset <NAME>` | Remove a variable from the manifest and its secret from every profile's keyring |
+| `trenvy edit` | Edit this project's variables interactively |
+
+Flags: `import` takes `--output <name>`, `--no-tui` and `--force`; `set` takes
+`--shared`; `show` takes `--reveal` and `--format dotenv|json`; `secret set`
+takes `--stdin`; `secret rm` and `unset` take `--yes`.
+
+### Delivery
+
+| command | does |
+|---|---|
+| `trenvy render [output]` | Write an output's file into this worktree |
+| `trenvy clean [output]` | Remove a rendered file from this worktree |
+| `trenvy exec -- <command>` | Run a command with the profile's variables in its environment |
+| `trenvy shell` | Start a subshell with the profile's variables loaded |
+| `trenvy status` | Show the resolved project, its secrets and its outputs |
+
+Flags: `render` takes `--allow-tracked` and `--force`; `clean` takes `--force`;
+`status` takes `--quick`.
+
+Omitting `[output]` uses `project.output` from the manifest, which `init` does
+not set — name the output, or add it yourself.
+
+### Reading values back
 
 `get` prints one value and nothing else, so it composes:
 
@@ -109,99 +351,259 @@ trenvy get DB_PASSWORD | pbcopy
 PGPASSWORD=$(trenvy get DB_PASSWORD) psql
 ```
 
-Only the named variable is resolved. Reading one value costs at most one
-keyring read, and does not fail because some other secret has not been
-stored yet under the active profile.
+Only the named variable is resolved, so reading one value costs at most one
+keyring read and does not fail because some *other* secret has not been stored
+yet under the active profile.
 
-`show` lists the active profile's variables, or one output's subset when
-named. Secrets are masked, and a masked table never opens the keyring at
-all -- it is free, and it never prompts:
+`show` lists the active profile's variables, or one output's subset when named.
+Secrets are masked, and a masked table never opens the keyring at all — it is
+free, and it never prompts:
 
-```
+```console
 $ trenvy show
-APP_MODE     development
-DB_PASSWORD  ••••••••  (keyring)
-LOG_LEVEL    info
+API_TOKEN     ••••••••  (keyring)
+APP_MODE      development
+DATABASE_URL  postgres://app@db.example.test:5432/app
 ```
 
 `--reveal` prints the real values. `--format dotenv|json` writes what `render`
 would write, to stdout instead of a file, and implies `--reveal` because a
 masked dotenv file would be a file full of bullets.
 
-Whether a secret is actually stored is `trenvy status`'s question, not
+Whether a secret is actually *stored* is `trenvy status`'s question, not
 `show`'s: a masked row says "this is a secret", not "this is present".
 
-## Profiles
+## Configuration
 
-A profile is a value set: `dev`, `prod`, `personal`. It decides what a
-variable resolves to, including which keyring item a secret reads. An output
-decides where values are written and in what shape, and carries no values at
-all.
-
-```bash
-trenvy profile                        # which one am I on, and why
-eval "$(trenvy profile use prod)"     # this shell, until it exits
-trenvy profile default prod           # persisted in the manifest
-trenvy -p prod render                 # one invocation
-```
-
-Precedence is `--profile`, then `TRENVY_PROFILE`, then `default_profile` in
-the manifest.
-
-`profile use` cannot change your shell by itself -- no child process can --
-so it prints an export for the shell to evaluate. Its stdout carries the
-export and nothing else, which is what makes the `eval` safe.
-
-Secrets are namespaced per profile as `trenvy/{project}/{profile}/{name}`, so
-`dev` and `prod` credentials never collide.
-
-## Where things live
+### Where things live
 
 | path | holds |
 |---|---|
-| `~/.config/trenvy/config.toml` | the keyring service pattern |
-| `~/.config/trenvy/registry.toml` | project id -> project root |
-| `~/.config/trenvy/projects/<id>.toml` | variables, outputs and profiles |
+| `~/.config/trenvy/config.toml` | the keyring service-name pattern |
+| `~/.config/trenvy/registry.toml` | project id → project root |
+| `~/.config/trenvy/projects/<id>.toml` | the manifest: variables, outputs, profiles |
 | `~/.config/trenvy/state/<id>.toml` | what was rendered where |
-| the OS keyring | secret values, under `trenvy/<project>/<profile>/<NAME>` |
+| `~/.config/trenvy/secrets.age` | the file backend's encrypted document, when used |
+| the OS keyring | secret values, as `trenvy/<project>/<profile>/<NAME>` |
 
-Secret values are never in the manifest, never in a repo, and never in `argv`.
+Directories are created `0700`; every file is written atomically at `0600`.
 
-`TRENVY_CONFIG_DIR` overrides the config directory (used by tests); otherwise
-trenvy follows `XDG_CONFIG_HOME`, falling back to `~/.config/trenvy`.
+### Environment variables
 
-## Backends
+| variable | effect |
+|---|---|
+| `TRENVY_CONFIG_DIR` | overrides the config directory entirely; ahead of `XDG_CONFIG_HOME` |
+| `TRENVY_PROFILE` | the active profile, unless `--profile` is passed |
+| `TRENVY_BACKEND` | the secret backend, unless `--backend` is passed |
+| `TRENVY_PASSPHRASE` | unlocks the `file` backend (**stripped from `exec`'s child environment**) |
+| `TRENVY_PROJECT` | *set by* `trenvy shell` in the subshell, so your prompt can mark it |
 
-macOS Keychain, Linux Secret Service / Windows Credential Manager (both
-selected via the `system` backend), and an age-encrypted file for containers
-and CI:
+Config directory resolution: `TRENVY_CONFIG_DIR`, then `$XDG_CONFIG_HOME/trenvy`,
+then `~/.config/trenvy`.
+
+### Keyring service names
+
+Secrets are addressed by a service name rendered from a pattern. The default:
+
+```
+trenvy/{project}/{profile}/{name}
+```
+
+Override it in `config.toml` to adopt an existing layout:
+
+```toml
+[keyring]
+service = "myorg/{project}/{profile}/{name}"
+```
+
+**A pattern without `{profile}` is rejected when the config loads.** Every
+profile would otherwise share one keyring item, so `secret set` under `dev` and
+under `prod` would overwrite each other and a profile switch would silently
+read the wrong credential.
+
+### Backends
+
+| backend | what it is |
+|---|---|
+| `keychain` | macOS login Keychain, via `security(1)`. The default on darwin. |
+| `system` | Secret Service (Linux) / Credential Manager (Windows). The default there. |
+| `file` | an age-encrypted document under a passphrase, for containers, CI, WSL, or an SSH session with no D-Bus. |
+| `mem` | in-memory, for tests. Nothing survives the process. |
+
+Selection order: `--backend`, then `TRENVY_BACKEND`, then the platform default.
 
 ```bash
 TRENVY_BACKEND=file TRENVY_PASSPHRASE=… trenvy render docker
 ```
 
-Pass `--backend` on any command, or set `TRENVY_BACKEND`, to override the
-platform default (`keychain`, `system`, `file`, or `mem` for tests).
+Two limits worth knowing. Values are capped at **2560 bytes** on every backend,
+not just Windows, so a value that works on your machine does not mysteriously
+fail on a teammate's. And the file backend has **no inter-process locking** —
+it re-encrypts and rewrites the whole document on every `Set`/`Delete`, so two
+concurrent writers can race, last writer winning.
 
-The file backend has no inter-process locking: it re-encrypts and rewrites
-the whole secrets file on every `Set`/`Delete`, so two concurrent
-`trenvy secret set` runs against a shared file backend can race, with the
-last writer winning.
+## Security model
 
-## Guards
+trenvy holds credentials, so here is what it actually does — and, just as
+plainly, what it does not. [SECURITY.md](SECURITY.md) has the full threat model
+and how to report a vulnerability.
 
-`render` refuses to write a path git would track, refuses to overwrite a file
-trenvy did not write or one edited since, always writes `0600` atomically, and
-`status` reports a rendered file as `fresh`, `STALE`, `MODIFIED`, or
-`FOREIGN`. `clean` runs the same overwrite guard before removing a file.
-`--allow-tracked` and `--force` opt out of the guards when you mean it (both
-`render --force` and `clean --force`).
+### What it protects
+
+- **Secret values are never in the manifest.** The manifest holds names,
+  secret-ness and plain values. The manifest, registry and state file are all
+  safe to read; none contains a secret.
+- **Secrets never reach `argv`.** `secret set` prompts without echoing, or
+  reads stdin with `--stdin`. `trenvy set` **refuses** a variable marked secret
+  rather than accepting a value on the command line — `argv` is visible to any
+  process via `ps`, and lands in shell history. Success reports the length,
+  never the value: `stored API_TOKEN (16 bytes)`.
+- **Listing secrets does not prompt on macOS.** Presence checks use a separate
+  `Has` operation, not a read, so `trenvy status` and the interactive table do
+  not raise one authorization dialog per secret. A masked `trenvy show` does
+  not open the keyring at all.
+- **Rendered files are `0600`, written atomically** via temp-file-and-rename,
+  so a secret never exists briefly with default permissions or half-written.
+- **`render` refuses a path git would track**, naming the `.gitignore` line to
+  add. `--allow-tracked` overrides it.
+- **`render` and `clean` refuse to clobber what trenvy did not write** — a
+  `FOREIGN` or `MODIFIED` file needs `--force`.
+- **`exec` strips `TRENVY_PASSPHRASE`** from the child environment. It unlocks
+  the file backend, and a child has no business inheriting it.
+- **Staleness digests are keyed**, by a per-project random salt, so the state
+  file cannot be used to brute-force a low-entropy secret.
+- **The file backend is real encryption**: age with an scrypt passphrase
+  recipient.
+
+### What it does not protect against
+
+- **Anything that can read your keyring can read these secrets.** This is the
+  fundamental limit. trenvy adds no second factor and no access control of its
+  own. Any program running as you can read every secret it stored, without
+  going through trenvy.
+- **A rendered `.env` is plaintext on disk.** `0600` means your user and root;
+  it does not mean encrypted. Prefer `exec`/`shell` when you do not need a
+  file.
+- **Dotenv output is deliberately not safe to `source`.** `$` is left
+  unescaped, because the file targets dotenv readers (docker compose
+  `env_file:`, DotNetEnv) that treat contents literally. In bash, `source .env`
+  performs parameter expansion inside the double quotes — a value of
+  `pa$$word-literal` becomes the shell's PID spliced into the string. **Use
+  `trenvy exec` or `trenvy shell` instead of sourcing rendered files.**
+- **`exec`/`shell` put secrets in a process environment**, inherited by every
+  descendant and readable via `/proc` on Linux by the same user.
+- **Presence checks are only prompt-free on macOS.** Elsewhere the system
+  backend answers `Has` with a read, which can raise an unlock prompt.
+- **`project rm` only reaches the currently selected backend.** A secret under
+  a different backend survives — but the manifest it deletes was that secret's
+  only inventory, so afterwards nothing records that it exists, or where.
+- **The git guard fails open** outside a repository, or if `git` is missing.
+
+## Shell completion
+
+```bash
+trenvy completion zsh > ~/.local/share/zsh/completions/_trenvy   # or your fpath
+trenvy completion bash > /usr/local/etc/bash_completion.d/trenvy
+```
+
+`fish` and `powershell` are also supported. The generated script is a thin
+forwarder: it asks the binary for candidates on every TAB, so it never goes
+stale and does not need regenerating when commands change.
+
+Names complete from *this project's* manifest, filtered to what the command can
+actually act on:
+
+| command | offers |
+|---|---|
+| `trenvy get <TAB>` | every variable |
+| `trenvy set <TAB>` | plain variables only |
+| `trenvy secret set\|rm <TAB>` | secret variables, tagged `stored` or `MISSING` where that is free |
+| `trenvy unset <TAB>` | every variable |
+| `trenvy render\|clean\|show <TAB>` | defined outputs, tagged with their path |
+| `trenvy -p <TAB>` | declared profiles |
+| `trenvy project move\|rm <TAB>` | registered project ids |
+
+The `stored`/`MISSING` tag appears only where the backend can answer presence
+cheaply and without a prompt — on macOS it can. The file and system backends
+answer only by decrypting or reading, so the tag is dropped there rather than
+making TAB stall or raise a dialog. Values are never read, and never shown.
+
+Outside a registered project, or on a backend that will not open, completion is
+silent rather than an error.
+
+## Troubleshooting
+
+**`X is not inside a registered trenvy project`**
+You are outside any registered project root. Run `trenvy project init`, or
+`trenvy project list` to see what is registered and where.
+
+**`.env is not ignored by git`**
+The guard working as intended. Add the named line to `.gitignore`, or pass
+`--allow-tracked` if you genuinely mean to track the file.
+
+**`.env was modified after trenvy wrote it`**
+Someone hand-edited the rendered file. Inspect it, then either fold the change
+back into the manifest with `trenvy edit`, or discard it with
+`trenvy render <output> --force`.
+
+**`.env exists and trenvy has no record of writing it`** (`FOREIGN`)
+A pre-existing file at the output's path. Seed the manifest from it with
+`trenvy import .env`, or overwrite it with `--force`.
+
+**`API_TOKEN is not in the keyring for profile "prod"`**
+Secrets are per profile. A value stored under `dev` does not exist under
+`prod`. Store it for that profile — and note that the suggested command in the
+error does *not* carry the profile flag, so pass it yourself:
+
+```bash
+trenvy -p prod secret set API_TOKEN
+```
+
+**`unknown profile "nope" (from TRENVY_PROFILE)`**
+A stale export. Every command validates the variable before running, including
+the one that would fix it, so the error names the escape hatch:
+`unset TRENVY_PROFILE`.
+
+**`no output given and project.output is not set`**
+Name the output — `trenvy render local` — or set `output = 'local'` under
+`[project]` in the manifest to make it the default.
+
+**`no passphrase for the file backend`**
+Set `TRENVY_PASSPHRASE`, or use a platform keyring.
+
+**`this manifest predates profiles`**
+A pre-profile manifest, from when `[targets]` conflated values and
+destinations. It is rejected rather than migrated: recreate it with
+`trenvy project init`, then `trenvy import`, then re-enter the secrets.
+
+**A framework is reading stale values.** A rendered `.env` silently wins over
+an injected environment in frameworks that load dotenv files over the process
+environment — the most confusing failure this tool can produce. `exec` and
+`shell` warn about stale rendered files in the worktree for exactly this
+reason; `trenvy status` shows the same thing, and `trenvy clean <output>`
+removes the file.
+
+**Your keyring stopped having your secrets after upgrading.** If you used this
+tool when it was called `envctl`, the keyring namespace changed with the name.
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## Acceptance walkthrough
 
 The project's acceptance criteria are written as a manual walkthrough against
 your own repositories and your own OS keyring — see
-[`docs/acceptance.md`](docs/acceptance.md). It is not part of CI: it writes
-real secrets to your real keyring and files into your real working
+[`docs/acceptance.md`](docs/acceptance.md). It is deliberately not part of CI:
+it writes real secrets to your real keyring and files into your real working
 repositories, so it is meant to be run by a person, deliberately, not as a
 build step.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to build, test and what a good
+change looks like here, and [`docs/architecture.md`](docs/architecture.md) for
+the data model and why it is shaped the way it is.
+
+Security issues: **do not open a public issue.** See [SECURITY.md](SECURITY.md).
+
+## Licence
+
+[Apache License 2.0](LICENSE).
