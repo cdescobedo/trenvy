@@ -125,13 +125,21 @@ func TestGetPrintsTheBaseValueWhenNoProfileOverrideApplies(t *testing.T) {
 
 // An output decides a file's audience, not a value. Naming a variable
 // explicitly makes any subset irrelevant, so get takes no output at all.
+//
+// "web" is a real, declared output in readbackFixture -- not a made-up name.
+// Using a name that does not exist would let this pass because the old code
+// rejected an unknown output, never reaching the arity question at all; using
+// a valid one means only arity is left to reject the call.
 func TestGetTakesNoOutputArgument(t *testing.T) {
 	h := getHarness(t)
 
-	err := h.run("get", "APP_MODE", "public")
+	err := h.run("get", "APP_MODE", "web")
 
 	if err == nil {
 		t.Fatal("get accepted a second positional argument")
+	}
+	if !strings.Contains(err.Error(), "received 2") {
+		t.Errorf("error does not say get was given too many arguments: %v", err)
 	}
 }
 
