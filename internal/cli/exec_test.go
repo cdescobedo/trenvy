@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cdescobedo/trenvy/internal/cli"
 	"github.com/cdescobedo/trenvy/internal/manifest"
 )
 
@@ -213,6 +214,29 @@ func TestExecSurfacesTheChildsExitErrorUnwrapped(t *testing.T) {
 	}
 }
 
+// main's report() must be able to tell THIS child's own exit status apart
+// from any other subprocess failure elsewhere in the call chain -- the
+// macOS Keychain backend shells out to security(1), and that failure must
+// never be mistaken for the exit code of the command the user asked exec to
+// run. So exec wraps its child's error in a distinct *cli.ChildExitError
+// that report() can match on, rather than main matching any bare
+// *exec.ExitError wherever it occurs.
+func TestExecWrapsTheChildsErrorInChildExitError(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "k")
+
+	var ps os.ProcessState
+	want := &exec.ExitError{ProcessState: &ps}
+	h.opts.Run = func(*exec.Cmd) error { return want }
+
+	err := h.run("exec", "--", "false")
+	var cee *cli.ChildExitError
+	if !errors.As(err, &cee) {
+		t.Fatalf("err = %v, want a *cli.ChildExitError wrapping the child's error", err)
+	}
+}
+
 func TestShellRunsTheUsersShell(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
@@ -245,6 +269,27 @@ func TestShellRunsTheUsersShell(t *testing.T) {
 	}
 	if gotProject != "vpb" {
 		t.Errorf("TRENVY_PROJECT = %q, want the project id", gotProject)
+	}
+}
+
+// shell shares the same passthrough requirement as exec: its subshell's exit
+// status must reach report() as a *cli.ChildExitError, not a bare
+// *exec.ExitError, so a Keychain failure elsewhere in the chain cannot be
+// mistaken for the subshell's own exit code.
+func TestShellWrapsTheChildsErrorInChildExitError(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "k")
+	t.Setenv("SHELL", "/bin/sh")
+
+	var ps os.ProcessState
+	want := &exec.ExitError{ProcessState: &ps}
+	h.opts.Run = func(*exec.Cmd) error { return want }
+
+	err := h.run("shell")
+	var cee *cli.ChildExitError
+	if !errors.As(err, &cee) {
+		t.Fatalf("err = %v, want a *cli.ChildExitError wrapping the child's error", err)
 	}
 }
 

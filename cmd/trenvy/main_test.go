@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/cdescobedo/trenvy/internal/cli"
 )
 
 // report is the piece of main that decides trenvy's own exit code and
@@ -18,13 +21,18 @@ import (
 // trenvy's, with nothing written to stderr, while every other error keeps the
 // "trenvy: <message>" diagnostic and exits 1.
 //
-// These run REAL children. A fabricated exec.ExitError around a zero-value
+// These run REAL children, and wrap the resulting *exec.ExitError in a
+// *cli.ChildExitError exactly as exec and shell do -- that wrapper is what
+// report() actually receives in production, and is the whole reason it can
+// tell this child's own exit status apart from an unrelated subprocess
+// failure (e.g. the Keychain backend shelling out to security(1)) elsewhere
+// in the chain. A fabricated exec.ExitError around a zero-value
 // os.ProcessState reports exit code 0, so it demonstrates only the
 // no-diagnostic half and would pass even if the code were hard-wired to
 // return zero.
 func TestReportSurfacesAChildsExitCodeWithNoDiagnostic(t *testing.T) {
 	t.Run("a non-zero exit becomes trenvy's own exit code", func(t *testing.T) {
-		err := childExiting(t, "7")
+		err := &cli.ChildExitError{Err: childExiting(t, "7")}
 		var buf bytes.Buffer
 		if code := report(err, &buf); code != 7 {
 			t.Errorf("code = %d, want the child's own exit code 7", code)
@@ -41,7 +49,7 @@ func TestReportSurfacesAChildsExitCodeWithNoDiagnostic(t *testing.T) {
 		if runtime.GOOS == "windows" {
 			t.Skip("no POSIX signals")
 		}
-		err := childExiting(t, "signal")
+		err := &cli.ChildExitError{Err: childExiting(t, "signal")}
 		var buf bytes.Buffer
 		code := report(err, &buf)
 		if want := 128 + int(syscall.SIGTERM); code != want {
@@ -98,6 +106,28 @@ func TestReportPrefixesOtherErrorsAndExitsOne(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "trenvy: boom") {
 		t.Errorf("output = %q, want the trenvy: prefix", buf.String())
+	}
+}
+
+// A Keychain write shells out to security(1) internally, so its failure also
+// unwraps to a genuine *exec.ExitError -- but it is not the exit status of a
+// command the user asked trenvy to run via exec or shell, and must not be
+// mistaken for one. Only a *cli.ChildExitError, which exec and shell wrap
+// around their own child's error, gets the silent-passthrough treatment;
+// every other subprocess failure anywhere else in the call chain must still
+// print a diagnostic and exit 1, exactly like any other error.
+func TestReportPrintsADiagnosticForANonChildSubprocessFailure(t *testing.T) {
+	inner := childExiting(t, "1") // a genuine *exec.ExitError, not wrapped in ChildExitError
+	err := fmt.Errorf("keychain write for %s: %w", "trenvy/p/TOKEN", inner)
+
+	var buf bytes.Buffer
+	code := report(err, &buf)
+
+	if code != 1 {
+		t.Errorf("code = %d, want 1 (a non-child subprocess failure must not pass through)", code)
+	}
+	if !strings.Contains(buf.String(), "trenvy: keychain write for trenvy/p/TOKEN") {
+		t.Errorf("report wrote %q, want a trenvy: diagnostic naming the failure", buf.String())
 	}
 }
 

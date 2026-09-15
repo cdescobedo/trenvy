@@ -16,6 +16,19 @@ import (
 	"github.com/cdescobedo/trenvy/internal/resolve"
 )
 
+// ChildExitError wraps the error from running the command the user actually
+// asked exec or shell to run -- never any other subprocess that happens to
+// fail somewhere else in the call chain (the macOS Keychain backend, for
+// one, shells out to security(1)). main's report() matches on this type,
+// not on a bare *exec.ExitError, so that only THIS child's exit status is
+// ever passed through as trenvy's own, with no "trenvy:" prefix.
+type ChildExitError struct {
+	Err error
+}
+
+func (e *ChildExitError) Error() string { return e.Err.Error() }
+func (e *ChildExitError) Unwrap() error { return e.Err }
+
 func newExecCmd(opts *Options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "exec -- <command> [args...]",
@@ -41,7 +54,10 @@ func newExecCmd(opts *Options) *cobra.Command {
 			child := exec.Command(rest[0], rest[1:]...)
 			child.Env = env
 			child.Dir = opts.Dir
-			return opts.Run(child)
+			if err := opts.Run(child); err != nil {
+				return &ChildExitError{Err: err}
+			}
+			return nil
 		},
 	}
 }
@@ -78,7 +94,10 @@ func newShellCmd(opts *Options) *cobra.Command {
 			child.Dir = opts.Dir
 			fmt.Fprintf(opts.Stderr, "trenvy: %s/%s loaded; exit to leave\n",
 				app.Entry.ID, app.Profile.Name)
-			return opts.Run(child)
+			if err := opts.Run(child); err != nil {
+				return &ChildExitError{Err: err}
+			}
+			return nil
 		},
 	}
 }
