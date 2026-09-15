@@ -28,6 +28,25 @@ func (m *Manifest) Validate() error {
 	if m.Project.ID == "" {
 		add("project.id is required")
 	}
+	if len(m.Project.Profiles) == 0 {
+		add("project.profiles must name at least one profile")
+	}
+	seen := map[string]bool{}
+	for _, p := range m.Project.Profiles {
+		if seen[p] {
+			add("project.profiles lists %q twice", p)
+		}
+		seen[p] = true
+		if !validProfileName(p) {
+			add("profile %q: names may use letters, digits, - and _ only; "+
+				"a profile name becomes a segment of the keyring service name", p)
+		}
+	}
+	if m.Project.DefaultProfile == "" {
+		add("project.default_profile is required")
+	} else if !seen[m.Project.DefaultProfile] {
+		add("project.default_profile %q is not a declared profile", m.Project.DefaultProfile)
+	}
 	if m.Project.DefaultTarget == "" {
 		add("project.default_target is required")
 	} else if _, ok := m.Targets[m.Project.DefaultTarget]; !ok {
@@ -96,6 +115,25 @@ func checkRelPath(p string) error {
 		return fmt.Errorf("path %q would escape the worktree root", p)
 	}
 	return nil
+}
+
+// validProfileName allows letters, digits, hyphen and underscore. The
+// restriction exists because the name is interpolated into the keyring
+// service name: a "/" there would reshape the namespace silently rather than
+// fail, and two profiles could collide on one keyring item.
+func validProfileName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case c == '-', c == '_':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // sortedKeys returns the keys of a map in sorted order.

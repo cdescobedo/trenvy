@@ -44,7 +44,13 @@ func newInitCmd(opts *Options) *cobra.Command {
 			// A process target is the only one that needs no further decisions,
 			// so a fresh manifest is valid and immediately usable with exec.
 			m := &manifest.Manifest{
-				Project: manifest.Project{ID: id, DefaultTarget: "local", Salt: salt},
+				Project: manifest.Project{
+					ID:             id,
+					Profiles:       []string{"dev"},
+					DefaultProfile: "dev",
+					DefaultTarget:  "local",
+					Salt:           salt,
+				},
 				Targets: map[string]manifest.Target{
 					"local": {Dest: manifest.DestProcess, Include: []string{"*"}},
 				},

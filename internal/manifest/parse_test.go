@@ -9,6 +9,8 @@ import (
 const backendTOML = `
 [project]
 id = "demo-backend"
+profiles = ["dev"]
+default_profile = "dev"
 default_target = "local"
 salt = "b7c1de"
 

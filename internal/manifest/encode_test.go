@@ -33,6 +33,8 @@ func TestEncodePreservesEmptyStringVsNilValue(t *testing.T) {
 	fixture := `
 [project]
 id = "test"
+profiles = ["dev"]
+default_profile = "dev"
 default_target = "local"
 
 [targets.local]

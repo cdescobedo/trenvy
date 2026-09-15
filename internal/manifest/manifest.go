@@ -12,8 +12,15 @@ type Manifest struct {
 
 // Project holds project-level settings.
 type Project struct {
-	ID            string `toml:"id"`
-	DefaultTarget string `toml:"default_target"`
+	ID string `toml:"id"`
+	// Profiles names every value set this project understands. A profile
+	// selects what a variable's value is, including which keyring item a
+	// secret reads, and is independent of which output it is written to.
+	Profiles []string `toml:"profiles"`
+	// DefaultProfile is used when neither --profile nor ENVCTL_PROFILE says
+	// otherwise. It must be one of Profiles.
+	DefaultProfile string `toml:"default_profile"`
+	DefaultTarget  string `toml:"default_target"`
 	// Salt keys the render sum so that an unkeyed digest of a low-entropy
 	// secret is not left lying around in the state file. Generated at init.
 	Salt string `toml:"salt"`

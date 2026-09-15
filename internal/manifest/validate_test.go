@@ -153,3 +153,83 @@ func TestValidateReportsEveryProblemAtOnce(t *testing.T) {
 		t.Errorf("Problems = %v, want at least 3", verr.Problems)
 	}
 }
+
+// profileTOML is a minimal valid manifest with profiles declared. Tests below
+// mutate one thing about it at a time.
+const profileTOML = `
+[project]
+id = "p"
+profiles = ["dev", "prod"]
+default_profile = "dev"
+default_target = "local"
+
+[targets.local]
+dest = "process"
+include = ["*"]
+
+[vars.A]
+value = "a"
+`
+
+func TestValidateAcceptsDeclaredProfiles(t *testing.T) {
+	m := mustParse(t, profileTOML)
+	if err := m.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+}
+
+func TestValidateRequiresAtLeastOneProfile(t *testing.T) {
+	m := mustParse(t, profileTOML)
+	m.Project.Profiles = nil
+
+	err := m.Validate()
+
+	if err == nil || !strings.Contains(err.Error(), "profiles") {
+		t.Errorf("error = %v, want a complaint about profiles", err)
+	}
+}
+
+func TestValidateRejectsADefaultProfileThatIsNotDeclared(t *testing.T) {
+	m := mustParse(t, profileTOML)
+	m.Project.DefaultProfile = "staging"
+
+	err := m.Validate()
+
+	if err == nil || !strings.Contains(err.Error(), "staging") {
+		t.Errorf("error = %v, want it to name the undeclared profile", err)
+	}
+}
+
+func TestValidateRejectsADuplicateProfile(t *testing.T) {
+	m := mustParse(t, profileTOML)
+	m.Project.Profiles = []string{"dev", "dev"}
+
+	err := m.Validate()
+
+	if err == nil || !strings.Contains(err.Error(), "dev") {
+		t.Errorf("error = %v, want it to name the duplicate", err)
+	}
+}
+
+// A profile name becomes a segment of the keyring service name, so a slash
+// would silently reshape the namespace rather than fail.
+func TestValidateRejectsAProfileNameWithASlash(t *testing.T) {
+	m := mustParse(t, profileTOML)
+	m.Project.Profiles = []string{"dev/local"}
+	m.Project.DefaultProfile = "dev/local"
+
+	err := m.Validate()
+
+	if err == nil || !strings.Contains(err.Error(), "dev/local") {
+		t.Errorf("error = %v, want it to reject the name", err)
+	}
+}
+
+func mustParse(t *testing.T, src string) *manifest.Manifest {
+	t.Helper()
+	m, err := manifest.Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	return m
+}

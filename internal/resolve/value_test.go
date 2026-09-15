@@ -11,6 +11,8 @@ import (
 const oneValueTOML = `
 [project]
 id = "p"
+profiles = ["dev"]
+default_profile = "dev"
 default_target = "local"
 
 [targets.local]

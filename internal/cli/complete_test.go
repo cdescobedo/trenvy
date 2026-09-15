@@ -17,6 +17,8 @@ func completionFixture(t *testing.T) *manifest.Manifest {
 	m, err := manifest.Parse([]byte(`
 [project]
 id = "vpb"
+profiles = ["dev"]
+default_profile = "dev"
 default_target = "local"
 salt = "abc123"
 

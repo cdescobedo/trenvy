@@ -34,6 +34,8 @@ func lookupFrom(secrets map[string]string) resolve.SecretLookup {
 const resolveTOML = `
 [project]
 id = "p"
+profiles = ["dev"]
+default_profile = "dev"
 default_target = "local"
 
 [targets.local]
@@ -126,6 +128,8 @@ func TestValuesAppliesExcludeAfterInclude(t *testing.T) {
 	m := mustParse(t, `
 [project]
 id = "p"
+profiles = ["dev"]
+default_profile = "dev"
 default_target = "t"
 [targets.t]
 dest = "process"
@@ -148,7 +152,7 @@ value = "3"
 }
 
 func TestValuesOmittedIncludeMeansEverything(t *testing.T) {
-	m := mustParse(t, "[project]\nid=\"p\"\ndefault_target=\"t\"\n[targets.t]\ndest=\"process\"\n[vars.A]\nvalue=\"1\"\n[vars.B]\nvalue=\"2\"\n")
+	m := mustParse(t, "[project]\nid=\"p\"\nprofiles=[\"dev\"]\ndefault_profile=\"dev\"\ndefault_target=\"t\"\n[targets.t]\ndest=\"process\"\n[vars.A]\nvalue=\"1\"\n[vars.B]\nvalue=\"2\"\n")
 	got, err := resolve.Values(m, "t", lookupFrom(nil))
 	if err != nil {
 		t.Fatalf("Values: %v", err)
@@ -173,7 +177,7 @@ func TestValuesFailsOnMissingSecretNamingTheVariable(t *testing.T) {
 }
 
 func TestValuesSkipsMissingOptionalSecret(t *testing.T) {
-	m := mustParse(t, "[project]\nid=\"p\"\ndefault_target=\"t\"\n[targets.t]\ndest=\"process\"\n[vars.MAYBE]\nsecret=true\noptional=true\n")
+	m := mustParse(t, "[project]\nid=\"p\"\nprofiles=[\"dev\"]\ndefault_profile=\"dev\"\ndefault_target=\"t\"\n[targets.t]\ndest=\"process\"\n[vars.MAYBE]\nsecret=true\noptional=true\n")
 	got, err := resolve.Values(m, "t", lookupFrom(nil))
 	if err != nil {
 		t.Fatalf("Values: %v", err)
@@ -197,6 +201,8 @@ func TestValuesDoesNotFetchExcludedSecrets(t *testing.T) {
 	m := mustParse(t, `
 [project]
 id = "p"
+profiles = ["dev"]
+default_profile = "dev"
 default_target = "t"
 [targets.t]
 dest = "process"
@@ -223,6 +229,8 @@ func TestValuesRejectsIncludePatternError(t *testing.T) {
 	m := mustParse(t, `
 [project]
 id = "p"
+profiles = ["dev"]
+default_profile = "dev"
 default_target = "t"
 [targets.t]
 dest = "process"
@@ -246,6 +254,8 @@ func TestValuesRejectsExcludePatternError(t *testing.T) {
 	m := mustParse(t, `
 [project]
 id = "p"
+profiles = ["dev"]
+default_profile = "dev"
 default_target = "t"
 [targets.t]
 dest = "process"
@@ -270,6 +280,8 @@ func TestValuesUsesDefaultValueForSecret(t *testing.T) {
 	m := mustParse(t, `
 [project]
 id = "p"
+profiles = ["dev"]
+default_profile = "dev"
 default_target = "t"
 [targets.t]
 dest = "process"
