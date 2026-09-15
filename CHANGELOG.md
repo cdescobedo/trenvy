@@ -14,6 +14,16 @@ the command surface may still move under you.
 
 ### Fixed
 
+- **Output names are validated.** An output name must be letters, digits, `-`
+  or `_`, and may not begin with `-` — the rule profile names already followed.
+  A manifest whose output name does not conform, `[outputs.my.app]` for
+  instance, now fails to load instead of being accepted and behaving oddly
+  later. No command renames an output yet, so repair it by hand in
+  `~/.config/trenvy/projects/<id>.toml`: rename the `[outputs.…]` key, and
+  update `project.output` if it named the old one. Render records key on the
+  output name too, so change `output = '…'` in
+  `~/.config/trenvy/state/<id>.toml` to match, or the already-rendered file
+  will read as `FOREIGN` and `render` will refuse to overwrite it.
 - **Project ids are validated.** An id is both a segment of the keyring service
   name and a path segment of the manifest and state files, so `--id 'a/b'`
   reshaped the keyring namespace and `--id '../../x'` wrote outside the config

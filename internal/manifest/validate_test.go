@@ -371,3 +371,32 @@ func TestValidateRejectsAProjectIDThatEscapesTheConfigDir(t *testing.T) {
 		t.Errorf("error = %v, want it to reject the traversal", err)
 	}
 }
+
+func TestValidOutputName(t *testing.T) {
+	ok := []string{"api", "web", "docker", "root", "env-2", "a_b", "X1"}
+	for _, s := range ok {
+		if !manifest.ValidOutputName(s) {
+			t.Errorf("ValidOutputName(%q) = false, want true", s)
+		}
+	}
+	// Dots are refused: an output name is a TOML key and a state-file value,
+	// never a path segment, so a dot buys nothing. A leading "-" would make
+	// `trenvy render <name>` unparseable as anything but a flag.
+	bad := []string{"", "my.app", "-lead", "a/b", "a b", "a:b"}
+	for _, s := range bad {
+		if manifest.ValidOutputName(s) {
+			t.Errorf("ValidOutputName(%q) = true, want false", s)
+		}
+	}
+}
+
+func TestValidateRejectsAnOutputNameWithADot(t *testing.T) {
+	m := parseOrFatal(t, profileTOML)
+	m.Outputs["my.app"] = manifest.Output{Format: "dotenv", Path: ".env"}
+
+	err := m.Validate()
+
+	if err == nil || !strings.Contains(err.Error(), "my.app") {
+		t.Errorf("error = %v, want it to name the bad output", err)
+	}
+}

@@ -75,6 +75,10 @@ func (m *Manifest) Validate() error {
 
 	for _, name := range sortedKeys(m.Outputs) {
 		o := m.Outputs[name]
+		if !ValidOutputName(name) {
+			add("output %q: names may use letters, digits, - and _ only, and "+
+				"may not begin with -", name)
+		}
 		if o.Path == "" {
 			add("output %q: path is required", name)
 		} else if err := checkRelPath(o.Path); err != nil {
@@ -142,6 +146,30 @@ func validProfileName(s string) bool {
 		}
 	}
 	return true
+}
+
+// ValidOutputName allows letters, digits, hyphen and underscore, the same
+// rule profile names follow.
+//
+// It is deliberately not the project-id rule. A project id is a path segment
+// in ManifestPath and StatePath, so it must tolerate the dots that directory
+// basenames carry. An output name is a TOML table key and a value in the
+// state file and is never either of those, so a dot earns nothing, while a
+// leading "-" would make `trenvy render <name>` unparseable as anything but
+// a flag.
+func ValidOutputName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case c == '-', c == '_':
+		default:
+			return false
+		}
+	}
+	return s[0] != '-'
 }
 
 // sortedKeys returns the keys of a map in sorted order.
