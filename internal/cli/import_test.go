@@ -152,7 +152,7 @@ func TestImportOutputPathLeavesDirectoryNamesIntact(t *testing.T) {
 	}
 }
 
-// This is the C2 regression: import is run from the project root (the
+// The documented workflow: import is run from the project root (the
 // directory holding every worktree, itself not a git repository), while the
 // sample lives inside "main", a real worktree of its own. The stored output
 // path must be relative to "main", not to the project root import was run

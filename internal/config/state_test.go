@@ -116,7 +116,6 @@ func TestStateSaveWritesFileWith0600Mode(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	// Stat the file that Save created
 	path := config.StatePath("p")
 	fi, err := os.Stat(path)
 	if err != nil {
@@ -136,7 +135,6 @@ func TestStateSaveCreatesDir0700(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	// Stat the directory that Save created
 	path := config.StatePath("p")
 	dir := filepath.Dir(path)
 	fi, err := os.Stat(dir)
@@ -197,7 +195,6 @@ func TestStateSaveTightensExistingFilePermissions(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("TRENVY_CONFIG_DIR", tmpDir)
 
-	// Pre-create the file at 0o644
 	stateDir := filepath.Join(tmpDir, "state")
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
@@ -207,7 +204,6 @@ func TestStateSaveTightensExistingFilePermissions(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	// Verify it's at 0o644
 	fi, err := os.Stat(path)
 	if err != nil {
 		t.Fatalf("Stat: %v", err)
@@ -223,7 +219,6 @@ func TestStateSaveTightensExistingFilePermissions(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	// Verify it's now 0o600
 	fi, err = os.Stat(path)
 	if err != nil {
 		t.Fatalf("Stat after Save: %v", err)

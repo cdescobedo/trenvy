@@ -189,8 +189,8 @@ func TestExecStripsThePassphraseFromTheChildEnvironment(t *testing.T) {
 	}
 }
 
-// main.go must be able to tell a child's own exit status apart from an
-// trenvy failure, so it can propagate the child's code with no "trenvy:"
+// main.go must be able to tell a child's own exit status apart from a trenvy
+// failure, so it can propagate the child's code with no "trenvy:"
 // prefix. That requires exec's error to flow back unwrapped: this pins the
 // property main.go's own logic depends on, using a fabricated ExitError (no
 // real process is run) as the Run seam's return value.

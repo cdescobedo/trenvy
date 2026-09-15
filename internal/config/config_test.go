@@ -9,7 +9,7 @@ import (
 	"github.com/cdescobedo/trenvy/internal/config"
 )
 
-func TestDirPrefersEnvctlConfigDir(t *testing.T) {
+func TestDirPrefersTrenvyConfigDir(t *testing.T) {
 	t.Setenv("TRENVY_CONFIG_DIR", "/tmp/explicit")
 	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg")
 	if got := config.Dir(); got != "/tmp/explicit" {

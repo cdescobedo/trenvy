@@ -75,13 +75,13 @@ func (m Model) View() string {
 	return b.String()
 }
 
-// addNameWarning surfaces the model's silent refusal (Task 24) to add a name
-// that already exists in the table. Update refuses that add without a trace,
-// because a duplicate key would otherwise silently collapse two variables
-// into one in the manifest map on save — but the refusal must not be
-// invisible to the user, so the view flags it here using only the model's
-// public surface (Mode, Buffer, AllRows). This adds no state to the model and
-// changes nothing in Update; the state machine stays pure.
+// addNameWarning surfaces the model's silent refusal to add a name that
+// already exists in the table. Update drops that add without a trace, because
+// a duplicate key would otherwise collapse two variables into one in the
+// manifest map on save — but a refusal the user cannot see is a name that
+// vanishes as they type it. The warning is derived here, from state Update
+// already keeps, so the refusal becomes visible without the state machine
+// growing a field to remember it.
 func addNameWarning(m Model) string {
 	if m.mode != ModeAddName || m.buffer == "" {
 		return ""

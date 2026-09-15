@@ -13,6 +13,8 @@ type ValidationError struct {
 	Problems []string
 }
 
+// Error lists every problem on its own indented line, so a manifest with
+// several faults reads as a checklist rather than as one run of prose.
 func (e *ValidationError) Error() string {
 	return "invalid manifest:\n  " + strings.Join(e.Problems, "\n  ")
 }

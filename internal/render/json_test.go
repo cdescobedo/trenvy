@@ -89,9 +89,9 @@ func TestJSONEscapesCorrectly(t *testing.T) {
 	})
 
 	t.Run("SetEscapeHTML(false) preserves ampersands", func(t *testing.T) {
-		// The implementation calls SetEscapeHTML(false) to keep URLs readable.
-		// By default, Go's JSON encoder escapes & to &. With that call,
-		// the raw & character appears in the output so URLs like ?a=1&b=2 stay legible.
+		// JSON calls SetEscapeHTML(false). Left on, Go's encoder writes an
+		// ampersand as the six characters &, so a URL like ?a=1&b=2
+		// arrives in the rendered file unreadable.
 		got, err := render.JSON(resolved(map[string]string{"url": "?a=1&b=2"}))
 		if err != nil {
 			t.Fatal(err)

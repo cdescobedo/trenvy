@@ -6,13 +6,21 @@ import tea "github.com/charmbracelet/bubbletea"
 type Mode int
 
 const (
+	// ModeBrowse is the resting mode: the cursor moves and each key in Keys
+	// acts on the row under it.
 	ModeBrowse Mode = iota
+	// ModeEditValue is typing a replacement value for the selected row.
 	ModeEditValue
+	// ModeAddName is typing the name of a row to add.
 	ModeAddName
+	// ModeFilter is typing the substring that narrows the visible rows.
 	ModeFilter
+	// ModeConfirmQuit is the question asked when q is pressed with unsaved
+	// changes. Every key but y answers no -- except ctrl+c, which cancels.
 	ModeConfirmQuit
 )
 
+// String names the mode for the status line and for test failure messages.
 func (m Mode) String() string {
 	switch m {
 	case ModeBrowse:

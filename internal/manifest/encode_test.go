@@ -27,9 +27,10 @@ func TestEncodeRoundTrips(t *testing.T) {
 }
 
 func TestEncodePreservesEmptyStringVsNilValue(t *testing.T) {
-	// This test guards the critical distinction: Var.Value is a *string so that
-	// an empty string ("", a legal value) survives parsing distinct from "no
-	// value at all" (nil). This matters for Tasks 19, 20, 25.
+	// Var.Value is a *string so that an empty string ("", a legal value)
+	// survives the round trip distinct from "no value at all" (nil). Collapse
+	// the two and a variable deliberately set to empty comes back looking
+	// unset, which the TUI and the resolver both act on.
 	fixture := `
 [project]
 id = "test"
@@ -44,7 +45,6 @@ secret = true
 `
 	original := parseOrFatal(t, fixture)
 
-	// Verify the starting state has the right structure before encoding.
 	if original.Vars["EMPTY"].Value == nil {
 		t.Fatal("fixture parse: EMPTY.Value is nil, want pointer to empty string")
 	}
@@ -55,7 +55,6 @@ secret = true
 		t.Fatal("fixture parse: ABSENT.Value should be nil")
 	}
 
-	// Encode and reparse.
 	data, err := original.Encode()
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -153,7 +152,6 @@ func TestSaveTightensExistingFilePermissions(t *testing.T) {
 	path := filepath.Join(dir, "manifest.toml")
 	m := parseOrFatal(t, backendTOML)
 
-	// Create the file with wrong permissions.
 	if err := os.WriteFile(path, []byte("[project]\nid=\"test\"\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -166,7 +164,6 @@ func TestSaveTightensExistingFilePermissions(t *testing.T) {
 		t.Fatalf("pre-existing file mode = %o, want 644", got)
 	}
 
-	// Save over it.
 	if err := manifest.Save(path, m); err != nil {
 		t.Fatalf("Save: %v", err)
 	}

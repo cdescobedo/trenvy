@@ -178,10 +178,10 @@ func TestEditCancelledChangesNothing(t *testing.T) {
 	}
 }
 
-// TestEditSavingAFilteredViewKeepsFilteredOutRows guards the failure mode
-// that matters most in this task: applyRows must receive AllRows(), never
-// Rows(). If the model had an active filter when the user saved, saving from
-// the filtered view would delete every variable the filter hid.
+// applyRows must receive AllRows(), never Rows(). If the model had an active
+// filter when the user saved, saving from the filtered view would delete
+// every variable the filter hid -- silent, total data loss from a keystroke
+// the user made to see better.
 func TestEditSavingAFilteredViewKeepsFilteredOutRows(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))

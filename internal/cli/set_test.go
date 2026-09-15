@@ -371,8 +371,8 @@ func TestUnsetKeepsTheManifestWhenAKeyringDeleteFails(t *testing.T) {
 		t.Error("no keyring delete was attempted")
 	}
 	// The failure hits the very first profile in the loop, so truthfully
-	// zero profiles' items were deleted by the time it happened -- the error
-	// must not claim otherwise (Task 12's lesson about overstating progress).
+	// zero profiles' items were deleted by the time it happened -- and the
+	// error must not overstate that.
 	if !strings.Contains(err.Error(), "0 profiles") {
 		t.Errorf("error does not truthfully report zero profiles cleared: %v", err)
 	}

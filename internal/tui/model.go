@@ -16,8 +16,8 @@ type Row struct {
 	Name      string
 	Value     string
 	Secret    bool
-	Present   bool // the secret exists in the keyring (from Has, not Get)
-	Overrides int
+	Present   bool   // the secret exists in the keyring (from Has, not Get)
+	Overrides int    // how many profiles give this variable a value of their own
 	Source    string // where an imported row came from, shown during import
 	Dirty     bool
 	Deleted   bool
@@ -57,12 +57,28 @@ func New(title string, rows []Row) Model {
 	return Model{title: title, rows: rows, mode: ModeBrowse}
 }
 
-func (m Model) Cursor() int     { return m.cursor }
-func (m Model) Mode() Mode      { return m.mode }
-func (m Model) Saved() bool     { return m.saved }
+// Cursor is the selected row's index into the filtered view, not into the
+// full set. Use realIndex to get back to a position in AllRows.
+func (m Model) Cursor() int { return m.cursor }
+
+// Mode is the current input mode.
+func (m Model) Mode() Mode { return m.mode }
+
+// Saved reports that the session ended with w. Saved and Cancelled are both
+// false while the session is still running; a host must not write anything
+// back until one of them is true.
+func (m Model) Saved() bool { return m.saved }
+
+// Cancelled reports that the session ended with q or ctrl+c, so nothing the
+// user typed should be persisted.
 func (m Model) Cancelled() bool { return m.cancelled }
-func (m Model) Title() string   { return m.title }
-func (m Model) Buffer() string  { return m.buffer }
+
+// Title is the heading above the table, naming the project being edited.
+func (m Model) Title() string { return m.title }
+
+// Buffer is the text typed so far in whichever input mode is active: a value,
+// a new name, or a filter.
+func (m Model) Buffer() string { return m.buffer }
 
 // matchesFilter reports whether r passes the active filter. Rows and
 // realIndex must share this predicate: realIndex resolves the cursor by

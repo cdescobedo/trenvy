@@ -191,7 +191,9 @@ func newProfileRmCmd(opts *Options) *cobra.Command {
 				return err
 			}
 
-			// Three refusals, each naming the command that unblocks it.
+			// Three refusals, checked before anything is touched. The last
+			// profile is a flat no -- there is no command that makes it
+			// removable -- while the other two name what has to change first.
 			if len(app.Manifest.Project.Profiles) == 1 {
 				return fmt.Errorf(
 					"%s is the last profile; a project with none cannot resolve anything", name)

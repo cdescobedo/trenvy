@@ -143,11 +143,10 @@ func TestGetTakesNoOutputArgument(t *testing.T) {
 	}
 }
 
-// Ruling 15: init now creates a project with no outputs at all, and get used
-// to call outputOrDefault, which fails whenever project.output is unset. That
-// made the most basic loop -- init, set, get -- broken from the moment a
-// fresh project existed. get must resolve a name from the profile alone,
-// with no output configuration of any kind.
+// init creates a project with no outputs at all, so routing get through
+// outputOrDefault would break the most basic loop -- init, set, get -- from
+// the moment a fresh project exists. get must resolve a name from the profile
+// alone, with no output configuration of any kind.
 func TestGetWorksWithNoOutputsConfigured(t *testing.T) {
 	h := newHarness(t)
 	h.register("proc", noOutputFixture(t))

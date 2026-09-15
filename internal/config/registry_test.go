@@ -110,7 +110,6 @@ func TestAddCleansTrailingSeparator(t *testing.T) {
 	t.Setenv("TRENVY_CONFIG_DIR", dir)
 
 	r := &config.Registry{}
-	// Register with trailing separator
 	if err := r.Add(config.Entry{ID: "p", Root: "/w/vpb/"}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -118,7 +117,6 @@ func TestAddCleansTrailingSeparator(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	// Verify we can resolve a directory inside the root
 	got, ok := r.Lookup("/w/vpb/main")
 	if !ok {
 		t.Fatal("Lookup failed to find ancestor with cleaned path")
@@ -127,7 +125,6 @@ func TestAddCleansTrailingSeparator(t *testing.T) {
 		t.Errorf("Lookup.ID = %q, want p", got.ID)
 	}
 
-	// Verify the persisted entry is canonical (no trailing separator)
 	again, err := config.LoadRegistry()
 	if err != nil {
 		t.Fatalf("LoadRegistry: %v", err)
@@ -154,7 +151,6 @@ func TestSaveCreatesDirWithCorrectMode(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	// Check directory permissions
 	dirInfo, err := os.Stat(config.Dir())
 	if err != nil {
 		t.Fatalf("Stat config dir: %v", err)
@@ -163,7 +159,6 @@ func TestSaveCreatesDirWithCorrectMode(t *testing.T) {
 		t.Errorf("config dir mode = %o, want 0700", dirInfo.Mode().Perm())
 	}
 
-	// Check registry.toml file permissions
 	registryPath := config.RegistryPath()
 	fileInfo, err := os.Stat(registryPath)
 	if err != nil {
@@ -206,8 +201,9 @@ func TestSetRootRejectsARootAnotherProjectOwns(t *testing.T) {
 	}
 }
 
-// Task 12 wires Remove to `project rm`, a destructive command, so both
-// branches need pinning before it ships uncovered.
+// Remove backs `project rm`, which is destructive and has no undo, so both
+// branches -- the entry that was there and the id that never was -- are
+// pinned rather than left to the caller's tests.
 func TestRemoveDropsARegisteredProject(t *testing.T) {
 	r := &config.Registry{}
 	if err := r.Add(config.Entry{ID: "a", Root: "/x/a"}); err != nil {
@@ -247,13 +243,11 @@ func TestRegistrySaveTightensExistingFilePermissions(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("TRENVY_CONFIG_DIR", tempDir)
 
-	// Pre-create the registry file at 0o644
 	registryPath := config.RegistryPath()
 	if err := os.WriteFile(registryPath, []byte(""), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	// Verify it's at 0o644
 	fi, err := os.Stat(registryPath)
 	if err != nil {
 		t.Fatalf("Stat: %v", err)
@@ -271,7 +265,6 @@ func TestRegistrySaveTightensExistingFilePermissions(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	// Verify it's now 0o600
 	fi, err = os.Stat(registryPath)
 	if err != nil {
 		t.Fatalf("Stat after Save: %v", err)

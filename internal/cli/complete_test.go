@@ -383,10 +383,10 @@ func TestProjectCompletionFiltersByThePrefixTyped(t *testing.T) {
 	}
 }
 
-// The brief's own output and project tests check candidates only; these two
-// pin the directive on the same commands, so a wrong directive on either
-// completer -- one that would let the shell fall back to filename completion
-// on a miss -- has a test to catch it.
+// The output and project tests above check candidates only; these two pin the
+// directive on the same commands, so a wrong directive on either completer --
+// one that would let the shell fall back to filename completion on a miss --
+// has a test to catch it.
 func TestOutputCompletionUsesNoFileComp(t *testing.T) {
 	h := completionHarness(t)
 
@@ -493,10 +493,10 @@ func TestProjectMoveOffersDirectoriesForTheSecondArgument(t *testing.T) {
 	}
 }
 
-// The brief wires render, clean and show to completeOutputNames; only render
-// has a test above. These two cover the other two commands, so a wiring
-// mistake on either -- forgetting the ValidArgsFunction, or wiring the wrong
-// completer -- has a test to catch it.
+// render, clean and show all use completeOutputNames, but only render is
+// covered above. These two cover the rest, so a wiring mistake on either --
+// forgetting the ValidArgsFunction, or wiring the wrong completer -- has a
+// test to catch it.
 func TestCleanCompletionOffersDefinedOutputs(t *testing.T) {
 	h := completionHarness(t)
 

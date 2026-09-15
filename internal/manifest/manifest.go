@@ -66,5 +66,8 @@ type Var struct {
 	// variables are written and in what syntax, never what they are worth.
 	Profiles map[string]string `toml:"profiles,omitempty"`
 	Secret   bool              `toml:"secret,omitempty"`
-	Optional bool              `toml:"optional,omitempty"`
+	// Optional lets the variable resolve to nothing. A required variable with
+	// no value under the active profile is an error that stops a render; an
+	// optional one is simply absent from the resulting set.
+	Optional bool `toml:"optional,omitempty"`
 }

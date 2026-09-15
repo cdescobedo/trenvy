@@ -6,14 +6,13 @@ import (
 	"testing"
 )
 
-// TestHostRevealFailureLeavesRowMasked covers Finding 1 from the round-2
-// review: a failed (or genuinely absent) reveal must not render as a blank
-// value. Before the fix, any reveal error was turned into
-// RevealedMsg{Value: ""}, and since RevealedMsg unconditionally sets
-// Revealed, display() would show that empty value instead of MISSING or
-// dots. The fix is to send no message at all on failure, leaving the row
-// exactly as it was — this is a white-box test (package tui, not tui_test)
-// because host is unexported.
+// A failed reveal -- including one for a secret that is genuinely absent --
+// must leave the row masked, not blank. Turning the error into
+// RevealedMsg{Value: ""} would be enough to break it: RevealedMsg sets
+// Revealed unconditionally, and display() shows a Revealed row verbatim, so
+// the row would render as empty rather than MISSING or dots.
+//
+// White-box (package tui, not tui_test) because host is unexported.
 func TestHostRevealFailureLeavesRowMasked(t *testing.T) {
 	m := New("vpb", []Row{{Name: "ALPHA_TOKEN", Secret: true, Present: false}})
 	h := host{m: m, reveal: func(string) (string, error) {

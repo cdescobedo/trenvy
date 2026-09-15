@@ -95,10 +95,9 @@ func TestViewTruncatesLongValues(t *testing.T) {
 	}
 }
 
-// TestViewWarnsWhenAddingADuplicateName covers Ruling 2: the model itself
-// silently refuses to add a name that already exists (Task 24), which would
-// otherwise make the user's typed name vanish with no explanation. The view
-// is where that refusal becomes visible.
+// The model silently refuses to add a name that already exists, which on its
+// own makes the user's typed name vanish with no explanation. The view is
+// where that refusal becomes visible, so it is where the test belongs.
 func TestViewWarnsWhenAddingADuplicateName(t *testing.T) {
 	m := tui.New("vpb", []tui.Row{{Name: "EXISTING", Value: "x"}})
 	m, _ = m.Update(keyRune('a'))

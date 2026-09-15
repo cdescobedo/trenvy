@@ -28,6 +28,9 @@ const (
 	StatusForeign
 )
 
+// String names the status for the user. The three that should give someone
+// pause -- STALE, MODIFIED, FOREIGN -- are upper-cased so they stand out in a
+// status table that is otherwise all lower case.
 func (s Status) String() string {
 	switch s {
 	case StatusAbsent:

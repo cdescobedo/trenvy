@@ -78,10 +78,9 @@ func rowsFromManifest(app *appContext) ([]tui.Row, error) {
 }
 
 // storeOp is one deferred keyring write, collected while applyRows computes
-// the manifest's new shape and only carried out once that shape has been
-// validated and saved. Writing the keyring before Validate/Save would leave a
-// secret in the keyring with no corresponding manifest entry if validation
-// then failed.
+// the manifest's new shape and carried out only once that shape has passed
+// Validate. Writing the keyring first would leave a secret in the keyring
+// with no corresponding manifest entry whenever validation then failed.
 type storeOp struct {
 	del     bool // Set when false, Delete when true.
 	service string
@@ -188,8 +187,9 @@ func sortedVarNames(m *manifest.Manifest) []string {
 	return out
 }
 
-// reviewImport replaces the Task 19 stub: the import review is the same table,
-// pre-filled from the sample.
+// reviewImport is the import review: the same table, pre-filled from the
+// sample. Reveal is stubbed out to ErrNotFound because nothing being reviewed
+// is in the keyring yet -- these rows are candidates, not stored secrets.
 func reviewImport(opts *Options, projectID string, entries []sample.Entry) ([]sample.Entry, error) {
 	rows := make([]tui.Row, 0, len(entries))
 	for _, e := range entries {

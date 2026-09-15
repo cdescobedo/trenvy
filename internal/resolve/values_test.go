@@ -308,9 +308,9 @@ secret = true
 	}
 }
 
-// outputTOML is the post-Task-8 shape: profiles own the values, outputs own
-// the subset. PUBLIC_API varies by profile so a test can tell which profile a
-// call actually resolved under.
+// outputTOML puts both axes in one fixture: profiles own the values, outputs
+// own the subset. PUBLIC_API varies by profile so a test can tell which
+// profile a call actually resolved under.
 const outputTOML = `
 [project]
 id = "p"
