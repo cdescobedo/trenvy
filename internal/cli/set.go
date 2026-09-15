@@ -151,8 +151,10 @@ func readSecret(opts *Options, name string, fromStdin bool) (string, error) {
 		return strings.TrimRight(string(data), "\r\n"), nil
 	}
 
-	if isTerminal(opts.Stdin) {
-		f := opts.Stdin.(interface{ Fd() uintptr })
+	// A single assertion, not isTerminal followed by a second one to recover
+	// the fd it already had and discarded: term.ReadPassword needs the fd
+	// itself, not just whether it points at a terminal.
+	if f, ok := opts.Stdin.(interface{ Fd() uintptr }); ok && term.IsTerminal(int(f.Fd())) {
 		fmt.Fprintf(opts.Stderr, "Value for %s: ", name)
 		b, err := term.ReadPassword(int(f.Fd()))
 		fmt.Fprintln(opts.Stderr)
