@@ -108,6 +108,11 @@ the command surface may still move under you.
   presence cheaply and without a prompt.
 - **`status --quick`** skips reading secret values; freshness for an output
   holding at least one secret is then reported as unknown.
+- **`trenvy output list`** lists a project's declared outputs -- name, format,
+  path, and which variables each one selects, in plain prose (`all`, `all
+  except X, Y`, or an explicit list) -- and marks the one `project.output`
+  points at. A project with none, because it only ever feeds `exec` or
+  `shell`, gets a hint instead of an error or a bare header.
 
 ### Changed
 

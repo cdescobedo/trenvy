@@ -303,6 +303,18 @@ func (h *harness) manifest(t *testing.T, id string) *manifest.Manifest {
 	return m
 }
 
+// setOutputs replaces a project's outputs and default output, saving the
+// manifest back to disk, standing in for the not-yet-written `output add`.
+func (h *harness) setOutputs(t *testing.T, id string, outputs map[string]manifest.Output, defaultName string) {
+	t.Helper()
+	m := h.manifest(t, id)
+	m.Outputs = outputs
+	m.Project.Output = defaultName
+	if err := manifest.Save(config.ManifestPath(id), m); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func mkdirAll(p string) error { return os.MkdirAll(p, 0o755) }
 
 func mustReadFile(t *testing.T, path string) string {
