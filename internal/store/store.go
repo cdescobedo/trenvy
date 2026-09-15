@@ -16,7 +16,7 @@ const MaxValueBytes = 2560
 var ErrTooLong = errors.New("value exceeds the keyring size limit")
 
 // Store is a keyed secret store. Services are full names rendered from the
-// configured pattern, for example "trenvy/demo-backend/ALPHA_TOKEN".
+// configured pattern, for example "trenvy/demo-backend/prod/ALPHA_TOKEN".
 //
 // Has is separate from Get on purpose. On macOS, reading a value can raise a
 // GUI authorization prompt while a presence check cannot, so every code path
