@@ -11,8 +11,9 @@ import (
 )
 
 // readbackFixture covers every case get and show have to tell apart: a plain
-// var, a per-target override, a stored secret, a secret that is not stored,
-// an optional secret with no value, and a target that selects only some.
+// var, a per-target override, a per-profile override, a stored secret, a
+// secret that is not stored, an optional secret with no value, and a target
+// that selects only some.
 func readbackFixture(t *testing.T) *manifest.Manifest {
 	t.Helper()
 	m, err := manifest.Parse([]byte(`
@@ -106,6 +107,7 @@ func TestGetHonoursAProfileOverride(t *testing.T) {
 	if err := h.run("-p", "prod", "get", "PUBLIC_API"); err != nil {
 		t.Fatalf("get: %v", err)
 	}
+
 	if got := h.out.String(); got != "https://api.example.test\n" {
 		t.Errorf("stdout = %q, want the prod override", got)
 	}
@@ -216,6 +218,29 @@ func TestGetReportsAnOptionalSecretWithNoValue(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "SPARE_TOKEN") {
 		t.Errorf("error does not name the variable: %v", err)
+	}
+}
+
+// Resolving whether an optional variable has a value is purely a function of
+// the active profile now (Task 5) -- a target only ever decides selection.
+// The message must say so, or a reader debugging an unset optional goes
+// looking at the wrong axis.
+func TestGetOptionalMissingValueNamesTheProfileNotTheTarget(t *testing.T) {
+	h := getHarness(t)
+
+	err := h.run("get", "SPARE_TOKEN")
+
+	if err == nil {
+		t.Fatal("get succeeded for an optional secret with no value")
+	}
+	if !strings.Contains(err.Error(), "SPARE_TOKEN") {
+		t.Errorf("error does not name the variable: %v", err)
+	}
+	if !strings.Contains(err.Error(), "profile") {
+		t.Errorf("error does not name the profile: %v", err)
+	}
+	if strings.Contains(err.Error(), "target") {
+		t.Errorf("error still names the target, which no longer decides the value: %v", err)
 	}
 }
 

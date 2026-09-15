@@ -43,8 +43,8 @@ func newGetCmd(opts *Options) *cobra.Command {
 
 			// Three ways to have no value, each with its own fix: the name is
 			// unknown, the target does not select it, or it is optional and
-			// unset. Collapsing them into one message would send the reader
-			// looking in the wrong place.
+			// unset under the active profile. Collapsing them into one
+			// message would send the reader looking in the wrong place.
 			if _, ok := app.Manifest.Vars[name]; !ok {
 				return fmt.Errorf("%s is not in the manifest of %s", name, app.Entry.ID)
 			}
@@ -61,7 +61,7 @@ func newGetCmd(opts *Options) *cobra.Command {
 				return err
 			}
 			if !ok {
-				return fmt.Errorf("%s is optional and has no value for target %q", name, target)
+				return fmt.Errorf("%s is optional and has no value for profile %q", name, app.Profile.Name)
 			}
 
 			// The value and a newline, on stdout, alone: $(envctl get X) and
