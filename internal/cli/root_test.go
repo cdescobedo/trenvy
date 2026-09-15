@@ -236,6 +236,56 @@ value = "https://example.com"
 	}
 }
 
+// The profile decides which keyring item a secret reads, so a flag that does
+// not reach the service name is a flag that silently reads the wrong secret.
+func TestProfileFlagSelectsTheKeyringItem(t *testing.T) {
+	h := newHarness(t)
+	m := fixtureManifest(t)
+	m.Project.Profiles = []string{"dev", "prod"}
+	h.register("vpb", m)
+	h.mem.Seed("envctl/vpb/prod/ALPHA_TOKEN", "prod-key")
+
+	if err := h.run("--profile", "prod", "get", "ALPHA_TOKEN"); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got := h.out.String(); got != "prod-key\n" {
+		t.Errorf("stdout = %q, want the prod secret", got)
+	}
+}
+
+func TestProfileEnvVarSelectsTheKeyringItem(t *testing.T) {
+	h := newHarness(t)
+	m := fixtureManifest(t)
+	m.Project.Profiles = []string{"dev", "prod"}
+	h.register("vpb", m)
+	h.mem.Seed("envctl/vpb/prod/ALPHA_TOKEN", "prod-key")
+	t.Setenv("ENVCTL_PROFILE", "prod")
+
+	if err := h.run("get", "ALPHA_TOKEN"); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got := h.out.String(); got != "prod-key\n" {
+		t.Errorf("stdout = %q, want the prod secret", got)
+	}
+}
+
+func TestAnUndeclaredProfileFailsBeforeAnythingIsRead(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+
+	err := h.run("--profile", "staging", "get", "ALPHA_TOKEN")
+
+	if err == nil {
+		t.Fatal("get succeeded with an undeclared profile")
+	}
+	if !strings.Contains(err.Error(), "--profile") {
+		t.Errorf("error does not name --profile as the source of the bad name: %v", err)
+	}
+	if calls := h.mem.Calls(); len(calls) != 0 {
+		t.Errorf("the store was touched before the profile was validated: %v", calls)
+	}
+}
+
 func mkdirAll(p string) error { return os.MkdirAll(p, 0o755) }
 
 func mustReadFile(t *testing.T, path string) string {

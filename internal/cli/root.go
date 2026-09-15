@@ -23,11 +23,14 @@ import (
 // Options are the seams that make the CLI testable: streams, the working
 // directory, and how a secret store is obtained.
 type Options struct {
-	Stdin    io.Reader
-	Stdout   io.Writer
-	Stderr   io.Writer
-	Dir      string
-	Backend  string
+	Stdin   io.Reader
+	Stdout  io.Writer
+	Stderr  io.Writer
+	Dir     string
+	Backend string
+	// Profile is the --profile flag. Empty means fall back to ENVCTL_PROFILE
+	// and then the manifest's default_profile.
+	Profile  string
 	NewStore func(cfg *config.Config, backend string) (store.Store, error)
 
 	// Run executes a prepared child process. Swappable so tests can assert on
@@ -85,6 +88,7 @@ type appContext struct {
 	Manifest *manifest.Manifest
 	State    *config.State
 	Worktree string
+	Profile  resolve.ActiveProfile
 
 	opts      Options
 	storeOnce sync.Once
@@ -116,6 +120,11 @@ func (o Options) resolveApp() (*appContext, error) {
 		return nil, err
 	}
 
+	prof, err := resolve.Profile(m, o.Profile, os.Getenv(resolve.ProfileEnvVar))
+	if err != nil {
+		return nil, err
+	}
+
 	st, err := config.LoadState(entry.ID)
 	if err != nil {
 		return nil, err
@@ -127,7 +136,7 @@ func (o Options) resolveApp() (*appContext, error) {
 
 	return &appContext{
 		Cfg: cfg, Entry: entry, Manifest: m,
-		State: st, Worktree: wt, opts: o,
+		State: st, Worktree: wt, Profile: prof, opts: o,
 	}, nil
 }
 
@@ -153,7 +162,7 @@ func (a *appContext) secretLookup() resolve.SecretLookup {
 }
 
 func (a *appContext) service(name string) string {
-	return a.Cfg.Keyring.ServiceName(a.Manifest.Project.ID, a.Manifest.Project.DefaultProfile, name)
+	return a.Cfg.Keyring.ServiceName(a.Manifest.Project.ID, a.Profile.Name, name)
 }
 
 // targetOrDefault returns name, or the manifest's default target when empty.
@@ -181,6 +190,8 @@ func Execute(opts Options, args []string) error {
 	root.SetErr(opts.Stderr)
 	root.PersistentFlags().StringVar(&opts.Backend, "backend", "",
 		"secret backend: keychain, system, file, mem")
+	root.PersistentFlags().StringVarP(&opts.Profile, "profile", "p", "",
+		"value set to use: overrides ENVCTL_PROFILE and the manifest default")
 
 	root.AddCommand(
 		newInitCmd(&opts),
