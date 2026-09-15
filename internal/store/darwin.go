@@ -105,7 +105,7 @@ func (k *Keychain) Set(service, value string) error {
 			service, len(value), MaxValueBytes, ErrTooLong)
 	}
 	script := fmt.Sprintf(
-		"add-generic-password -a %s -s %s -D %s -w %s -U\nquit\n",
+		"add-generic-password -a %s -s %s -D %s -w %s -U\n",
 		shellQuote(k.account), shellQuote(service),
 		shellQuote(KeychainKind), shellQuote(value),
 	)

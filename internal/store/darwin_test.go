@@ -5,6 +5,7 @@ package store_test
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strconv"
@@ -52,12 +53,66 @@ func requireIntegration(t *testing.T) {
 	if os.Getenv("TRENVY_INTEGRATION") != "1" {
 		t.Skip("set TRENVY_INTEGRATION=1 to run Keychain integration tests")
 	}
+	if _, err := exec.LookPath("security"); err != nil {
+		t.Skip("security(1) not found on PATH; skipping real-Keychain integration test")
+	}
 }
 
 func TestKeychainSatisfiesStore(t *testing.T) {
 	var _ store.Store = store.NewKeychain("someone")
 }
 
+// Every other Keychain test replaces the runner with a fake that accepts any
+// script handed to it, so none of them ever looks at what Set actually sends
+// to security(1) on Stdin. That permissiveness is exactly how this bug went
+// unnoticed: the fake never objected to a script ending in a bogus "quit"
+// line, but the real `security -i` has no such command -- it terminates on
+// EOF -- and rejects it with `security: unknown command "quit"` and a
+// non-zero exit, AFTER the add-generic-password has already succeeded. So
+// every real Set looked like a failure even though the item was written.
+//
+// This test closes that gap without touching a real keychain: it captures
+// the *exec.Cmd Set builds and inspects the literal script on its Stdin, so
+// it runs deterministically on every platform and in CI, and is the test
+// that actually pins the fix (see TestKeychainRoundTrip below for an
+// opt-in, real-security(1) confirmation).
+func TestKeychainSetScriptHasNoQuitCommand(t *testing.T) {
+	var captured *exec.Cmd
+	restore := store.SetKeychainRunner(func(cmd *exec.Cmd) ([]byte, error) {
+		captured = cmd
+		return nil, nil
+	})
+	t.Cleanup(restore)
+
+	k := store.NewKeychain("someone")
+	if err := k.Set("trenvy/p/TOKEN", "s3cretvalue"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if captured == nil {
+		t.Fatal("Set did not run a command")
+	}
+	script, err := io.ReadAll(captured.Stdin)
+	if err != nil {
+		t.Fatalf("reading the script sent to security -i: %v", err)
+	}
+	got := string(script)
+	if !strings.Contains(got, "add-generic-password") {
+		t.Fatalf("script sent to security -i does not contain add-generic-password: %q", got)
+	}
+	// security -i has no "quit" command; it terminates on EOF, which closing
+	// Stdin already provides. A trailing "quit" line makes security print
+	// `unknown command "quit"` and exit 1 after the add has already
+	// succeeded, so every Set reports failure even though it worked.
+	if strings.Contains(got, "quit") {
+		t.Errorf("script sent to security -i still contains a bogus quit command: %q", got)
+	}
+}
+
+// TestKeychainRoundTrip is an opt-in confirmation against the real
+// security(1) binary and the real login Keychain. It is skipped by default
+// -- including in CI -- because the portable test above is what actually
+// pins the fix; this one exists only for a human to run deliberately before
+// trusting the Keychain backend on a real machine.
 func TestKeychainRoundTrip(t *testing.T) {
 	requireIntegration(t)
 	user := os.Getenv("USER")
