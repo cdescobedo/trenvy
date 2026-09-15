@@ -42,6 +42,13 @@ func Profile(m *manifest.Manifest, flag, env string) (ActiveProfile, error) {
 			return p, nil
 		}
 	}
-	return ActiveProfile{}, fmt.Errorf("%w %q (from %s); declared profiles: %s",
+	err := fmt.Errorf("%w %q (from %s); declared profiles: %s",
 		ErrUnknownProfile, p.Name, p.Source, strings.Join(m.Project.Profiles, ", "))
+	if p.Source == ProfileEnvVar {
+		// Every command, including `profile use` -- the one that would fix
+		// this -- validates the env var before its body runs, so a stale
+		// export is a dead end unless the error itself names the escape.
+		err = fmt.Errorf("%w; escape it with: unset %s", err, ProfileEnvVar)
+	}
+	return ActiveProfile{}, err
 }

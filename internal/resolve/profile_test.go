@@ -92,3 +92,33 @@ func TestProfileErrorNamesTheSourceOfABadName(t *testing.T) {
 		t.Errorf("error = %v, want it to blame the environment variable", err)
 	}
 }
+
+// A bad ENVCTL_PROFILE is a dead end without this: every envctl command,
+// including `profile use` (the one that would fix it), validates the env var
+// before running, so a stale export otherwise locks the shell out of its own
+// escape hatch.
+func TestProfileErrorFromTheEnvVarNamesTheEscape(t *testing.T) {
+	m := mustParse(t, profileManifestTOML)
+
+	_, err := resolve.Profile(m, "", "staging")
+
+	want := "unset " + resolve.ProfileEnvVar
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %v, want it to name the escape: %s", err, want)
+	}
+}
+
+// A bad --profile value needs no escape hint: the next invocation simply
+// omits the flag.
+func TestProfileErrorFromTheFlagDoesNotNameTheEscape(t *testing.T) {
+	m := mustParse(t, profileManifestTOML)
+
+	_, err := resolve.Profile(m, "staging", "")
+
+	if err == nil {
+		t.Fatal("Profile accepted an undeclared name")
+	}
+	if strings.Contains(err.Error(), "unset ") {
+		t.Errorf("error = %v, want no escape hint for a --profile source", err)
+	}
+}
