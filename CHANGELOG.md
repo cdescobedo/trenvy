@@ -146,6 +146,15 @@ the command surface may still move under you.
 
 ### Fixed
 
+- `trenvy import` no longer silently drops a variable whose name is not a
+  valid shell identifier (e.g. `GROUP/KEY`) from the output it creates.
+  It wrote a literal `["*"]` include glob, and glob `*` does not cross `/`,
+  so such a variable matched nothing and was left out of the rendered file
+  with no warning. `trenvy render` on that output now reports the same
+  `"... is not a valid shell identifier; use a json output, or rename the
+  variable"` error that `output add`'s outputs already reported for the same
+  variable -- an error to fix, instead of a value silently missing from the
+  file.
 - `trenvy import --output <name>` now refuses a name that already names a
   defined output, matching `output add`'s guard. It used to silently replace
   the existing output's format and path, orphaning whatever file it used to

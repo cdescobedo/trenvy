@@ -226,9 +226,15 @@ func outputFor(samplePath, fallbackRoot string) (manifest.Output, error) {
 	real := filepath.Join(dir, base)
 
 	return manifest.Output{
-		Format:  format,
-		Path:    real,
-		Include: []string{"*"},
+		Format: format,
+		Path:   real,
+		// Include is left nil rather than []string{"*"}: resolve.selected
+		// treats an empty include as "everything" before path.Match ever
+		// runs, while a literal "*" goes through path.Match, whose "*"
+		// does not cross "/" -- silently dropping a variable named
+		// GROUP/KEY instead of letting render/dotenv.go report its "not a
+		// valid shell identifier" error. The two are identical for every
+		// name that works today; selectsSummary renders both as "all".
 	}, nil
 }
 

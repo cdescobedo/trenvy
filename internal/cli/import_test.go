@@ -411,6 +411,46 @@ func TestImportSamePathReusesSilentlyEvenWithTheSameNameGiven(t *testing.T) {
 	}
 }
 
+// import writes Include: ["*"], a literal glob that goes through
+// path.Match, whose "*" does not cross "/". A variable named GROUP/KEY is
+// silently dropped from the rendered file instead of tripping the
+// identifier check render/dotenv.go already has. output add leaves Include
+// empty, which resolve.selected short-circuits to "everything" before
+// path.Match ever runs, so it reports the dotenv error correctly. The two
+// commands must agree on the same variable.
+func TestImportAndOutputAddAgreeOnASlashedVariableName(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+
+	m := h.manifest(t, "p")
+	v := "1"
+	m.Vars["GROUP/KEY"] = manifest.Var{Value: &v}
+	if err := manifest.Save(config.ManifestPath("p"), m); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := h.run("output", "add", "added", "--format", "dotenv", "--path", "added.env"); err != nil {
+		t.Fatal(err)
+	}
+	sample := h.writeSample(t, "src/Demo.Api/.env_example", "OTHER=1\n")
+	if err := h.run("import", sample, "--no-tui", "--output", "imported"); err != nil {
+		t.Fatal(err)
+	}
+
+	addErr := h.run("render", "added")
+	impErr := h.run("render", "imported")
+
+	if addErr == nil || !strings.Contains(addErr.Error(), "is not a valid shell identifier") {
+		t.Fatalf("output add's render = %v, want the dotenv identifier error", addErr)
+	}
+	if impErr == nil {
+		t.Fatal("import's output silently dropped GROUP/KEY instead of erroring like output add")
+	}
+	if !strings.Contains(impErr.Error(), "is not a valid shell identifier") {
+		t.Errorf("import's output error = %v, want the same dotenv identifier error as output add", impErr)
+	}
+}
+
 func TestImportRefusesToClobberExistingVariables(t *testing.T) {
 	h := newHarness(t)
 	if err := h.run("project", "init", "--id", "vpb"); err != nil {
