@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"io"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -125,6 +124,9 @@ func newProfileUseCmd(opts *Options) *cobra.Command {
 			if err := requireDeclaredProfile(app, name); err != nil {
 				return err
 			}
+			// Unquoted is safe here only because manifest.Validate restricts
+			// profile names to [A-Za-z0-9_-] and resolveApp above already
+			// ran it -- this line's output is eval'd by a shell.
 			fmt.Fprintf(opts.Stdout, "export %s=%s\n", resolve.ProfileEnvVar, name)
 			if isTerminal(opts.Stdout) {
 				fmt.Fprintf(opts.Stderr,
@@ -209,6 +211,11 @@ func newProfileRmCmd(opts *Options) *cobra.Command {
 
 			// Keyring first: the manifest is the only inventory of which items
 			// exist, so destroying it before the items would strand them.
+			// deleted counts only items actually removed -- most declared
+			// secrets are never stored under every profile, so ErrNotFound
+			// on an individual item is the ordinary case, not a failure, and
+			// must not inflate the count reported to the user.
+			deleted := 0
 			if len(secrets) > 0 {
 				s, err := app.store()
 				if err != nil {
@@ -216,13 +223,26 @@ func newProfileRmCmd(opts *Options) *cobra.Command {
 				}
 				for _, n := range secrets {
 					svc := app.Cfg.Keyring.ServiceName(app.Manifest.Project.ID, name, n)
-					if err := s.Delete(svc); err != nil && !errors.Is(err, store.ErrNotFound) {
-						return err
+					if err := s.Delete(svc); err != nil {
+						if errors.Is(err, store.ErrNotFound) {
+							continue
+						}
+						// Nothing below this has run yet, so the profile is
+						// still fully declared and this command is safe to
+						// re-run once the underlying store problem is fixed.
+						return fmt.Errorf(
+							"deleting %s: %w; profile %s was not removed, re-run to finish",
+							n, err, name)
 					}
+					deleted++
 				}
 			}
 
-			profiles := app.Manifest.Project.Profiles[:0]
+			// A fresh slice, not an in-place filter over the same backing
+			// array: this is the most destructive function in the package,
+			// and a fresh allocation is one less aliasing hazard for anyone
+			// auditing it later.
+			profiles := make([]string, 0, len(app.Manifest.Project.Profiles)-1)
 			for _, p := range app.Manifest.Project.Profiles {
 				if p != name {
 					profiles = append(profiles, p)
@@ -241,7 +261,7 @@ func newProfileRmCmd(opts *Options) *cobra.Command {
 			if err := manifest.Save(config.ManifestPath(app.Entry.ID), app.Manifest); err != nil {
 				return err
 			}
-			fmt.Fprintf(opts.Stdout, "removed profile %s (%d secrets deleted)\n", name, len(secrets))
+			fmt.Fprintf(opts.Stdout, "removed profile %s (%d secrets deleted)\n", name, deleted)
 			return nil
 		},
 	}
@@ -272,9 +292,10 @@ func secretNames(m *manifest.Manifest) []string {
 	return out
 }
 
-// isTerminal reports whether w is a terminal. Used only to decide whether a
-// human is looking, never to change what goes to stdout.
-func isTerminal(w io.Writer) bool {
-	f, ok := w.(interface{ Fd() uintptr })
+// isTerminal reports whether v -- an io.Reader or io.Writer stream -- is a
+// terminal. Used only to decide whether a human is on the other end (to show
+// a hint, or to prompt for a password), never to change what goes to stdout.
+func isTerminal(v any) bool {
+	f, ok := v.(interface{ Fd() uintptr })
 	return ok && term.IsTerminal(int(f.Fd()))
 }

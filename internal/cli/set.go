@@ -130,7 +130,8 @@ func readSecret(opts *Options, name string, fromStdin bool) (string, error) {
 		return strings.TrimRight(string(data), "\r\n"), nil
 	}
 
-	if f, ok := opts.Stdin.(interface{ Fd() uintptr }); ok && term.IsTerminal(int(f.Fd())) {
+	if isTerminal(opts.Stdin) {
+		f := opts.Stdin.(interface{ Fd() uintptr })
 		fmt.Fprintf(opts.Stderr, "Value for %s: ", name)
 		b, err := term.ReadPassword(int(f.Fd()))
 		fmt.Fprintln(opts.Stderr)

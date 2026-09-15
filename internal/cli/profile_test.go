@@ -1,6 +1,8 @@
 package cli_test
 
 import (
+	"bytes"
+	"os"
 	"strings"
 	"testing"
 
@@ -143,15 +145,25 @@ func TestProfileUseEmitsOnlyAnExportOnStdout(t *testing.T) {
 	}
 }
 
+// Checking one field survives is not enough: it cannot tell "never wrote"
+// from "rewrote identically". Comparing the file's bytes can.
 func TestProfileUseDoesNotTouchTheManifest(t *testing.T) {
 	h := profileHarness(t)
+	before, err := os.ReadFile(config.ManifestPath("vpb"))
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if err := h.run("profile", "use", "prod"); err != nil {
 		t.Fatalf("profile use: %v", err)
 	}
 
-	if got := reloadManifest(t, "vpb").Project.DefaultProfile; got != "dev" {
-		t.Errorf("default_profile = %q, want it unchanged at dev", got)
+	after, err := os.ReadFile(config.ManifestPath("vpb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Errorf("manifest bytes changed:\nbefore:\n%s\nafter:\n%s", before, after)
 	}
 }
 
@@ -188,10 +200,19 @@ func TestProfileRmDeletesTheProfilesSecretsAndOverrides(t *testing.T) {
 	v := m.Vars["APP_URL"]
 	v.Profiles = map[string]string{"prod": "http://+:9090"}
 	m.Vars["APP_URL"] = v
+	// A second declared secret that is deliberately left unseeded under
+	// prod: a declared secret with no value stored in a given profile is
+	// the ordinary case, not the exception, and the rm path must tolerate
+	// it (store.ErrNotFound) rather than abort on it.
+	m.Vars["OTHER_API_KEY"] = manifest.Var{Secret: true}
 	if err := manifest.Save(config.ManifestPath("vpb"), m); err != nil {
 		t.Fatal(err)
 	}
 	h.mem.Seed("envctl/vpb/prod/ALPHA_TOKEN", "k")
+	// The same secret name under a different profile must survive rm: that
+	// is the property the explicit per-name ServiceName call (rather than
+	// app.service, which is bound to the active profile) exists to protect.
+	h.mem.Seed("envctl/vpb/dev/ALPHA_TOKEN", "kept")
 
 	if err := h.run("profile", "rm", "prod", "--yes"); err != nil {
 		t.Fatalf("profile rm: %v", err)
@@ -206,8 +227,21 @@ func TestProfileRmDeletesTheProfilesSecretsAndOverrides(t *testing.T) {
 	if _, ok := got.Vars["APP_URL"].Profiles["prod"]; ok {
 		t.Error("the prod override survived")
 	}
-	if !strings.Contains(strings.Join(h.mem.Calls(), " "), "Delete envctl/vpb/prod/ALPHA_TOKEN") {
+	calls := strings.Join(h.mem.Calls(), " ")
+	if !strings.Contains(calls, "Delete envctl/vpb/prod/ALPHA_TOKEN") {
 		t.Errorf("the prod secret was not deleted: %v", h.mem.Calls())
+	}
+	if !strings.Contains(calls, "Delete envctl/vpb/prod/OTHER_API_KEY") {
+		t.Errorf("the never-stored prod secret was not attempted: %v", h.mem.Calls())
+	}
+	if v, err := h.mem.Get("envctl/vpb/dev/ALPHA_TOKEN"); err != nil || v != "kept" {
+		t.Errorf("a different profile's same-named secret did not survive: %q, %v", v, err)
+	}
+	// Two secrets are declared but only one was ever stored under prod, so
+	// the success line -- which counts actual deletions, not declarations --
+	// must say 1, not 2.
+	if out := h.out.String(); !strings.Contains(out, "(1 secrets deleted)") {
+		t.Errorf("stdout = %q, want it to report 1 secret actually deleted", out)
 	}
 }
 
@@ -222,6 +256,11 @@ func TestProfileRmRefusesTheLastProfile(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "last") {
 		t.Errorf("error = %v, want a refusal naming it as the last profile", err)
 	}
+	// A refusal on a destructive command must be a hard no: nothing in the
+	// keyring may be touched, even a read, before the refusal is returned.
+	if calls := h.mem.Calls(); len(calls) != 0 {
+		t.Errorf("keyring calls = %v, want none", calls)
+	}
 }
 
 func TestProfileRmRefusesThePersistedDefault(t *testing.T) {
@@ -231,6 +270,9 @@ func TestProfileRmRefusesThePersistedDefault(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "profile default") {
 		t.Errorf("error = %v, want it to point at `profile default`", err)
+	}
+	if calls := h.mem.Calls(); len(calls) != 0 {
+		t.Errorf("keyring calls = %v, want none", calls)
 	}
 }
 
@@ -242,5 +284,8 @@ func TestProfileRmRefusesTheActiveProfile(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "active") {
 		t.Errorf("error = %v, want a refusal naming it as active", err)
+	}
+	if calls := h.mem.Calls(); len(calls) != 0 {
+		t.Errorf("keyring calls = %v, want none", calls)
 	}
 }
