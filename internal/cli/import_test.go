@@ -357,6 +357,60 @@ func TestImportReusesAnExistingOutputAtTheSamePath(t *testing.T) {
 	}
 }
 
+// import --output must refuse to redefine an existing output by NAME, the
+// same rule `output add` already enforces at output.go:123. Without this
+// guard, `import --output web` against a project that already has a "web"
+// output silently replaces web's format and path, orphaning whatever it
+// used to render -- `trenvy clean web` then targets the wrong file.
+func TestImportRefusesToRedefineAnExistingOutputByName(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+	first := h.writeSample(t, "src/Web/.env_example", "A=1\n")
+	if err := h.run("import", first, "--no-tui", "--output", "web"); err != nil {
+		t.Fatal(err)
+	}
+	before := h.manifest(t, "p").Outputs["web"]
+
+	second := h.writeSample(t, "src/Other/.env_example", "B=2\n")
+	err := h.run("import", second, "--no-tui", "--output", "web")
+
+	if err == nil {
+		t.Fatal("import redefined an existing output by name")
+	}
+	if !strings.Contains(err.Error(), `output "web" is already defined`) {
+		t.Errorf("error = %v, want it to match output add's wording", err)
+	}
+	after := h.manifest(t, "p")
+	if got := after.Outputs["web"]; got.Path != before.Path || got.Format != before.Format {
+		t.Errorf("output web = %+v, want unchanged from %+v", got, before)
+	}
+	if _, ok := after.Vars["B"]; ok {
+		t.Error("the refused import wrote the second sample's variable anyway")
+	}
+}
+
+// The path-reuse branch is different from the name-collision guard above and
+// must keep working: importing the same sample again resolves to the same
+// output path, so it reuses the existing output silently even though the
+// same name is given explicitly.
+func TestImportSamePathReusesSilentlyEvenWithTheSameNameGiven(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+	sample := h.writeSample(t, "src/Web/.env_example", "A=1\n")
+	if err := h.run("import", sample, "--no-tui", "--output", "web"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := h.run("import", sample, "--no-tui", "--output", "web"); err != nil {
+		t.Fatalf("re-importing the same sample at the same path was refused: %v", err)
+	}
+
+	m := h.manifest(t, "p")
+	if len(m.Outputs) != 1 {
+		t.Errorf("Outputs = %v, want exactly one", m.Outputs)
+	}
+}
+
 func TestImportRefusesToClobberExistingVariables(t *testing.T) {
 	h := newHarness(t)
 	if err := h.run("project", "init", "--id", "vpb"); err != nil {

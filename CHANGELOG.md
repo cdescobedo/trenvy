@@ -146,6 +146,13 @@ the command surface may still move under you.
 
 ### Fixed
 
+- `trenvy import --output <name>` now refuses a name that already names a
+  defined output, matching `output add`'s guard. It used to silently replace
+  the existing output's format and path, orphaning whatever file it used to
+  render -- `trenvy clean <name>` would then target the wrong path, so a
+  rendered file that may hold secrets could never be removed by trenvy.
+  Importing into the same path a second time still reuses the existing output
+  silently; only redefining one by name is refused.
 - `exec` strips `TRENVY_PASSPHRASE` from the child environment. It unlocks the
   file secret backend, and a child process has no business inheriting it just
   because it inherits everything else.

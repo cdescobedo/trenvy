@@ -81,6 +81,15 @@ func newImportCmd(opts *Options) *cobra.Command {
 				} else {
 					if name == "" {
 						name = deriveOutputName(o.Path, o.Format, app.Manifest.Outputs)
+					} else if _, exists := app.Manifest.Outputs[name]; exists {
+						// Different rule from the path-reuse branch above:
+						// reusing an output whose Path already matches is
+						// correct, but redefining one by NAME -- same name,
+						// different path -- would silently replace its
+						// format and path and orphan whatever it used to
+						// render. output add refuses this at output.go:123;
+						// import must too.
+						return fmt.Errorf("output %q is already defined", name)
 					}
 					if app.Manifest.Outputs == nil {
 						app.Manifest.Outputs = map[string]manifest.Output{}
