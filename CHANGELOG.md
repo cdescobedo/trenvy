@@ -146,6 +146,10 @@ the command surface may still move under you.
 
 ### Fixed
 
+- `trenvy import --output <name>` now reports a bad name (e.g. `my.app`) as
+  the argument problem it is, instead of letting it reach `Manifest.Validate`
+  and coming back as `invalid manifest: output "my.app": ...` -- the same
+  misattribution already fixed for `output add` and `output rename`.
 - `trenvy import` no longer silently drops a variable whose name is not a
   valid shell identifier (e.g. `GROUP/KEY`) from the output it creates.
   It wrote a literal `["*"]` include glob, and glob `*` does not cross `/`,

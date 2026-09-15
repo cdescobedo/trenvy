@@ -67,6 +67,16 @@ func newImportCmd(opts *Options) *cobra.Command {
 			if noOutput && outputName != "" {
 				return fmt.Errorf("--output and --no-output cannot both be given")
 			}
+			if outputName != "" {
+				// Checked here, not left to Manifest.Validate, so a bad
+				// --output name is reported as the argument problem it is
+				// instead of "invalid manifest", and before anything is
+				// written to disk. output add and rename already call this
+				// at output.go:116 and :179; import named outputs too.
+				if err := requireValidOutputName(outputName); err != nil {
+					return err
+				}
+			}
 			if !noOutput {
 				o, err := outputFor(samplePath, app.Worktree)
 				if err != nil {

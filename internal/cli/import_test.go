@@ -451,6 +451,25 @@ func TestImportAndOutputAddAgreeOnASlashedVariableName(t *testing.T) {
 	}
 }
 
+// requireValidOutputName is wired into output add and output rename but not
+// import, so a bad --output name reached Manifest.Validate and was reported
+// as "invalid manifest: output ...", misattributing a bad argument to a
+// corrupt config file.
+func TestImportRefusesABadOutputName(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+	sample := h.writeSample(t, ".env_example", "A=1\n")
+
+	err := h.run("import", sample, "--no-tui", "--output", "my.app")
+
+	if err == nil || !strings.Contains(err.Error(), "my.app") {
+		t.Errorf("error = %v, want it to reject the name", err)
+	}
+	if err != nil && strings.Contains(err.Error(), "invalid manifest") {
+		t.Errorf("error = %v; a bad argument must not be reported as a corrupt manifest", err)
+	}
+}
+
 func TestImportRefusesToClobberExistingVariables(t *testing.T) {
 	h := newHarness(t)
 	if err := h.run("project", "init", "--id", "vpb"); err != nil {
