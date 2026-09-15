@@ -1,11 +1,28 @@
 package cli_test
 
 import (
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/cdescobedo/trenvy/internal/config"
 	"github.com/cdescobedo/trenvy/internal/manifest"
 )
+
+// skipIfNotRestrictable skips a test that relies on a read-only directory
+// stopping a write: that does not hold on Windows, nor for a process running
+// as root, which bypasses permission bits entirely.
+func skipIfNotRestrictable(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("a read-only directory does not stop a write on windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("a read-only directory does not stop a write when running as root")
+	}
+}
 
 func TestOutputListShowsEachOutputAndMarksTheDefault(t *testing.T) {
 	h := newHarness(t)
@@ -169,6 +186,26 @@ func TestOutputRenameMovesTheManifestAndTheStateRecord(t *testing.T) {
 	}
 }
 
+func TestOutputRenameRefusesABadName(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+	h.setOutputs(t, "p", map[string]manifest.Output{
+		"a": {Format: "dotenv", Path: "a.env"},
+	}, "a")
+
+	err := h.run("output", "rename", "a", "my.app")
+
+	if err == nil || !strings.Contains(err.Error(), "my.app") {
+		t.Errorf("error = %v, want it to reject the name", err)
+	}
+	if err != nil && strings.Contains(err.Error(), "invalid manifest") {
+		t.Errorf("error = %v; a bad argument must not be reported as a corrupt manifest", err)
+	}
+	if _, ok := h.manifest(t, "p").Outputs["a"]; !ok {
+		t.Error("the refused rename removed the original anyway")
+	}
+}
+
 func TestOutputRenameRefusesAnExistingName(t *testing.T) {
 	h := newHarness(t)
 	h.initProject(t, "p")
@@ -293,5 +330,123 @@ func TestOutputRmRefusesAnUnknownName(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "nope") {
 		t.Errorf("error = %v, want it to name the unknown output", err)
+	}
+}
+
+// The state-before-manifest write order is what makes a partial failure
+// recoverable by re-running the same command: after a failed manifest write,
+// the old name is still defined, so a retry finds it, rebases zero records
+// (already moved) and renames the key. Manifest-first would leave the old
+// name undefined after a failed second write, and the retry could no longer
+// find it -- argued in the design ledger but never pinned by a test, so
+// nothing stopped a refactor from inverting it silently.
+//
+// A read-only manifest directory is what makes the manifest write fail
+// without touching the state write, since the two live in different
+// directories under the config root.
+func TestOutputRenameWritesStateBeforeManifestSoARetryConverges(t *testing.T) {
+	skipIfNotRestrictable(t)
+	h := newHarness(t)
+	h.initProject(t, "p")
+	h.setOutputs(t, "p", map[string]manifest.Output{
+		"app": {Format: "dotenv", Path: ".env"},
+	}, "app")
+	h.recordRender(t, "p", h.root, "app", ".env")
+
+	dir := filepath.Join(config.Dir(), "projects")
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	restored := false
+	restore := func() {
+		if restored {
+			return
+		}
+		restored = true
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	defer restore()
+
+	err := h.run("output", "rename", "app", "docker")
+	if err == nil {
+		t.Fatal("rename succeeded despite a read-only manifest directory")
+	}
+
+	// The state write must have landed before the failed manifest write.
+	st := h.state(t, "p")
+	if _, ok := st.Find(h.root, "docker"); !ok {
+		t.Fatal("state was not updated before the manifest write failed; " +
+			"the write order is not state-first")
+	}
+
+	restore()
+
+	if err := h.run("output", "rename", "app", "docker"); err != nil {
+		t.Fatalf("re-running the same command after the failure did not converge: %v", err)
+	}
+
+	m := h.manifest(t, "p")
+	if _, ok := m.Outputs["docker"]; !ok {
+		t.Error("manifest was not updated on retry")
+	}
+	if _, ok := m.Outputs["app"]; ok {
+		t.Error("old name is still defined after the retry")
+	}
+	st = h.state(t, "p")
+	if _, ok := st.Find(h.root, "docker"); !ok {
+		t.Error("state record missing after the retry")
+	}
+}
+
+// See TestOutputRenameWritesStateBeforeManifestSoARetryConverges: rm shares
+// the same reasoning. Forget is idempotent, so a retry that finds zero
+// rendered records the second time around is exactly what recovery looks
+// like, not a sign that nothing needs doing.
+func TestOutputRmWritesStateBeforeManifestSoARetryConverges(t *testing.T) {
+	skipIfNotRestrictable(t)
+	h := newHarness(t)
+	h.initProject(t, "p")
+	h.setOutputs(t, "p", map[string]manifest.Output{
+		"app": {Format: "dotenv", Path: ".env"},
+	}, "app")
+	h.recordRender(t, "p", h.root, "app", ".env")
+
+	dir := filepath.Join(config.Dir(), "projects")
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	restored := false
+	restore := func() {
+		if restored {
+			return
+		}
+		restored = true
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	defer restore()
+
+	err := h.run("output", "rm", "app", "--yes", "--force")
+	if err == nil {
+		t.Fatal("rm succeeded despite a read-only manifest directory")
+	}
+
+	st := h.state(t, "p")
+	if _, ok := st.Find(h.root, "app"); ok {
+		t.Fatal("the render record was not forgotten before the manifest write failed; " +
+			"the write order is not state-first")
+	}
+
+	restore()
+
+	if err := h.run("output", "rm", "app", "--yes", "--force"); err != nil {
+		t.Fatalf("re-running the same command after the failure did not converge: %v", err)
+	}
+
+	if _, ok := h.manifest(t, "p").Outputs["app"]; ok {
+		t.Error("output still defined after the retry")
 	}
 }
