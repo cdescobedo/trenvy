@@ -43,7 +43,7 @@ func TestProfileWithNoSubcommandNamesTheActiveProfileAndItsSource(t *testing.T) 
 	if !strings.Contains(out, "dev") {
 		t.Errorf("output does not name the active profile:\n%s", out)
 	}
-	if !strings.Contains(out, "default_profile") {
+	if !strings.Contains(out, "(default)") {
 		t.Errorf("output does not say where it came from:\n%s", out)
 	}
 }

@@ -26,8 +26,8 @@ func TestProfileFallsBackToTheManifestDefault(t *testing.T) {
 	if got.Name != "dev" {
 		t.Errorf("Name = %q, want dev", got.Name)
 	}
-	if !strings.Contains(got.Source, "default_profile") {
-		t.Errorf("Source = %q, want it to name the manifest field", got.Source)
+	if got.Source != "default" {
+		t.Errorf("Source = %q, want %q", got.Source, "default")
 	}
 }
 

@@ -34,7 +34,7 @@ func Profile(m *manifest.Manifest, flag, env string) (ActiveProfile, error) {
 	case env != "":
 		p = ActiveProfile{Name: env, Source: ProfileEnvVar}
 	default:
-		p = ActiveProfile{Name: m.Project.DefaultProfile, Source: "default_profile in the manifest"}
+		p = ActiveProfile{Name: m.Project.DefaultProfile, Source: "default"}
 	}
 
 	for _, declared := range m.Project.Profiles {
