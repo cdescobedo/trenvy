@@ -146,6 +146,15 @@ the command surface may still move under you.
 
 ### Fixed
 
+- **`trenvy set` warns when a variable name cannot reach a dotenv output.** A
+  name that is not a valid shell identifier — `feature.flag`, say — is a legal
+  key in a json output and is delivered to a child process fine under `exec`,
+  where Python and Node read it from `os.environ` and `process.env`. Only
+  dotenv needs an identifier, because its file is sourced by a shell. `set` now
+  says so at the moment you type the name, listing the dotenv outputs that
+  select it, instead of leaving you to discover it at `render` time. It warns
+  and stores the value; it never refuses, so a json-only project is unaffected.
+
 - `trenvy import --output <name>` now reports a bad name (e.g. `my.app`) as
   the argument problem it is, instead of letting it reach `Manifest.Validate`
   and coming back as `invalid manifest: output "my.app": ...` -- the same

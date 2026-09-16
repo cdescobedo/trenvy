@@ -13,6 +13,8 @@ import (
 
 	"github.com/cdescobedo/trenvy/internal/config"
 	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/render"
+	"github.com/cdescobedo/trenvy/internal/resolve"
 	"github.com/cdescobedo/trenvy/internal/store"
 )
 
@@ -61,6 +63,7 @@ func newSetCmd(opts *Options) *cobra.Command {
 			if err := manifest.Save(config.ManifestPath(app.Entry.ID), app.Manifest); err != nil {
 				return err
 			}
+			warnUnreachableInDotenv(opts, app.Manifest, name)
 			if shared {
 				// v.Profiles is untouched by the --shared branch above, so it
 				// still lists exactly the profiles whose own override makes
@@ -347,4 +350,50 @@ func confirm(opts *Options, question string) (bool, error) {
 	}
 	answer := strings.ToLower(strings.TrimSpace(line))
 	return answer == "y" || answer == "yes", nil
+}
+
+// warnUnreachableInDotenv reports, without refusing, that a name just written
+// cannot appear in a dotenv output that selects it.
+//
+// The rule belongs to the format rather than to trenvy. A json output takes any
+// key, and a process environment carries the variable to the child perfectly
+// well -- Python reads "feature.flag" from os.environ and Node from
+// process.env; only shell syntax cannot address it, because $feature.flag
+// parses as $feature followed by .flag. Dotenv is the one destination whose
+// file is sourced by a shell, so it is the one that needs an identifier.
+//
+// Hence a warning rather than a rule: refusing the name would stop a json-only
+// project from using a key its own config format allows. It fires only when a
+// dotenv output would actually have to write the name, so a project with none
+// is never nagged, and render still errors if the situation is reached anyway.
+func warnUnreachableInDotenv(opts *Options, m *manifest.Manifest, name string) {
+	if render.ValidateDotenvName(name) == nil {
+		return
+	}
+	var blocked []string
+	for out, o := range m.Outputs {
+		if o.Format != manifest.FormatDotenv {
+			continue
+		}
+		// An output that excludes the variable cannot be broken by it.
+		if sel, err := resolve.Selects(m, out, name); err != nil || !sel {
+			continue
+		}
+		blocked = append(blocked, out)
+	}
+	if len(blocked) == 0 {
+		return
+	}
+	sort.Strings(blocked)
+
+	noun := "output"
+	if len(blocked) > 1 {
+		noun = "outputs"
+	}
+	fmt.Fprintf(opts.Stderr,
+		"trenvy: warning: %q is not a valid shell identifier, so `render` will refuse "+
+			"the dotenv %s it belongs to: %s\n", name, noun, strings.Join(blocked, ", "))
+	fmt.Fprintf(opts.Stderr,
+		"  the value is stored, and works in json outputs and under exec; "+
+			"rename the variable, or add it to that output's exclude list\n")
 }

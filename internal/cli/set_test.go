@@ -543,3 +543,75 @@ func TestUnsetWithoutConfirmationRefuses(t *testing.T) {
 		t.Error("the variable was removed despite the refusal")
 	}
 }
+
+// A name that is not a shell identifier is perfectly legal in a json output
+// and cannot work in a dotenv one. The warning fires only when some dotenv
+// output actually selects it, so a json-only project is never nagged.
+func TestSetWarnsWhenTheNameCannotReachADotenvOutput(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+	h.setOutputs(t, "p", map[string]manifest.Output{
+		"docker": {Format: manifest.FormatDotenv, Path: ".env"},
+	}, "docker")
+
+	if err := h.run("set", "feature.flag", "yes"); err != nil {
+		t.Fatalf("set must not refuse the name: %v", err)
+	}
+
+	if _, ok := h.manifest(t, "p").Vars["feature.flag"]; !ok {
+		t.Error("the warning blocked the write; it must only warn")
+	}
+	warn := h.errb.String()
+	if !strings.Contains(warn, "feature.flag") || !strings.Contains(warn, "docker") {
+		t.Errorf("warning must name the variable and the output it cannot reach:\n%s", warn)
+	}
+}
+
+func TestSetDoesNotWarnForAJSONOnlyProject(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+	h.setOutputs(t, "p", map[string]manifest.Output{
+		"cfg": {Format: manifest.FormatJSON, Path: "cfg.json"},
+	}, "cfg")
+
+	if err := h.run("set", "feature.flag", "yes"); err != nil {
+		t.Fatal(err)
+	}
+
+	if w := h.errb.String(); w != "" {
+		t.Errorf("a json output takes any key; nothing to warn about:\n%s", w)
+	}
+}
+
+func TestSetDoesNotWarnForAShellLegalName(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+	h.setOutputs(t, "p", map[string]manifest.Output{
+		"docker": {Format: manifest.FormatDotenv, Path: ".env"},
+	}, "docker")
+
+	if err := h.run("set", "auth0ClientID", "x"); err != nil {
+		t.Fatal(err)
+	}
+
+	if w := h.errb.String(); w != "" {
+		t.Errorf("auth0ClientID is a valid shell identifier:\n%s", w)
+	}
+}
+
+// An output that excludes the variable cannot be broken by it.
+func TestSetDoesNotWarnWhenTheDotenvOutputExcludesTheName(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+	h.setOutputs(t, "p", map[string]manifest.Output{
+		"docker": {Format: manifest.FormatDotenv, Path: ".env", Exclude: []string{"feature.*"}},
+	}, "docker")
+
+	if err := h.run("set", "feature.flag", "yes"); err != nil {
+		t.Fatal(err)
+	}
+
+	if w := h.errb.String(); w != "" {
+		t.Errorf("the output excludes it, so it cannot reach the file:\n%s", w)
+	}
+}
