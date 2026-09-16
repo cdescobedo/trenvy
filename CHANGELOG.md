@@ -146,6 +146,18 @@ the command surface may still move under you.
 
 ### Fixed
 
+- **`trenvy status` lists every variable, not only secrets.** A plain variable
+  was invisible, which hid the case that matters: a value set under one profile
+  and not another is a valid manifest that `render` refuses the moment you
+  switch profiles. Those rows now read `MISSING` and name the `set` that fixes
+  them. Optional variables are shown as `optional`, because they are omitted
+  from the rendered file and nothing said so.
+- **The active profile's source reads `default` rather than
+  `default_profile in the manifest`.** The three sources are now `--profile`,
+  `TRENVY_PROFILE` and `default` — each naming its mechanism, so `trenvy
+  profile` and `trenvy profile list` agree, and an error that blames a source
+  reads the same way wherever it appears.
+
 - **`trenvy set` warns when a variable name cannot reach a dotenv output.** A
   name that is not a valid shell identifier — `feature.flag`, say — is a legal
   key in a json output and is delivered to a child process fine under `exec`,

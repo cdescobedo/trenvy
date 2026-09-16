@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cdescobedo/trenvy/internal/config"
 	"github.com/cdescobedo/trenvy/internal/manifest"
 )
 
@@ -226,5 +227,62 @@ func TestStatusNamesTheActiveProfileAndItsSource(t *testing.T) {
 	}
 	if !strings.Contains(out, "TRENVY_PROFILE") {
 		t.Errorf("status does not say where the profile came from:\n%s", out)
+	}
+}
+
+// status exists to report what render would do before it does it. A plain
+// variable with no value under the active profile is a legal manifest that
+// fails at render, so hiding it defeats the command's purpose.
+func TestStatusListsPlainVariablesNotOnlySecrets(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+	if err := h.run("profile", "add", "prod"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.run("set", "--shared", "SHARED_ONE", "a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.run("set", "PROFILE_ONLY", "b"); err != nil { // dev only
+		t.Fatal(err)
+	}
+
+	if err := h.run("-p", "prod", "status"); err != nil {
+		t.Fatal(err)
+	}
+
+	out := h.out.String()
+	if !strings.Contains(out, "SHARED_ONE") {
+		t.Errorf("status omits a plain variable that has a value:\n%s", out)
+	}
+	if !strings.Contains(out, "PROFILE_ONLY") {
+		t.Errorf("status omits a plain variable that render will fail on:\n%s", out)
+	}
+	// The row must say it is missing under prod, and name the fix.
+	for _, want := range []string{"MISSING", "trenvy -p prod set PROFILE_ONLY"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("status does not report %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestStatusMarksAnOptionalVariableAsOptional(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+	m := h.manifest(t, "p")
+	m.Vars["OPTIONAL_ONE"] = manifest.Var{Optional: true}
+	if err := manifest.Save(config.ManifestPath("p"), m); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := h.run("status"); err != nil {
+		t.Fatal(err)
+	}
+
+	out := h.out.String()
+	if !strings.Contains(out, "OPTIONAL_ONE") || !strings.Contains(out, "optional") {
+		t.Errorf("an optional variable is omitted from the render; status must say so:\n%s", out)
+	}
+	if strings.Contains(out, "MISSING  OPTIONAL_ONE") {
+		t.Errorf("an optional variable is not missing:\n%s", out)
 	}
 }

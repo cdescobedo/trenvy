@@ -54,9 +54,27 @@ func newStatusCmd(opts *Options) *cobra.Command {
 			missing := 0
 			vw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 			for _, n := range names {
-				if !app.Manifest.Vars[n].Secret {
+				v := app.Manifest.Vars[n]
+
+				// A plain variable's value lives in the manifest, so its state
+				// is decided here without touching the store. The case worth
+				// reporting is a value that exists under some OTHER profile:
+				// the manifest validates, and render fails only once you ask
+				// for this profile. status is where that should surface.
+				if !v.Secret {
+					switch {
+					case v.Profiles[app.Profile.Name] != "" || v.Value != nil:
+						fmt.Fprintf(vw, "  present\t%s\n", n)
+					case v.Optional:
+						fmt.Fprintf(vw, "  optional\t%s\t(omitted when unset)\n", n)
+					default:
+						missing++
+						fmt.Fprintf(vw, "  MISSING\t%s\t-> trenvy -p %s set %s <value>\n",
+							n, app.Profile.Name, n)
+					}
 					continue
 				}
+
 				s, err := app.store()
 				if err != nil {
 					return err
@@ -67,9 +85,12 @@ func newStatusCmd(opts *Options) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if ok {
+				switch {
+				case ok:
 					fmt.Fprintf(vw, "  present\t%s\n", n)
-				} else {
+				case v.Optional:
+					fmt.Fprintf(vw, "  optional\t%s\t(omitted when unset)\n", n)
+				default:
 					missing++
 					fmt.Fprintf(vw, "  MISSING\t%s\t-> trenvy -p %s secret set %s\n", n, app.Profile.Name, n)
 				}
