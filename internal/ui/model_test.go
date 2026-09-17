@@ -625,6 +625,54 @@ func TestRevealedMsgShowsValueOnlyForThatCell(t *testing.T) {
 	}
 }
 
+// w is what Task 9's cli-side commit relies on to know whether to write
+// anything at all: Staged() is populated the same way whether or not w was
+// ever pressed, so Saved() has to be the one bit that tells the two apart.
+func TestWMarksSavedAndQuits(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = m.Update(ui.KeyRune('2'))
+	m = editCell(m, "NEWVAL")
+
+	if m.Saved() {
+		t.Fatalf("Saved() = true before w was ever pressed")
+	}
+
+	m, cmd := m.Update(ui.KeyRune('w'))
+	if !m.Saved() {
+		t.Errorf("Saved() = false after w, want true")
+	}
+	if cmd == nil {
+		t.Fatal("w did not return a command to end the session")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Errorf("w's command = %T, want tea.Quit", cmd())
+	}
+	if len(m.Staged()) != 1 {
+		t.Errorf("w must not clear Staged(); the cli commits from it after Run returns")
+	}
+}
+
+// q ends the session without ever setting Saved(), which is the other half
+// of the "quit without w writes nothing" promise: the cli only has Saved()
+// to check, so a quit path that left it true would write staged changes the
+// user never asked to keep.
+func TestQQuitsWithoutSaving(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = m.Update(ui.KeyRune('2'))
+	m = editCell(m, "NEWVAL")
+
+	m, cmd := m.Update(ui.KeyRune('q'))
+	if m.Saved() {
+		t.Errorf("Saved() = true after q, want false")
+	}
+	if cmd == nil {
+		t.Fatal("q did not return a command to end the session")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Errorf("q's command = %T, want tea.Quit", cmd())
+	}
+}
+
 // A filter matching nothing must not panic View, and must leave every row
 // hidden rather than falling back to showing them all.
 func TestFilterWithNoMatches(t *testing.T) {

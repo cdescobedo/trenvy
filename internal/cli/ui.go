@@ -1,10 +1,15 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/store"
 	"github.com/cdescobedo/trenvy/internal/ui"
 )
 
@@ -26,16 +31,199 @@ func newUiCmd(opts *Options) *cobra.Command {
 			ps := ui.Problems(mx, outputStates(opts, app, mx))
 			m := ui.New(app.Entry.ID, mx, ps)
 
-			_, err = opts.RunUI(m, func(name, profile string) (string, error) {
+			final, err := opts.RunUI(m, func(name, profile string) (string, error) {
 				s, err := app.store()
 				if err != nil {
 					return "", err
 				}
 				return s.Get(app.Cfg.Keyring.ServiceName(app.Manifest.Project.ID, profile, name))
 			})
-			return err
+			if err != nil {
+				return err
+			}
+			if !final.Saved() {
+				fmt.Fprintln(opts.Stdout, "no changes written")
+				return nil
+			}
+			return commitStaged(opts, app, final.Staged())
 		},
 	}
+}
+
+// commitStaged writes w's staged changes: keyring writes, then keyring
+// deletes, then the manifest. The manifest is the only inventory of which
+// keyring items exist, so a failure before it is saved leaves at worst a
+// keyring item nothing references -- an unreferenced secret is inert,
+// because nothing ever looks for it. The reverse order would risk the
+// opposite: a manifest entry declaring a secret that was never stored, or a
+// manifest missing an entry whose secret still sits in the keyring, either
+// of which is data loss or an item nothing can ever find again.
+//
+// staged changes carry no cross-run identity -- internal/ui holds them only
+// in memory, and the terminal session that produced them has already ended
+// by the time this runs (RunUI returned once w was pressed). So a failure
+// partway through cannot be resumed: there is no session left to press w
+// again in. What is reported is exactly how much of THIS run already
+// landed; everything else that was staged is gone, and the only way back is
+// a fresh trenvy ui session redoing it by hand.
+func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
+	if len(staged) == 0 {
+		return nil
+	}
+
+	type keyOp struct {
+		del     bool
+		service string
+		value   string
+	}
+	var writes, deletes []keyOp
+
+	for _, c := range staged {
+		switch c.Kind {
+		case ui.ChangeSetSecret:
+			writes = append(writes, keyOp{
+				service: app.Cfg.Keyring.ServiceName(app.Manifest.Project.ID, c.Profile, c.Name),
+				value:   c.Value,
+			})
+		case ui.ChangeDeleteVar:
+			// Deleting a variable must remove its keyring item under EVERY
+			// declared profile, so this loop uses its own p when building
+			// each service name -- never app.service(c.Name), which binds
+			// only the active profile and would delete that one profile's
+			// item once per profile while leaving every other profile's
+			// secret orphaned in the keyring with no manifest entry left to
+			// find it by.
+			//
+			// Presence is read from the manifest as loaded, before the
+			// mutation loop below runs, so a var deleted in the same batch
+			// it was added in (staged as both add-var and delete-var) is
+			// correctly seen as never having existed, never as secret.
+			if v, ok := app.Manifest.Vars[c.Name]; ok && v.Secret {
+				for _, p := range app.Manifest.Project.Profiles {
+					deletes = append(deletes, keyOp{
+						del:     true,
+						service: app.Cfg.Keyring.ServiceName(app.Manifest.Project.ID, p, c.Name),
+					})
+				}
+			}
+		}
+	}
+
+	// Stored and deleted are counted separately, never folded into one
+	// number: a blurred "applied 3 of 5" cannot tell a reader whether the
+	// missing two are secrets never stored (something still needs a value)
+	// or secrets never removed (a credential the user meant to revoke is
+	// still live) -- and those two states call for opposite next steps. A
+	// user reading this message is deciding what to do about their secrets
+	// right now, and a count that hides which kind of operation stalled
+	// gives back exactly what reporting partial progress was for.
+	storedTotal, deletedTotal := len(writes), len(deletes)
+	storedApplied, deletedApplied := 0, 0
+	if storedTotal+deletedTotal > 0 {
+		s, err := app.store()
+		if err != nil {
+			return err
+		}
+		for _, op := range writes {
+			if err := s.Set(op.service, op.value); err != nil {
+				return partialCommitError("store", op.service, err,
+					storedApplied, storedTotal, deletedApplied, deletedTotal)
+			}
+			storedApplied++
+		}
+		for _, op := range deletes {
+			if err := s.Delete(op.service); err != nil {
+				if errors.Is(err, store.ErrNotFound) {
+					// A declared secret that was never actually stored under
+					// this profile is the ordinary case, not a failure, and
+					// must not inflate the applied count.
+					continue
+				}
+				return partialCommitError("delete", op.service, err,
+					storedApplied, storedTotal, deletedApplied, deletedTotal)
+			}
+			deletedApplied++
+		}
+	}
+
+	// Only now does the manifest change, and only in memory -- Validate runs
+	// before anything reaches disk, so a rejected manifest cannot leave a
+	// half-applied shape behind.
+	for _, c := range staged {
+		switch c.Kind {
+		case ui.ChangeSetValue:
+			// A per-profile override, never the shared Value: editing one
+			// cell in the matrix must not change what every other profile
+			// resolves to, and Classify already reads Profiles[profile]
+			// before Value for exactly this reason.
+			v := app.Manifest.Vars[c.Name]
+			if v.Profiles == nil {
+				v.Profiles = map[string]string{}
+			}
+			v.Profiles[c.Profile] = c.Value
+			app.Manifest.Vars[c.Name] = v
+		case ui.ChangeAddVar:
+			if _, exists := app.Manifest.Vars[c.Name]; !exists {
+				app.Manifest.Vars[c.Name] = manifest.Var{}
+			}
+		case ui.ChangeDeleteVar:
+			delete(app.Manifest.Vars, c.Name)
+		case ui.ChangeSetSecret:
+			v := app.Manifest.Vars[c.Name]
+			v.Secret = true
+			v.Value = nil
+			v.Profiles = nil
+			app.Manifest.Vars[c.Name] = v
+		}
+	}
+
+	if err := app.Manifest.Validate(); err != nil {
+		if progress := commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal); progress != "" {
+			return fmt.Errorf("%w\n  %s; the manifest was not saved\n"+
+				"  everything else staged this session is gone -- open trenvy ui again and redo it",
+				err, progress)
+		}
+		return err
+	}
+
+	if err := manifest.Save(config.ManifestPath(app.Entry.ID), app.Manifest); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(opts.Stdout, "saved %d changes\n", len(staged))
+	return nil
+}
+
+// commitProgress renders how far a commit got as "stored X of Y secrets,
+// deleted A of B keyring items", omitting whichever clause the batch never
+// contained at all: a batch with no deletions in it reporting "deleted 0 of
+// 0" would be noise at the exact moment a reader needs a message they can
+// trust. Returns "" when the batch touched the keyring not at all.
+func commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal int) string {
+	var parts []string
+	if storedTotal > 0 {
+		parts = append(parts, fmt.Sprintf("stored %d of %d secrets", storedApplied, storedTotal))
+	}
+	if deletedTotal > 0 {
+		parts = append(parts, fmt.Sprintf("deleted %d of %d keyring items", deletedApplied, deletedTotal))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// partialCommitError reports a keyring write or delete that failed partway
+// through committing staged ui changes, in the shape this codebase's other
+// partial-failure errors (edit's applyRows, unset, profile rm, project rm)
+// all use: name the item, say how far the run got, say the manifest was not
+// saved, name the way back.
+//
+// The session that staged these changes has already ended by the time this
+// runs, so "open trenvy ui again" is never a resume -- it is a fresh session
+// that has to redo everything this run did not finish.
+func partialCommitError(verb, service string, err error, storedApplied, storedTotal, deletedApplied, deletedTotal int) error {
+	return fmt.Errorf(
+		"%s %s: %w\n  %s; the manifest was not saved\n"+
+			"  everything else staged this session is gone -- open trenvy ui again and redo it",
+		verb, service, err, commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal))
 }
 
 // matrixFromManifest loads the presence-aware matrix behind the ui command.

@@ -122,6 +122,11 @@ type Model struct {
 	buffer string
 	filter string
 	staged []Change
+	// saved records that the session ended with w. Task 9's cli-side commit
+	// checks this, never len(Staged()) > 0: Staged() looks identical whether
+	// or not w was pressed, and this is the one bit that tells the two apart
+	// -- mirrors internal/tui's own Saved.
+	saved bool
 
 	// revealed holds cells the user has explicitly revealed with r this
 	// session. A slice, not a map keyed by name: it must scope to exactly
@@ -155,6 +160,11 @@ func (m Model) Mode() Mode { return m.mode }
 // Buffer is the text typed so far in whichever input mode is active: a
 // value, a new variable name, or a filter.
 func (m Model) Buffer() string { return m.buffer }
+
+// Saved reports that the session ended with w rather than q or ctrl+c. The
+// cli must not write anything back to the manifest or the keyring until
+// this is true -- quitting any other way must leave it at its zero value.
+func (m Model) Saved() bool { return m.saved }
 
 // Staged returns the uncommitted changes, in the order they were made. A
 // copy, so a caller cannot mutate the model's internal slice through it.
@@ -431,6 +441,15 @@ func (m Model) updateBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if req, ok := m.revealRequest(); ok {
 			return m, func() tea.Msg { return req }
 		}
+	case "w":
+		m.saved = true
+		return m, tea.Quit
+	case "q":
+		// No confirmation yet: a later task adds the "are you sure" gate
+		// this codebase's other quit-with-unsaved-changes prompts use.
+		// Until then q simply ends the session with saved left false, which
+		// is already enough for the cli to discard whatever is staged.
+		return m, tea.Quit
 	}
 	return m, nil
 }

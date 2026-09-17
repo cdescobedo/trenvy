@@ -127,9 +127,20 @@ the command surface may still move under you.
   own `guard.Inspect` judgment rather than a second implementation, always in
   `--quick` mode, for the same reason presence stays `Has`-only: an output
   that also selects a secret is reported `unknown`, with `trenvy status` as
-  its fix, instead of paying for the read. This first landing renders the
-  grid and the Overview; editing, staging and saving from inside it are not
-  wired up yet.
+  its fix, instead of paying for the read. Edits, secret values and new or
+  removed variables are staged in memory and committed together with `w`:
+  keyring writes land first, then keyring deletes (a deleted variable's
+  secret is removed under every profile, not just the active one), and only
+  then the manifest, once it passes the same validation `edit` and `set`
+  already require -- so a rejected batch never leaves a manifest entry
+  pointing at a secret that was never stored. Quitting any other way writes
+  nothing at all. A keyring failure partway through a batch cannot be undone,
+  so the error reports secrets stored and keyring items deleted as two
+  separate counts, never folded into one number that could not say which
+  kind stalled. The session that staged the batch has already ended by
+  then, so the fix is not a resume: it names `trenvy ui` as a fresh session
+  to redo whatever the failed run did not finish, the same honesty `edit`'s
+  own partial-failure handling practices.
 
 ### Changed
 
