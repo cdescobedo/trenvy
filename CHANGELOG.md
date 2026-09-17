@@ -157,7 +157,15 @@ the command surface may still move under you.
   destroys them outright rather than deferring them; declining leaves both
   the changes and the current project exactly as they were. A registry of
   exactly one project -- the current one -- says plainly there is nothing to
-  switch to, instead of a panel with nothing useful in it.
+  switch to, instead of a panel with nothing useful in it. `q` asks first when
+  staged changes are present, the same y/anything-else gate `internal/tui`
+  already uses for its own quit confirmation; declining leaves the staged
+  changes and the cursor exactly where they were. Ctrl+C still cancels
+  unconditionally, including from that confirmation itself, so a user who
+  cannot remember any other key always has an exit that writes nothing. A
+  status line, visible on every tab, names the staged count and the w/q keys
+  that resolve it -- and says plainly that nothing is staged rather than
+  offering to save or discard when there is nothing to lose.
 
 ### Changed
 

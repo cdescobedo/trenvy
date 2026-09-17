@@ -663,13 +663,16 @@ func TestWMarksSavedAndQuits(t *testing.T) {
 // q ends the session without ever setting Saved(), which is the other half
 // of the "quit without w writes nothing" promise: the cli only has Saved()
 // to check, so a quit path that left it true would write staged changes the
-// user never asked to keep.
+// user never asked to keep. With staged changes present, q asks first
+// (Task 12, see quit_test.go) -- this confirms the "yes" branch still leaves
+// Saved() false.
 func TestQQuitsWithoutSaving(t *testing.T) {
 	m := newTestModel(t)
 	m, _ = m.Update(ui.KeyRune('2'))
 	m = editCell(m, "NEWVAL")
 
-	m, cmd := m.Update(ui.KeyRune('q'))
+	m, _ = m.Update(ui.KeyRune('q'))
+	m, cmd := m.Update(ui.KeyRune('y'))
 	if m.Saved() {
 		t.Errorf("Saved() = true after q, want false")
 	}

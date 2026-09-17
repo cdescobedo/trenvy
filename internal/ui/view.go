@@ -146,6 +146,25 @@ func (m Model) viewSwitcher() string {
 	return b.String()
 }
 
+// statusLine reports what would be lost by quitting without w. With nothing
+// staged there is nothing to save or discard, so it says exactly that rather
+// than a count of zero next to keys that would do nothing -- "0 unsaved
+// changes" or "w save" over an empty stage reads as a broken prompt, not an
+// honest one, the same failure Task 11's one-project switcher panel avoided
+// by saying plainly there was nothing to switch to instead of rendering an
+// empty list.
+func (m Model) statusLine() string {
+	n := len(m.staged)
+	if n == 0 {
+		return "no staged changes"
+	}
+	plural := "s"
+	if n == 1 {
+		plural = ""
+	}
+	return fmt.Sprintf("%d staged change%s -- w save, q discard", n, plural)
+}
+
 func truncateName(s string) string {
 	runes := []rune(s)
 	if len(runes) <= nameColumnWidth {

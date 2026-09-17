@@ -64,6 +64,12 @@ const (
 	// leaving them staged across a quit-and-reopen might read -- it destroys
 	// them the instant the new project's session starts.
 	ModeConfirmSwitch
+	// ModeConfirmQuit is the question asked when q is pressed with staged
+	// changes present. Mirrors internal/tui's ModeConfirmQuit: every key but
+	// y answers no, and ctrl+c cancels unconditionally even from here (see
+	// Update). Unlike ModeConfirmSwitch, there is nothing to remember about
+	// which target was asked for -- quitting has exactly one destination.
+	ModeConfirmQuit
 )
 
 // String names the mode for test failure messages.
@@ -83,6 +89,8 @@ func (md Mode) String() string {
 		return "switch-project"
 	case ModeConfirmSwitch:
 		return "confirm-switch"
+	case ModeConfirmQuit:
+		return "confirm-quit"
 	}
 	return "unknown"
 }
@@ -607,6 +615,30 @@ func (m Model) updateConfirmSwitch(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 }
 
+// updateConfirmQuit answers the "discard staged changes and quit?" question
+// ModeConfirmQuit asks, mirroring internal/tui's updateConfirm's
+// y/anything-else shape (and updateConfirmSwitch's, this package's own copy
+// of the same rule). Declining must leave staged, mode, and the cursor
+// exactly as they were -- restoring ModeBrowse without touching row, col or
+// tab is what lets the user resume exactly where q interrupted them, rather
+// than landing back in browse mode having lost their place.
+func (m Model) updateConfirmQuit(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch msg.String() {
+	case "y":
+		// The session is ending regardless of what Staged() holds -- the
+		// cli host commits only when Saved() is true (see TestQQuitsWithoutSaving) --
+		// but clearing it here mirrors updateConfirmSwitch's own "destroy on
+		// confirm" and keeps the model's own state honest about what it is
+		// discarding, rather than leaving stale Changes behind on a Model
+		// that happens to be reused after Run returns.
+		m.staged = nil
+		return m, tea.Quit
+	default:
+		m.mode = ModeBrowse
+		return m, nil
+	}
+}
+
 func clamp(v, lo, hi int) int {
 	if v < lo {
 		return lo
@@ -630,6 +662,16 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Ctrl+C is an immediate, unconditional cancel in every mode,
+		// mirroring internal/tui: bubbletea's raw mode delivers it as an
+		// ordinary KeyMsg, not SIGINT, so without this a user mid-edit, or
+		// facing the quit confirmation itself, has no way out except
+		// answering a prompt they may not understand -- and from
+		// ModeConfirmQuit it would otherwise fall through to "no" like any
+		// other key and refuse to quit at all.
+		if msg.Type == tea.KeyCtrlC {
+			return m, tea.Quit
+		}
 		switch m.mode {
 		case ModeEditValue, ModeEditSecret, ModeAddName, ModeFilter:
 			return m.updateInput(msg)
@@ -637,6 +679,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return m.updateSwitch(msg)
 		case ModeConfirmSwitch:
 			return m.updateConfirmSwitch(msg)
+		case ModeConfirmQuit:
+			return m.updateConfirmQuit(msg)
 		default:
 			return m.updateBrowse(msg)
 		}
@@ -721,10 +765,14 @@ func (m Model) updateBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.saved = true
 		return m, tea.Quit
 	case "q":
-		// No confirmation yet: a later task adds the "are you sure" gate
-		// this codebase's other quit-with-unsaved-changes prompts use.
-		// Until then q simply ends the session with saved left false, which
-		// is already enough for the cli to discard whatever is staged.
+		// Nothing staged means nothing to lose, so q leaves immediately --
+		// asking first here would be a confirmation with nothing behind it.
+		// With staged changes present, it asks first (updateConfirmQuit),
+		// mirroring internal/tui's own ModeConfirmQuit gate.
+		if len(m.staged) > 0 {
+			m.mode = ModeConfirmQuit
+			return m, nil
+		}
 		return m, tea.Quit
 	}
 	return m, nil
@@ -894,6 +942,14 @@ func (m Model) View() string {
 		b.WriteString(m.viewProfiles())
 	case TabOutputs:
 		b.WriteString(m.viewOutputs())
+	}
+
+	// The status line lives outside the per-tab switch above, not inside
+	// viewVariables: q and its confirmation apply from every tab, so what is
+	// pending must be visible no matter which one is on screen.
+	fmt.Fprintf(&b, "\n%s\n", m.statusLine())
+	if m.mode == ModeConfirmQuit {
+		b.WriteString("quit anyway and discard them? [y/N]\n")
 	}
 
 	return b.String()
