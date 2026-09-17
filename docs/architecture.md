@@ -45,7 +45,24 @@ why its tests need no store at all.
 
 **`render` / `cli` — where does it go?** `render` turns resolved values into
 bytes (dotenv or JSON) and computes the digests. `cli` wires the commands and
-owns everything user-facing. `tui` is the interactive table.
+owns everything user-facing. `tui` is the interactive table behind `edit` and
+`import`; `ui` is the tabbed management interface behind `trenvy ui`.
+
+### `internal/ui` and `internal/tui`
+
+`internal/cli` drives two interactive views. `tui` is the flat table `edit`
+and `import` open: one profile, one column of values per variable. `ui` is
+the matrix `trenvy ui` opens: every variable against every profile, with an
+Overview tab of detected problems and placeholder Profiles/Outputs tabs
+around it.
+
+The two packages share no code and no state. A list of one profile's
+variables and a matrix over every profile are different shapes, so each
+package owns its own model, view and `Update`; a change to one cannot alter
+what the other renders. `ui` loads secret presence through `Has` only, never
+`Get`, the same rule `cli`'s `status` command and its completion paths
+already follow, so opening `trenvy ui` never raises a keyring authorization
+prompt by itself.
 
 **Beneath:** `store` holds secret values behind one small interface with an
 implementation per platform. `config` owns everything in the config directory —

@@ -39,6 +39,7 @@ outputs
 - [Quickstart](#quickstart)
 - [Concepts](#concepts) — **start here**
 - [Command reference](#command-reference)
+- [The management interface](#the-management-interface)
 - [Configuration](#configuration)
 - [Security model](#security-model)
 - [Shell completion](#shell-completion)
@@ -327,6 +328,7 @@ Every description below is the command's own `Short` text. Run
 | `trenvy secret rm <NAME>` | Delete a secret's value from the keyring, keeping the variable |
 | `trenvy unset <NAME>` | Remove a variable from the manifest and its secret from every profile's keyring |
 | `trenvy edit` | Edit this project's variables interactively |
+| `trenvy ui` | Manage this project's variables across every profile, interactively |
 
 Flags: `import` takes `--output <name>`, `--no-output`, `--no-tui` and
 `--force`; `set` takes `--shared`; `show` takes `--reveal` and `--format
@@ -383,6 +385,52 @@ masked dotenv file would be a file full of bullets.
 
 Whether a secret is actually *stored* is `trenvy status`'s question, not
 `show`'s: a masked row says "this is a secret", not "this is present".
+
+## The management interface
+
+`trenvy edit` shows one profile at a time. `trenvy ui` shows all of them at
+once, as a matrix — rows are variables, columns are profiles:
+
+```console
+$ trenvy ui
+1:Overview  >2:Variables   3:Profiles   4:Outputs
+
+   NAME                  dev       prod
+>  API_TOKEN     secret  [stored]  MISSING
+   APP_MODE              override  shared
+   DATABASE_URL          shared    shared
+
+no staged changes
+```
+
+A cell reads `shared` (the variable's default value), `override` (a value set
+just for that profile), `stored` (a secret present in the keyring), `MISSING`
+or `optional`. The `secret` column marks which rows are secrets. Presence is
+loaded with `Has`, never `Get`, so opening the view never raises a keyring
+authorization prompt — a cell's real value is only fetched when you reveal it.
+
+The four tabs: **Overview** repeats `status`'s own project/profile/backend
+facts and lists every detected problem with the exact command that fixes it,
+or says the project is healthy; enter on a problem jumps straight to the cell
+that explains it. **Variables** is the matrix above. **Profiles** and
+**Outputs** are placeholders in this release — they name `trenvy profile` and
+`trenvy output` as the commands that do that job today.
+
+Keys: `1`-`4` or `tab`/`shift+tab` switch tabs; `j`/`k`/`h`/`l` and the arrow
+keys move the cursor (clamped at the edges, not wrapping); `e` edits the
+selected cell, masked while typing if it is a secret; `r` fetches and reveals
+one cell's real value; `a` adds a new variable; `d` marks the selected
+variable deleted; `/` filters the rows by substring; `p` opens a switcher over
+every registered project and reloads the session against your choice, asking
+first if you have staged changes; `w` writes everything staged; `q` quits,
+asking first if anything is staged; `ctrl+c` quits immediately from anywhere,
+without asking, and without writing anything.
+
+Nothing reaches disk until `w`. It then writes keyring changes first — new
+secret values, then deletions of a removed variable's secret under every
+profile — and only afterwards saves the manifest, so a run that fails partway
+through never leaves the manifest pointing at a secret that was never stored.
+Quitting any other way — `q` confirmed, or `ctrl+c` — writes nothing at all.
 
 ## Configuration
 
