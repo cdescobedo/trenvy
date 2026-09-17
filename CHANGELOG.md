@@ -180,7 +180,13 @@ the command surface may still move under you.
   first -- a file that was never rendered, or one `trenvy` has no render
   record for, or one hand-edited since, are all decidable without reading
   the secret, and a match against its own record is treated as fine rather
-  than as an alarm nothing pressable inside `trenvy ui` could ever clear.
+  than as an alarm nothing pressable inside `trenvy ui` could ever clear. A
+  commit that fails manifest validation now always says the rest of the
+  batch was lost, not only when the batch also touched the keyring: a bare
+  `a NEW_VAR` (nothing else set on it) failing Validate used to reach the
+  terminal as a raw manifest error with no word that every other edit
+  staged that session -- a value typed into some other cell, say -- was
+  gone too.
 
 ### Changed
 

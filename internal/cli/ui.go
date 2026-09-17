@@ -247,12 +247,19 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 	}
 
 	if err := app.Manifest.Validate(); err != nil {
+		// The warning below must print regardless of whether this batch
+		// touched the keyring at all: a batch of pure manifest edits (an
+		// add-var with nothing else set on it, say) has no progress to
+		// report, but it can still carry other staged edits that are about
+		// to be lost right along with it. The bare error used to reach the
+		// caller unwarned on exactly that batch shape -- the one Fix 3 was
+		// filed for.
 		if progress := commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal); progress != "" {
 			return fmt.Errorf("%w\n  %s; the manifest was not saved\n"+
 				"  everything else staged this session is gone -- open trenvy ui again and redo it",
 				err, progress)
 		}
-		return err
+		return fmt.Errorf("%w\n  everything else staged this session is gone -- open trenvy ui again and redo it", err)
 	}
 
 	if err := manifest.Save(config.ManifestPath(app.Entry.ID), app.Manifest); err != nil {

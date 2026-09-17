@@ -782,6 +782,51 @@ func TestUiAddVarFailingValidationRefusesTheManifestButLeavesTheBenignKeyringWri
 	}
 }
 
+// Fix 3: a validation failure must say the rest of the batch is lost even
+// when the batch touched no keyring op at all. Before the fix, the warning
+// only printed on the branch guarded by commitProgress() != "" --
+// TestUiAddVarFailingValidationRefusesTheManifestButLeavesTheBenignKeyringWrite
+// above stages a keyring write alongside its invalid add-var, so it always
+// took that branch and never exercised the bare `return err` beneath it.
+// This one stages only a plain manifest edit (no keyring op at all)
+// alongside the invalid add-var, so storedTotal and deletedTotal are both
+// zero and progress is "" -- exactly the batch shape that used to fail
+// silently about everything else it was carrying.
+func TestUiCommitFailureWarnsEvenWithNoKeyringOps(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t)) // sorted rows: ALPHA_TOKEN, APP_URL
+
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('2'))
+		mo, _ = mo.Update(ui.KeyRune('j')) // row 1: APP_URL, a plain variable
+		mo = clearAndType(mo, "http://+:9999")
+
+		mo, _ = mo.Update(ui.KeyRune('a'))
+		mo, _ = mo.Update(keyRunes("EMPTYVAR"))
+		mo, _ = mo.Update(keyEnter()) // stage add-var, with nothing else set on it
+		return markUISaved(mo), nil
+	}
+
+	err := h.run("ui")
+	if err == nil {
+		t.Fatal("ui succeeded with an add-var that cannot validate")
+	}
+	if !strings.Contains(err.Error(), "EMPTYVAR") {
+		t.Errorf("error does not name the invalid variable: %v", err)
+	}
+	if !strings.Contains(err.Error(), "everything else staged this session is gone") {
+		t.Errorf("error does not warn that the rest of the batch (the APP_URL edit) is lost: %v", err)
+	}
+
+	m, loadErr := manifest.Load(config.ManifestPath("vpb"))
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	if v := m.Vars["APP_URL"]; v.Profiles["dev"] == "http://+:9999" {
+		t.Error("the APP_URL edit landed despite the whole manifest failing to validate")
+	}
+}
+
 // Quitting with nothing staged at all must print the same "no changes
 // written" acknowledgement edit.go uses for a cancelled session, rather than
 // silently exiting.
