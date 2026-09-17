@@ -43,6 +43,8 @@ type Model struct {
 	mx       *Matrix
 	problems []Problem
 	tab      Tab
+	row      int // selected index into mx.Names
+	col      int // selected index into mx.Profiles
 }
 
 // New builds a model over one project's matrix and its detected problems.
@@ -58,6 +60,42 @@ func New(project string, mx *Matrix, ps []Problem) Model {
 // Tab reports the active tab.
 func (m Model) Tab() Tab { return m.tab }
 
+// Row reports the selected variable's index into mx.Names.
+func (m Model) Row() int { return m.row }
+
+// Col reports the selected profile's index into mx.Profiles.
+func (m Model) Col() int { return m.col }
+
+// moveRow shifts the row cursor by delta, clamping at both edges rather than
+// wrapping. Unlike the tab ring, a variable list can be long, and wrapping
+// from the last row to the first would put a later delete key on whatever
+// variable the cursor lands on instead of refusing to move.
+func (m *Model) moveRow(delta int) {
+	if m.mx == nil || len(m.mx.Names) == 0 {
+		return
+	}
+	m.row = clamp(m.row+delta, 0, len(m.mx.Names)-1)
+}
+
+// moveCol shifts the column cursor by delta, clamping for the same reason
+// moveRow does.
+func (m *Model) moveCol(delta int) {
+	if m.mx == nil || len(m.mx.Profiles) == 0 {
+		return
+	}
+	m.col = clamp(m.col+delta, 0, len(m.mx.Profiles)-1)
+}
+
+func clamp(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
 // Init satisfies tea.Model.
 func (m Model) Init() tea.Cmd { return nil }
 
@@ -72,6 +110,18 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		case tea.KeyShiftTab:
 			m.tab = (m.tab - 1 + tabCount) % tabCount
 			return m, nil
+		case tea.KeyUp:
+			m.moveRow(-1)
+			return m, nil
+		case tea.KeyDown:
+			m.moveRow(1)
+			return m, nil
+		case tea.KeyLeft:
+			m.moveCol(-1)
+			return m, nil
+		case tea.KeyRight:
+			m.moveCol(1)
+			return m, nil
 		}
 		switch msg.String() {
 		case "1":
@@ -82,6 +132,14 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.tab = TabProfiles
 		case "4":
 			m.tab = TabOutputs
+		case "j":
+			m.moveRow(1)
+		case "k":
+			m.moveRow(-1)
+		case "h":
+			m.moveCol(-1)
+		case "l":
+			m.moveCol(1)
 		}
 		return m, nil
 	}
@@ -124,13 +182,6 @@ func (m Model) viewOverview() string {
 		fmt.Fprintf(&b, "%s -- %s\n", p.Detail, p.Fix)
 	}
 	return b.String()
-}
-
-func (m Model) viewVariables() string {
-	if m.mx == nil {
-		return ""
-	}
-	return fmt.Sprintf("%d variables across %d profiles.\n", len(m.mx.Names), len(m.mx.Profiles))
 }
 
 // viewProfiles is a placeholder: profile management is `trenvy profile`'s job
