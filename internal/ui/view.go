@@ -101,6 +101,51 @@ func (m Model) viewVariables() string {
 	return b.String()
 }
 
+// viewSwitcher renders the panel `p` opens: every registered project, the
+// active one marked, and a cursor moved with j/k before enter chooses one.
+// It stands alone, replacing the tab bar and the active tab's body, rather
+// than folding into one tab's view the way edit/add/filter do -- unlike
+// those, the switcher is not scoped to Variables, so there is no single tab
+// body it belongs inside.
+//
+// Register and remove are deliberately absent, here and from the trailing
+// help line: they stay on `trenvy project` (init, rm) as the user's own
+// decision, on the grounds that they are rare and destructive enough that an
+// in-UI shortcut here would make removing a project easier than the risk
+// warrants.
+func (m Model) viewSwitcher() string {
+	var b strings.Builder
+	b.WriteString("Switch project\n\n")
+
+	if len(m.projects) <= 1 {
+		b.WriteString("Only this one project is registered -- there is nothing to switch to.\n\n")
+		b.WriteString("press esc to go back\n")
+		return b.String()
+	}
+
+	for i, id := range m.projects {
+		cursor := " "
+		if i == m.switchRow {
+			cursor = ">"
+		}
+		marker := ""
+		if id == m.project {
+			marker = " (current)"
+		}
+		fmt.Fprintf(&b, "%s %s%s\n", cursor, id, marker)
+	}
+
+	if m.mode == ModeConfirmSwitch {
+		fmt.Fprintf(&b, "\nswitching discards this session's staged changes -- they exist "+
+			"only in memory and cannot be recovered afterward. switch to %q anyway? [y/N]\n",
+			m.pendingSwitch)
+		return b.String()
+	}
+
+	b.WriteString("\npress enter to switch, esc to cancel\n")
+	return b.String()
+}
+
 func truncateName(s string) string {
 	runes := []rune(s)
 	if len(runes) <= nameColumnWidth {

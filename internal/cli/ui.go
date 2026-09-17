@@ -24,40 +24,70 @@ func newUiCmd(opts *Options) *cobra.Command {
 				return err
 			}
 
-			mx, err := matrixFromManifest(app)
+			// Loaded once, outside the loop below: the switcher lists what was
+			// registered when the command started, and a registry change made
+			// from another session mid-session is only ever seen the next time
+			// `trenvy ui` runs, the same staleness every other command here
+			// already accepts for a config loaded once at the top of RunE.
+			reg, err := config.LoadRegistry()
 			if err != nil {
 				return err
 			}
-			ps := ui.Problems(mx, outputStates(opts, app, mx))
-			// Header facts mirror status.go's, from the same places: app.Profile
-			// for the active profile and where it came from, ResolveBackendName
-			// for the same backend name status prints. Named fields, not
-			// positional args: Params exists precisely so Source and Backend
-			// (or Profile and Project) can't be transposed here and still compile.
-			m := ui.New(ui.Params{
-				Project:  app.Entry.ID,
-				Profile:  app.Profile.Name,
-				Source:   app.Profile.Source,
-				Backend:  store.ResolveBackendName(opts.Backend),
-				Matrix:   mx,
-				Problems: ps,
-			})
+			projects := registryIDs(reg)
 
-			final, err := opts.RunUI(m, func(name, profile string) (string, error) {
-				s, err := app.store()
+			// One iteration per project the switcher sends the session to. Each
+			// one runs to completion (RunUI returns) before the next begins --
+			// the previous project's model has already ended by then, exactly
+			// like a quit, so there is never more than one live session.
+			for {
+				mx, err := matrixFromManifest(app)
 				if err != nil {
-					return "", err
+					return err
 				}
-				return s.Get(app.Cfg.Keyring.ServiceName(app.Manifest.Project.ID, profile, name))
-			})
-			if err != nil {
-				return err
+				ps := ui.Problems(mx, outputStates(opts, app, mx))
+				// Header facts mirror status.go's, from the same places: app.Profile
+				// for the active profile and where it came from, ResolveBackendName
+				// for the same backend name status prints. Named fields, not
+				// positional args: Params exists precisely so Source and Backend
+				// (or Profile and Project) can't be transposed here and still compile.
+				m := ui.New(ui.Params{
+					Project:  app.Entry.ID,
+					Profile:  app.Profile.Name,
+					Source:   app.Profile.Source,
+					Backend:  store.ResolveBackendName(opts.Backend),
+					Matrix:   mx,
+					Problems: ps,
+					Projects: projects,
+				})
+
+				final, err := opts.RunUI(m, func(name, profile string) (string, error) {
+					s, err := app.store()
+					if err != nil {
+						return "", err
+					}
+					return s.Get(app.Cfg.Keyring.ServiceName(app.Manifest.Project.ID, profile, name))
+				})
+				if err != nil {
+					return err
+				}
+
+				// SwitchTo, not Saved(), is what the switcher reports -- a switch
+				// must never be mistaken for either a write (Saved() stays false)
+				// or a plain quit (which returns instead of looping again).
+				if id, ok := final.SwitchTo(); ok {
+					app, err = opts.resolveAppByID(id)
+					if err != nil {
+						return err
+					}
+					continue
+				}
+
+				if !final.Saved() {
+					fmt.Fprintln(opts.Stdout, "no changes written")
+					return nil
+				}
+				return commitStaged(opts, app, final.Staged())
 			}
-			if !final.Saved() {
-				fmt.Fprintln(opts.Stdout, "no changes written")
-				return nil
-			}
-			return commitStaged(opts, app, final.Staged())
 		},
 	}
 }
@@ -236,6 +266,17 @@ func partialCommitError(verb, service string, err error, storedApplied, storedTo
 		"%s %s: %w\n  %s; the manifest was not saved\n"+
 			"  everything else staged this session is gone -- open trenvy ui again and redo it",
 		verb, service, err, commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal))
+}
+
+// registryIDs lists every registered project id, in registration order --
+// the same order `trenvy project list` already uses, so the switcher and the
+// CLI's own listing never disagree about how projects are ordered.
+func registryIDs(reg *config.Registry) []string {
+	ids := make([]string, len(reg.Projects))
+	for i, e := range reg.Projects {
+		ids[i] = e.ID
+	}
+	return ids
 }
 
 // matrixFromManifest loads the presence-aware matrix behind the ui command.

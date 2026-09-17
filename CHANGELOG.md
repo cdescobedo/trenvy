@@ -147,7 +147,17 @@ the command surface may still move under you.
   there are none. Pressing enter on a problem jumps straight to the
   Variables cell it names -- the right row and the right profile column --
   or, for a problem about an output's freshness, to the Outputs tab, since
-  no single cell answers it.
+  no single cell answers it. `p` opens a switcher over every registered
+  project and, on a different choice, reloads the session against it in
+  place -- no quitting and re-running `trenvy ui` from another directory.
+  Register and remove stay off the panel; those remain `trenvy project`'s
+  own, rare and destructive enough to be the user's explicit decision.
+  Switching with staged changes asks first, because those changes live only
+  in this session's memory (see the batch commit above) and switching away
+  destroys them outright rather than deferring them; declining leaves both
+  the changes and the current project exactly as they were. A registry of
+  exactly one project -- the current one -- says plainly there is nothing to
+  switch to, instead of a panel with nothing useful in it.
 
 ### Changed
 

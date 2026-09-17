@@ -120,7 +120,34 @@ func (o Options) resolveApp() (*appContext, error) {
 		return nil, fmt.Errorf(
 			"%s is not inside a registered trenvy project\n  register one with: trenvy project init", o.Dir)
 	}
+	return o.appContextFor(cfg, entry)
+}
 
+// resolveAppByID loads a registered project by id instead of by working
+// directory -- what `trenvy ui`'s project switcher needs: choosing a
+// different registered project there is a request to manage it from wherever
+// the session already is, not a cd into its root.
+func (o Options) resolveAppByID(id string) (*appContext, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, err
+	}
+	reg, err := config.LoadRegistry()
+	if err != nil {
+		return nil, err
+	}
+	entry, ok := reg.Find(id)
+	if !ok {
+		return nil, fmt.Errorf("no project registered with id %q; list them with: trenvy project list", id)
+	}
+	return o.appContextFor(cfg, entry)
+}
+
+// appContextFor finishes loading an appContext for an already-resolved
+// entry, shared by resolveApp (found via the working directory) and
+// resolveAppByID (found by id) so the two never drift on what "loading a
+// project" means.
+func (o Options) appContextFor(cfg *config.Config, entry config.Entry) (*appContext, error) {
 	m, err := manifest.Load(config.ManifestPath(entry.ID))
 	if err != nil {
 		return nil, err

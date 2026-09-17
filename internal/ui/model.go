@@ -53,6 +53,17 @@ const (
 	// secret is never printed to the screen -- and to terminal scrollback --
 	// while it is being typed.
 	ModeEditSecret
+	// ModeSwitchProject is the panel `p` opens: every registered project,
+	// with a cursor that enter resolves to a choice.
+	ModeSwitchProject
+	// ModeConfirmSwitch is the question asked when the switcher's cursor is
+	// on a project other than the current one and staged changes exist.
+	// Mirrors internal/tui's ModeConfirmQuit's y/anything-else shape, but
+	// names a sharper loss: staged changes live only in this model's memory
+	// for the one session (Task 9), so switching does not defer them the way
+	// leaving them staged across a quit-and-reopen might read -- it destroys
+	// them the instant the new project's session starts.
+	ModeConfirmSwitch
 )
 
 // String names the mode for test failure messages.
@@ -68,6 +79,10 @@ func (md Mode) String() string {
 		return "filter"
 	case ModeEditSecret:
 		return "edit-secret"
+	case ModeSwitchProject:
+		return "switch-project"
+	case ModeConfirmSwitch:
+		return "confirm-switch"
 	}
 	return "unknown"
 }
@@ -121,6 +136,24 @@ type Model struct {
 	row      int // selected index into visibleNames()
 	col      int // selected index into mx.Profiles
 
+	// projects lists every registered project id, for the switcher `p`
+	// opens. It never changes after New: internal/ui does no I/O, so a
+	// registry change made from another session is only ever seen the next
+	// time the cli host builds a fresh model.
+	projects []string
+	// switchRow is the switcher panel's own cursor, scoped to projects the
+	// same way overviewRow is scoped to problems -- a separate field so
+	// opening the switcher and moving its cursor never disturbs row/col.
+	switchRow int
+	// switchTo is the project id chosen in the switcher, if the session
+	// ended that way. Set only alongside a tea.Quit, mirroring saved -- see
+	// SwitchTo's doc for why the cli host must check this before Saved().
+	switchTo string
+	// pendingSwitch holds the id ModeConfirmSwitch is asking about, so a
+	// decline can restore ModeBrowse without losing which project "y" would
+	// have meant.
+	pendingSwitch string
+
 	// overviewRow is the Overview tab's own cursor, scoped to problems. It is
 	// a separate field from row/col rather than reusing them: those are
 	// scoped to the Variables matrix, and moving through the problem list
@@ -154,12 +187,11 @@ type Model struct {
 // A UI whose job includes telling the user which profile is active is the
 // wrong place for that kind of silent swap.
 //
-// It is also expected to grow: a later task's project switcher needs the
-// list of registered projects, which this package cannot read itself since
-// it does no I/O. A struct makes that additive -- a new field -- rather than
-// a break to every call site's argument order, which is exactly the problem
-// a positional signature would have hit again the moment it grew a fifth
-// string.
+// It was also built to grow: Task 11's project switcher needs the list of
+// registered projects, which this package cannot read itself since it does
+// no I/O. Projects is that growth -- a new field, not a break to any call
+// site's argument order, which is exactly what a positional signature would
+// have forced the moment it grew a fifth string.
 type Params struct {
 	Project string // project id
 	Profile string // active profile name, e.g. "prod"
@@ -168,6 +200,11 @@ type Params struct {
 
 	Matrix   *Matrix
 	Problems []Problem
+
+	// Projects lists every registered project id, for the switcher `p`
+	// opens. internal/cli loads it via config.LoadRegistry(); this package
+	// never reads the registry itself.
+	Projects []string
 }
 
 // New builds a model over one project's matrix and its detected problems.
@@ -183,6 +220,7 @@ func New(p Params) Model {
 		backend:  p.Backend,
 		mx:       p.Matrix,
 		problems: p.Problems,
+		projects: p.Projects,
 		tab:      TabOverview,
 	}
 }
@@ -207,6 +245,15 @@ func (m Model) Buffer() string { return m.buffer }
 // cli must not write anything back to the manifest or the keyring until
 // this is true -- quitting any other way must leave it at its zero value.
 func (m Model) Saved() bool { return m.saved }
+
+// SwitchTo reports the project id chosen in the switcher, if the session
+// ended that way. The cli host checks this before Saved(): a switch quits
+// the session exactly like w and q do, but is neither of them -- it must
+// never be read as "write" (saved stays false) or as "discard and stop"
+// (the host loads the chosen project and keeps going instead of returning).
+func (m Model) SwitchTo() (string, bool) {
+	return m.switchTo, m.switchTo != ""
+}
 
 // Staged returns the uncommitted changes, in the order they were made. A
 // copy, so a caller cannot mutate the model's internal slice through it.
@@ -463,6 +510,103 @@ func (m *Model) jumpToProblem() {
 	}
 }
 
+// beginSwitch opens the project switcher. The cursor starts on the current
+// project when it appears in the list, so glancing at what else is
+// registered and backing out with esc does not require a keypress first just
+// to find where you already are.
+func (m *Model) beginSwitch() {
+	m.mode = ModeSwitchProject
+	m.switchRow = 0
+	for i, id := range m.projects {
+		if id == m.project {
+			m.switchRow = i
+			break
+		}
+	}
+}
+
+// moveSwitchRow shifts the switcher's own cursor by delta, clamping rather
+// than wrapping for the same reason moveRow does.
+func (m *Model) moveSwitchRow(delta int) {
+	if len(m.projects) == 0 {
+		return
+	}
+	m.switchRow = clamp(m.switchRow+delta, 0, len(m.projects)-1)
+}
+
+// updateSwitch handles keys while the switcher panel is open: j/k and the
+// arrows move its cursor, enter resolves a choice, esc backs out without
+// choosing anything.
+func (m Model) updateSwitch(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.mode = ModeBrowse
+		return m, nil
+	case tea.KeyUp:
+		m.moveSwitchRow(-1)
+		return m, nil
+	case tea.KeyDown:
+		m.moveSwitchRow(1)
+		return m, nil
+	case tea.KeyEnter:
+		return m.selectProject()
+	}
+	switch msg.String() {
+	case "j":
+		m.moveSwitchRow(1)
+	case "k":
+		m.moveSwitchRow(-1)
+	}
+	return m, nil
+}
+
+// selectProject resolves the switcher's cursor to a choice. Picking the
+// project already open closes the panel with nothing to rebuild. Picking a
+// different one with nothing staged ends the session immediately with
+// switchTo set, for the cli host to act on; with staged changes it detours
+// through ModeConfirmSwitch first, since those changes exist only in this
+// model's memory for this one session (Task 9) and switching away loses them
+// for good, with no session left afterward to recover them from.
+func (m Model) selectProject() (Model, tea.Cmd) {
+	if m.switchRow < 0 || m.switchRow >= len(m.projects) {
+		m.mode = ModeBrowse
+		return m, nil
+	}
+	id := m.projects[m.switchRow]
+	if id == m.project {
+		m.mode = ModeBrowse
+		return m, nil
+	}
+	if len(m.staged) > 0 {
+		m.pendingSwitch = id
+		m.mode = ModeConfirmSwitch
+		return m, nil
+	}
+	m.switchTo = id
+	return m, tea.Quit
+}
+
+// updateConfirmSwitch answers the "discard staged changes and switch?"
+// question ModeConfirmSwitch asks, mirroring internal/tui's updateConfirm's
+// y/anything-else shape. Declining must leave staged and project exactly as
+// they were: that is the entire point of asking first, and any branch that
+// cleared staged, changed project, or set switchTo on a decline would make
+// the confirmation a formality rather than the one thing standing between a
+// user and silently losing work they thought was still pending.
+func (m Model) updateConfirmSwitch(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch msg.String() {
+	case "y":
+		m.switchTo = m.pendingSwitch
+		m.pendingSwitch = ""
+		m.staged = nil
+		return m, tea.Quit
+	default:
+		m.pendingSwitch = ""
+		m.mode = ModeBrowse
+		return m, nil
+	}
+}
+
 func clamp(v, lo, hi int) int {
 	if v < lo {
 		return lo
@@ -489,6 +633,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		switch m.mode {
 		case ModeEditValue, ModeEditSecret, ModeAddName, ModeFilter:
 			return m.updateInput(msg)
+		case ModeSwitchProject:
+			return m.updateSwitch(msg)
+		case ModeConfirmSwitch:
+			return m.updateConfirmSwitch(msg)
 		default:
 			return m.updateBrowse(msg)
 		}
@@ -565,6 +713,10 @@ func (m Model) updateBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if req, ok := m.revealRequest(); ok {
 			return m, func() tea.Msg { return req }
 		}
+	case "p":
+		// Available from any tab, unlike e/a/d/s: picking a different
+		// registered project is not a Variables-tab concept.
+		m.beginSwitch()
 	case "w":
 		m.saved = true
 		return m, tea.Quit
@@ -715,8 +867,13 @@ func (m Model) updateInput(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the tab bar and the active tab's body.
+// View renders the tab bar and the active tab's body, or the project
+// switcher's own panel while it is open.
 func (m Model) View() string {
+	if m.mode == ModeSwitchProject || m.mode == ModeConfirmSwitch {
+		return m.viewSwitcher()
+	}
+
 	var b strings.Builder
 
 	for t := Tab(0); t < tabCount; t++ {
