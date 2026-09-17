@@ -201,3 +201,40 @@ func TestMatrixCursorMovementDoesNotAffectOverviewCursor(t *testing.T) {
 		t.Errorf("cursor after jump = (%d,%d), want (%d,%d); matrix cursor movement leaked into the overview cursor", m.Row(), m.Col(), wantRow, wantCol)
 	}
 }
+
+// Fix 7: a filter set before the jump, that would hide the problem's own
+// row, must not survive it -- jumpToProblem clears m.filter deliberately so
+// the target row cannot be hidden underneath a stale filter from earlier in
+// the session. Filtering to "AAA" hides BBB (the row the one problem in
+// overviewFixture names), so a jump that failed to clear the filter would
+// either miss the row entirely or land on the wrong index once
+// visibleNames() came back empty or reshuffled.
+func TestJumpToProblemClearsAFilterThatWouldHideTheTarget(t *testing.T) {
+	mx, ps := overviewFixture(t) // one problem: BBB missing under staging
+	m := ui.New(testParams(mx, ps))
+
+	m, _ = m.Update(ui.KeyRune('2')) // Variables tab
+	m, _ = m.Update(ui.KeyRune('/'))
+	for _, r := range "AAA" {
+		m, _ = m.Update(ui.KeyRune(r))
+	}
+	m, _ = m.Update(ui.KeyType(tea.KeyEnter)) // commits the filter: AAA only, BBB hidden
+	if v := m.View(); strings.Contains(v, "BBB") {
+		t.Fatalf("setup: filter did not hide BBB:\n%s", v)
+	}
+	m, _ = m.Update(ui.KeyRune('1')) // back to Overview
+
+	m, _ = m.Update(ui.KeyType(tea.KeyEnter)) // jump to the (only) problem: BBB/staging
+
+	if m.Tab() != ui.TabVariables {
+		t.Fatalf("tab after jump = %v, want Variables", m.Tab())
+	}
+	const wantRow, wantCol = 1, 1 // BBB (2nd of AAA,BBB,CCC), staging (2nd of dev,staging,prod)
+	if m.Row() != wantRow || m.Col() != wantCol {
+		t.Errorf("cursor after jump = (%d,%d), want (%d,%d) -- a stale filter must not survive the jump", m.Row(), m.Col(), wantRow, wantCol)
+	}
+	v := m.View()
+	if !strings.Contains(v, "BBB") {
+		t.Errorf("BBB is still hidden after the jump, want the filter cleared:\n%s", v)
+	}
+}
