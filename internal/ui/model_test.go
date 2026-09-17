@@ -242,3 +242,265 @@ func TestColumnCursorMovesAndClamps(t *testing.T) {
 		t.Errorf("column movement changed the row to %d, want 1", m.Row())
 	}
 }
+
+// editCell drives e, clears the prefilled buffer, types newValue and enters
+// it, returning the model with the edit staged. Factored out because every
+// staging test needs the same sequence and the sequence itself is not what
+// each test is asserting on.
+func editCell(m ui.Model, newValue string) ui.Model {
+	m, _ = m.Update(ui.KeyRune('e'))
+	for range m.Buffer() {
+		m, _ = m.Update(ui.KeyType(tea.KeyBackspace))
+	}
+	for _, r := range newValue {
+		m, _ = m.Update(ui.KeyRune(r))
+	}
+	m, _ = m.Update(ui.KeyType(tea.KeyEnter))
+	return m
+}
+
+// newTestModel's fixture sorts to OVERRIDE, SHARED, TOKEN; row 0 / col 0 is
+// OVERRIDE under dev, which already carries a profile override ("b"), so
+// editing it exercises the override path without any cursor movement.
+
+func TestEditEntersModeAndPrefillsCurrentValue(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = m.Update(ui.KeyRune('2')) // Variables tab
+
+	m, _ = m.Update(ui.KeyRune('e'))
+	if m.Mode() != ui.ModeEditValue {
+		t.Fatalf("mode after e = %v, want ModeEditValue", m.Mode())
+	}
+	if m.Buffer() != "b" {
+		t.Errorf("buffer = %q, want prefilled with the current override %q", m.Buffer(), "b")
+	}
+}
+
+// The Kind and Profile on the staged Change are the load-bearing fields: a
+// set-value that does not name its profile is silent data corruption once
+// Task 9 writes it back, so this pins the exact shape rather than merely
+// that a change exists.
+func TestEditCommitsSetValueForOneProfileOnly(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = m.Update(ui.KeyRune('2'))
+	m = editCell(m, "NEWVAL")
+
+	if m.Mode() != ui.ModeBrowse {
+		t.Errorf("mode after enter = %v, want ModeBrowse", m.Mode())
+	}
+	staged := m.Staged()
+	if len(staged) != 1 {
+		t.Fatalf("Staged() = %+v, want exactly one change", staged)
+	}
+	want := ui.Change{Kind: ui.ChangeSetValue, Name: "OVERRIDE", Profile: "dev", Value: "NEWVAL"}
+	if staged[0] != want {
+		t.Errorf("Staged()[0] = %+v, want %+v", staged[0], want)
+	}
+}
+
+// A staged edit must change what the matrix shows immediately: the view
+// must contain the new value AND must no longer show the pre-edit
+// classification for that cell. Asserting only the first half would still
+// pass if the view showed both the new and the old.
+func TestStagedEditReflectsImmediatelyInView(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = m.Update(ui.KeyRune('2'))
+
+	before := lineFor(t, m.View(), "OVERRIDE")
+	if !strings.Contains(before, "override") {
+		t.Fatalf("sanity check: expected pre-edit classification %q:\n%s", "override", before)
+	}
+
+	m = editCell(m, "NEWVAL")
+
+	after := lineFor(t, m.View(), "OVERRIDE")
+	if !strings.Contains(after, "NEWVAL") {
+		t.Errorf("view does not show the staged value:\n%s", after)
+	}
+	if strings.Contains(after, "override") {
+		t.Errorf("view still shows the pre-edit classification after staging:\n%s", after)
+	}
+}
+
+// Esc must abandon the edit without staging anything, matching internal/tui.
+func TestEscCancelsInputModeWithoutStaging(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = m.Update(ui.KeyRune('2'))
+	m, _ = m.Update(ui.KeyRune('e'))
+	m, _ = m.Update(ui.KeyRune('X'))
+	m, _ = m.Update(ui.KeyType(tea.KeyEsc))
+
+	if m.Mode() != ui.ModeBrowse {
+		t.Errorf("mode after esc = %v, want ModeBrowse", m.Mode())
+	}
+	if len(m.Staged()) != 0 {
+		t.Errorf("Staged() = %+v, want none after esc", m.Staged())
+	}
+}
+
+func TestAddStagesAddVarAndAppearsInView(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = m.Update(ui.KeyRune('2'))
+	m, _ = m.Update(ui.KeyRune('a'))
+	if m.Mode() != ui.ModeAddName {
+		t.Fatalf("mode after a = %v, want ModeAddName", m.Mode())
+	}
+	for _, r := range "NEWVAR" {
+		m, _ = m.Update(ui.KeyRune(r))
+	}
+	m, _ = m.Update(ui.KeyType(tea.KeyEnter))
+
+	staged := m.Staged()
+	want := ui.Change{Kind: ui.ChangeAddVar, Name: "NEWVAR"}
+	if len(staged) != 1 || staged[0] != want {
+		t.Fatalf("Staged() = %+v, want exactly %+v", staged, want)
+	}
+	if !strings.Contains(m.View(), "NEWVAR") {
+		t.Errorf("added variable does not appear in the view:\n%s", m.View())
+	}
+}
+
+// A deleted row must stay visible and marked, not vanish: removing it would
+// silently shift every row below it under a cursor the user did not move,
+// exactly what Task 5's clamping exists to prevent.
+func TestDeleteMarksRowWithoutRemovingIt(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = m.Update(ui.KeyRune('2'))
+
+	m, _ = m.Update(ui.KeyRune('d'))
+
+	staged := m.Staged()
+	want := ui.Change{Kind: ui.ChangeDeleteVar, Name: "OVERRIDE"}
+	if len(staged) != 1 || staged[0] != want {
+		t.Fatalf("Staged() = %+v, want exactly %+v", staged, want)
+	}
+
+	v := m.View()
+	if !strings.Contains(v, "OVERRIDE") {
+		t.Fatalf("deleted row vanished from the view instead of being marked:\n%s", v)
+	}
+	line := lineFor(t, v, "OVERRIDE")
+	if !strings.Contains(line, "deleted") {
+		t.Errorf("deleted row not marked in the view:\n%s", line)
+	}
+	if m.Row() != 0 {
+		t.Errorf("row cursor moved to %d after delete, want it to stay at 0", m.Row())
+	}
+}
+
+// d is a toggle: pressing it again on the same row must un-stage the delete,
+// since the user has not saved anything yet and can still change their mind.
+func TestDeleteTogglesOff(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = m.Update(ui.KeyRune('2'))
+	m, _ = m.Update(ui.KeyRune('d'))
+	m, _ = m.Update(ui.KeyRune('d'))
+
+	if len(m.Staged()) != 0 {
+		t.Errorf("Staged() = %+v, want empty after toggling delete off", m.Staged())
+	}
+	if strings.Contains(lineFor(t, m.View(), "OVERRIDE"), "deleted") {
+		t.Errorf("row still marked deleted after toggling off:\n%s", m.View())
+	}
+}
+
+// The load-bearing filter assertion: after narrowing, the cursor must land
+// on a row that is still visible, not merely have the row count shrink under
+// it. Positioning on the last row first means a clamp that only resets to 0
+// unconditionally cannot be mistaken for one that actually keeps the cursor
+// in range.
+func TestFilterNarrowsRowsAndKeepsCursorOnAVisibleRow(t *testing.T) {
+	m := newTestModel(t) // OVERRIDE, SHARED, TOKEN
+	m, _ = m.Update(ui.KeyRune('2'))
+	m, _ = m.Update(ui.KeyRune('j'))
+	m, _ = m.Update(ui.KeyRune('j'))
+	if m.Row() != 2 {
+		t.Fatalf("setup: row = %d, want 2 (TOKEN)", m.Row())
+	}
+
+	m, _ = m.Update(ui.KeyRune('/'))
+	if m.Mode() != ui.ModeFilter {
+		t.Fatalf("mode after / = %v, want ModeFilter", m.Mode())
+	}
+	for _, r := range "SHA" {
+		m, _ = m.Update(ui.KeyRune(r))
+	}
+	m, _ = m.Update(ui.KeyType(tea.KeyEnter))
+
+	if m.Mode() != ui.ModeBrowse {
+		t.Errorf("mode after filter enter = %v, want ModeBrowse", m.Mode())
+	}
+
+	v := m.View()
+	if strings.Contains(v, "OVERRIDE") || strings.Contains(v, "TOKEN") {
+		t.Errorf("filter did not narrow rows:\n%s", v)
+	}
+	if !strings.Contains(v, "SHARED") {
+		t.Errorf("filter hid the matching row:\n%s", v)
+	}
+
+	if m.Row() != 0 {
+		t.Fatalf("row cursor = %d after filtering to one row, want 0 (the only visible row)", m.Row())
+	}
+	line := lineFor(t, v, "SHARED")
+	if !strings.HasPrefix(line, ">") {
+		t.Errorf("cursor marker did not move onto the visible SHARED row:\n%q", line)
+	}
+}
+
+// A clamp that merely resets the cursor to 0 on every filter would also pass
+// TestFilterNarrowsRowsAndKeepsCursorOnAVisibleRow, since that test's filter
+// happens to leave exactly one match. This test filters to two matches
+// (OVERRIDE, SHARED -- both contain "R"; TOKEN does not) with the cursor
+// starting past the end of that narrowed list, and pins the clamp to the
+// last valid index rather than 0, to catch that shortcut.
+func TestFilterClampsToLastValidIndexNotAlwaysZero(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = m.Update(ui.KeyRune('2'))
+	m, _ = m.Update(ui.KeyRune('j'))
+	m, _ = m.Update(ui.KeyRune('j'))
+	if m.Row() != 2 {
+		t.Fatalf("setup: row = %d, want 2 (TOKEN)", m.Row())
+	}
+
+	m, _ = m.Update(ui.KeyRune('/'))
+	for _, r := range "R" {
+		m, _ = m.Update(ui.KeyRune(r))
+	}
+	m, _ = m.Update(ui.KeyType(tea.KeyEnter))
+
+	v := m.View()
+	if strings.Contains(v, "TOKEN") {
+		t.Fatalf("filter did not hide TOKEN:\n%s", v)
+	}
+	if !strings.Contains(v, "OVERRIDE") || !strings.Contains(v, "SHARED") {
+		t.Fatalf("filter hid a matching row:\n%s", v)
+	}
+
+	if m.Row() != 1 {
+		t.Fatalf("row cursor = %d after filtering to 2 rows, want 1 (the last valid index)", m.Row())
+	}
+	line := lineFor(t, v, "SHARED")
+	if !strings.HasPrefix(line, ">") {
+		t.Errorf("cursor marker not on SHARED, the row the clamp should land on:\n%q", line)
+	}
+}
+
+// A filter matching nothing must not panic View, and must leave every row
+// hidden rather than falling back to showing them all.
+func TestFilterWithNoMatches(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = m.Update(ui.KeyRune('2'))
+	m, _ = m.Update(ui.KeyRune('/'))
+	for _, r := range "ZZZZ" {
+		m, _ = m.Update(ui.KeyRune(r))
+	}
+	m, _ = m.Update(ui.KeyType(tea.KeyEnter))
+
+	v := m.View()
+	for _, name := range []string{"OVERRIDE", "SHARED", "TOKEN"} {
+		if strings.Contains(v, name) {
+			t.Errorf("expected no rows to match filter, but found %q:\n%s", name, v)
+		}
+	}
+}

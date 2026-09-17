@@ -27,7 +27,14 @@ const nameColumnWidth = 40
 // whose whole job is trustworthy alignment. A word also matches the
 // vocabulary already on screen instead of adding a symbol nothing else uses.
 func (m Model) viewVariables() string {
-	if m.mx == nil || len(m.mx.Names) == 0 {
+	if m.mx == nil {
+		return "No variables defined.\n"
+	}
+	names := m.visibleNames()
+	if len(names) == 0 {
+		if m.filter != "" {
+			return fmt.Sprintf("No variables match filter %q.\n", m.filter)
+		}
 		return "No variables defined.\n"
 	}
 
@@ -37,7 +44,7 @@ func (m Model) viewVariables() string {
 	header := append([]string{"", "NAME", ""}, m.mx.Profiles...)
 	fmt.Fprintln(w, strings.Join(header, "\t"))
 
-	for row, name := range m.mx.Names {
+	for row, name := range names {
 		cursor := " "
 		if row == m.row {
 			cursor = ">"
@@ -46,10 +53,19 @@ func (m Model) viewVariables() string {
 		if m.mx.Vars[name].Secret {
 			secretWord = "secret"
 		}
-		cells := []string{cursor, truncateName(name), secretWord}
+		nameCell := truncateName(name)
+		if m.isDeleted(name) {
+			// Marked, not removed: the user is staging an intention they can
+			// still abandon with q, and a row that vanishes gives them
+			// nothing to change their mind about.
+			nameCell += " (deleted)"
+		}
+		cells := []string{cursor, nameCell, secretWord}
 
 		for col, profile := range m.mx.Profiles {
-			cell := string(m.mx.Cell(name, profile))
+			// cellText, not mx.Cell directly: a staged edit must be visible
+			// the instant it is staged, not only after w writes it to disk.
+			cell := m.cellText(name, profile)
 			// The column cursor marks one cell within the row, not the whole
 			// row: ">" already says which row is selected, so this is the
 			// only signal for which profile within it.
@@ -65,6 +81,16 @@ func (m Model) viewVariables() string {
 	// error, so there is nothing for a caller to do with one here, and
 	// View must stay a plain string, no error, to stay pure.
 	_ = w.Flush()
+
+	switch m.mode {
+	case ModeEditValue:
+		fmt.Fprintf(&b, "\n value: %s_\n", m.buffer)
+	case ModeAddName:
+		fmt.Fprintf(&b, "\n new variable name: %s_\n", m.buffer)
+	case ModeFilter:
+		fmt.Fprintf(&b, "\n filter: %s_\n", m.buffer)
+	}
+
 	return b.String()
 }
 
