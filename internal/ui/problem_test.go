@@ -51,6 +51,29 @@ func TestProblemsReportsUnhealthyOutputs(t *testing.T) {
 	}
 }
 
+// unknown must never leak CLI vocabulary (a flag like --quick) into the
+// Overview, and must not offer `trenvy render` as the fix -- rendering does
+// not resolve not-knowing, and can fail outright on a hand-edited file, which
+// is exactly the case "unknown" cannot rule out. trenvy status is the command
+// that actually resolves the question, so that's the Fix this state gets.
+func TestProblemsGivesUnknownItsOwnFixNamingStatus(t *testing.T) {
+	m := &manifest.Manifest{Project: manifest.Project{Profiles: []string{"dev"}}}
+	ps := ui.Problems(ui.NewMatrix(m, nil), map[string]string{"app": "unknown"})
+
+	if len(ps) != 1 || ps[0].Name != "app" {
+		t.Fatalf("Problems = %+v, want exactly one problem for app", ps)
+	}
+	if ps[0].Fix != "trenvy status" {
+		t.Errorf("Fix = %q, want %q", ps[0].Fix, "trenvy status")
+	}
+	if strings.Contains(ps[0].Detail, "--quick") {
+		t.Errorf("Detail leaks a CLI flag name: %q", ps[0].Detail)
+	}
+	if strings.Contains(ps[0].Detail, "render") {
+		t.Errorf("Detail mentions render, misleading advice for an unknown state: %q", ps[0].Detail)
+	}
+}
+
 // absent means "never rendered in this worktree" — the normal state of a
 // fresh clone, not a problem. Pinning it here so it doesn't regress into a
 // permanent false alarm for every new user.

@@ -18,6 +18,7 @@ import (
 	"github.com/cdescobedo/trenvy/internal/resolve"
 	"github.com/cdescobedo/trenvy/internal/store"
 	"github.com/cdescobedo/trenvy/internal/tui"
+	"github.com/cdescobedo/trenvy/internal/ui"
 )
 
 // Options are the seams that make the CLI testable: streams, the working
@@ -40,6 +41,13 @@ type Options struct {
 	// RunTUI drives the interactive table. Swappable so tests can supply a
 	// finished model instead of a terminal session.
 	RunTUI func(tui.Model, func(string) (string, error)) (tui.Model, error)
+
+	// RunUI drives the tabbed management interface (`trenvy ui`). Swappable
+	// for the same reason RunTUI is: tests supply a finished model instead of
+	// a terminal session. Unlike RunTUI's single-string reveal, this one
+	// takes (name, profile): internal/ui's matrix has one cell per profile,
+	// where internal/tui's flat table needed only a name.
+	RunUI func(ui.Model, func(name, profile string) (string, error)) (ui.Model, error)
 }
 
 // Default returns Options wired to the real process.
@@ -65,6 +73,7 @@ func Default() Options {
 			return c.Run()
 		},
 		RunTUI: tui.Run,
+		RunUI:  ui.Run,
 	}
 }
 
@@ -222,6 +231,7 @@ func Execute(opts Options, args []string) error {
 		newShellCmd(&opts),
 		newProfileCmd(&opts),
 		newOutputCmd(&opts),
+		newUiCmd(&opts),
 	)
 
 	if err := root.RegisterFlagCompletionFunc("profile", opts.completeProfileNames()); err != nil {

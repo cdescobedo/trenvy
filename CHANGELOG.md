@@ -117,6 +117,19 @@ the command surface may still move under you.
   answers the render-record refusal, and neither bypasses the other. Removing
   the output that held `project.output` clears it and says so, since a bare
   `trenvy render` then needs an explicit argument.
+- **`trenvy ui`** opens the tabbed management interface: one grid of every
+  variable against every profile, replacing `edit`'s single-profile table for
+  projects that keep more than one. It refuses outside a registered project,
+  the same as `edit` and `status`. Secret presence for the whole grid loads
+  eagerly through `Has`, never `Get`, so opening it never costs a keyring
+  authorization prompt; a cell's real value is only ever fetched on an
+  explicit reveal. The Overview tab's per-output freshness reuses `status`'s
+  own `guard.Inspect` judgment rather than a second implementation, always in
+  `--quick` mode, for the same reason presence stays `Has`-only: an output
+  that also selects a secret is reported `unknown`, with `trenvy status` as
+  its fix, instead of paying for the read. This first landing renders the
+  grid and the Overview; editing, staging and saving from inside it are not
+  wired up yet.
 
 ### Changed
 

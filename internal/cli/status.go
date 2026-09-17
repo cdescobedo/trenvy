@@ -114,12 +114,46 @@ func newStatusCmd(opts *Options) *cobra.Command {
 	return c
 }
 
-// describeOutput classifies one output's file. Freshness is an HMAC over the
+// outputState is the typed classification behind describeOutput's prose. It
+// mirrors guard.Status's five real answers (Fresh, Absent, Stale, Modified,
+// Foreign) plus three ways status could not produce one at all.
+//
+// It exists because describeOutput's return value is prose for a terminal --
+// "not rendered", "unknown (--quick)" -- and a second consumer of the same
+// classification (ui.go's outputStates) parsing that prose as if it were a
+// stable machine interface is exactly how this package and internal/ui went
+// out of sync twice in one task: once over "unknown (--quick)", which a
+// prefix match happened to catch, and once over "not rendered" vs
+// ui.Problems' "absent", which no prefix match would have. classifyOutput is
+// the one place that decides; describeOutput and outputStates each render
+// that decision into their own vocabulary and never need to agree with each
+// other by spelling.
+type outputState int
+
+const (
+	outputFresh outputState = iota
+	outputAbsent
+	outputStale
+	outputModified
+	outputForeign
+	// outputSecretsMissing: a required secret is missing under the active
+	// profile, so resolve.Values would error instead of producing a value to
+	// hash -- there is nothing to compare against the render record.
+	outputSecretsMissing
+	// outputQuickSkipped: --quick (or ui.go's always-quick freshness pass)
+	// deliberately did not read a secret this output selects.
+	outputQuickSkipped
+	// outputErrored: guard.Inspect or resolve.Values itself failed; the
+	// detail is already written to opts.Stderr by classifyOutput.
+	outputErrored
+)
+
+// classifyOutput decides one output's state. Freshness is an HMAC over the
 // resolved values, so detecting a keyring change fundamentally requires
 // reading it -- that read is status's default behaviour and its whole
 // purpose. --quick skips it: any output selecting at least one secret then
 // reports its freshness as unknown rather than paying for the read.
-func describeOutput(opts *Options, app *appContext, name string, o manifest.Output, secretsMissing, quick bool) string {
+func classifyOutput(opts *Options, app *appContext, name string, o manifest.Output, secretsMissing, quick bool) outputState {
 	abs := filepath.Join(app.Worktree, o.Path)
 	entry, have := app.State.Find(app.Worktree, name)
 
@@ -127,39 +161,76 @@ func describeOutput(opts *Options, app *appContext, name string, o manifest.Outp
 		st, err := guard.Inspect(abs, "", entry, have)
 		if err != nil {
 			fmt.Fprintf(opts.Stderr, "trenvy: status: %s: %v\n", name, err)
-			return "?"
+			return outputErrored
 		}
 		if st == guard.StatusAbsent {
-			return "not rendered"
+			return outputAbsent
 		}
-		return "unknown (a secret is missing)"
+		return outputSecretsMissing
 	}
 
 	if quick {
 		hasSecret, err := resolve.OutputHasSecret(app.Manifest, name)
 		if err != nil {
 			fmt.Fprintf(opts.Stderr, "trenvy: status: %s: %v\n", name, err)
-			return "?"
+			return outputErrored
 		}
 		if hasSecret {
-			return "unknown (--quick)"
+			return outputQuickSkipped
 		}
 	}
 
 	values, err := resolve.Values(app.Manifest, app.Profile.Name, name, app.secretLookup())
 	if err != nil {
 		fmt.Fprintf(opts.Stderr, "trenvy: status: %s: %v\n", name, err)
-		return "?"
+		return outputErrored
 	}
 	st, err := guard.Inspect(abs, render.Sum(app.Manifest.Project.Salt, values), entry, have)
 	if err != nil {
 		fmt.Fprintf(opts.Stderr, "trenvy: status: %s: %v\n", name, err)
+		return outputErrored
+	}
+	switch st {
+	case guard.StatusAbsent:
+		return outputAbsent
+	case guard.StatusFresh:
+		return outputFresh
+	case guard.StatusStale:
+		return outputStale
+	case guard.StatusModified:
+		return outputModified
+	case guard.StatusForeign:
+		return outputForeign
+	default:
+		// guard.Status has exactly the five cases above; reaching this means
+		// that enum grew a case this switch does not know about.
+		return outputErrored
+	}
+}
+
+// describeOutput renders classifyOutput's decision as the prose status
+// prints. Its output is pinned to what it was before classifyOutput existed
+// -- this function is a formatter now, not a decision, and status's text
+// must not move by one byte just because the decision moved to its own type.
+func describeOutput(opts *Options, app *appContext, name string, o manifest.Output, secretsMissing, quick bool) string {
+	switch classifyOutput(opts, app, name, o, secretsMissing, quick) {
+	case outputAbsent:
+		return "not rendered"
+	case outputFresh:
+		return guard.StatusFresh.String()
+	case outputStale:
+		return guard.StatusStale.String()
+	case outputModified:
+		return guard.StatusModified.String()
+	case outputForeign:
+		return guard.StatusForeign.String()
+	case outputSecretsMissing:
+		return "unknown (a secret is missing)"
+	case outputQuickSkipped:
+		return "unknown (--quick)"
+	default: // outputErrored
 		return "?"
 	}
-	if st == guard.StatusAbsent {
-		return "not rendered"
-	}
-	return st.String()
 }
 
 func sortedOutputNames(m *manifest.Manifest) []string {
