@@ -352,6 +352,61 @@ func TestUiOverviewHasNoProblemForARenderedFreshSecretBearingOutput(t *testing.T
 	if !strings.Contains(out, "No problems found") {
 		t.Errorf("a rendered, fresh, secret-bearing output produced a problem:\n%s", out)
 	}
+	// Fix wave round 2, concern 1: the empty problem list must not be
+	// mistaken for "nothing is wrong" -- this is exactly the case ui could
+	// not actually verify, so the healthy line must caveat it, naming
+	// trenvy status.
+	if !strings.Contains(out, "trenvy status") {
+		t.Errorf("healthy line does not name trenvy status for an unverified output:\n%s", out)
+	}
+}
+
+// The other half of concern 1: a project whose outputs carry no secrets at
+// all must see the plain healthy line, no caveat -- nothing here is
+// actually unverified, so naming trenvy status would be noise.
+func TestUiOverviewHealthyLineStaysPlainWithNoSecretOutputs(t *testing.T) {
+	h := newHarness(t)
+	h.gitInit("public/env.json\n")
+	m, err := manifest.Parse([]byte(`
+[project]
+id = "vpb"
+profiles = ["dev"]
+default_profile = "dev"
+output = "web"
+salt = "abc123"
+
+[outputs.web]
+format = "json"
+path = "public/env.json"
+include = ["APP_URL"]
+
+[vars.APP_URL]
+value = "http://+:8080"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.register("vpb", m)
+	if err := h.run("render", "web"); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	var got *ui.Model
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		got = &mo
+		return mo, nil
+	}
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
+	}
+
+	out := got.View()
+	if !strings.Contains(out, "No problems found") {
+		t.Errorf("a rendered, fresh, secret-free output produced a problem:\n%s", out)
+	}
+	if strings.Contains(out, "trenvy status") {
+		t.Errorf("healthy line names trenvy status despite no secret-bearing outputs:\n%s", out)
+	}
 }
 
 // dbURLManifest builds a project with one variable, DB_URL, that has a value

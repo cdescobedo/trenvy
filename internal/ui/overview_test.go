@@ -71,6 +71,56 @@ func TestOverviewNoProblemsReadsAsHealthy(t *testing.T) {
 	}
 }
 
+// Fix wave round 2, concern 1: an empty problem list implicitly claims "here
+// is everything wrong with this project", which is false the instant an
+// output's freshness could not be determined without reading a secret (see
+// outputStates' quick-skip case in internal/cli). The healthy line must say
+// so in one added sentence, naming trenvy status, rather than silently
+// letting the empty list be misread as "nothing is wrong" when the honest
+// answer is "nothing I can see is wrong".
+func TestOverviewHealthyLineNamesStatusWhenAnOutputIsUnverified(t *testing.T) {
+	m := &manifest.Manifest{
+		Project: manifest.Project{Profiles: []string{"dev"}},
+		Vars:    map[string]manifest.Var{"OK": {Value: s("v")}},
+	}
+	mx := ui.NewMatrix(m, nil)
+	ps := ui.Problems(mx, nil)
+	if len(ps) != 0 {
+		t.Fatalf("setup: fixture has problems, want none: %+v", ps)
+	}
+	params := testParams(mx, ps)
+	params.OutputFreshnessUnverified = true
+	mod := ui.New(params)
+
+	v := mod.View()
+	if !strings.Contains(strings.ToLower(v), "no problems") {
+		t.Errorf("overview does not say plainly that nothing needs attention:\n%s", v)
+	}
+	if !strings.Contains(v, "trenvy status") {
+		t.Errorf("healthy line does not name trenvy status as the check ui cannot make:\n%s", v)
+	}
+}
+
+// The other half: a project whose outputs carry no secrets at all (or whose
+// secret-bearing outputs were all resolvable) must see the healthy line
+// exactly as it always has, with no caveat -- the whole point of solving
+// this once, in the summary, rather than per-output, is that a project with
+// nothing to caveat gets no added noise.
+func TestOverviewHealthyLineStaysPlainWhenEveryOutputIsVerified(t *testing.T) {
+	m := &manifest.Manifest{
+		Project: manifest.Project{Profiles: []string{"dev"}},
+		Vars:    map[string]manifest.Var{"OK": {Value: s("v")}},
+	}
+	mx := ui.NewMatrix(m, nil)
+	ps := ui.Problems(mx, nil)
+	mod := ui.New(testParams(mx, ps)) // OutputFreshnessUnverified left false
+
+	v := mod.View()
+	if strings.Contains(v, "trenvy status") {
+		t.Errorf("healthy line names trenvy status despite nothing being unverified:\n%s", v)
+	}
+}
+
 // Each problem's line must carry both its Detail (what's wrong) and its Fix
 // (the command that resolves it) -- a list that named the problem without
 // its fix would defeat the Overview's whole purpose.

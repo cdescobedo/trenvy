@@ -151,9 +151,19 @@ type Model struct {
 	backend      string // keyring backend name
 	mx           *Matrix
 	problems     []Problem
-	tab          Tab
-	row          int // selected index into visibleNames()
-	col          int // selected index into mx.Profiles
+	// outputFreshnessUnverified is true when at least one output's freshness
+	// could not be determined here because doing so would require reading a
+	// secret's value (see internal/cli's outputStates). Such an output never
+	// becomes its own Problem -- that would recreate the permanent,
+	// unfixable false alarm Fix 2 removed -- but an empty problem list
+	// implicitly claims "here is everything wrong", which is false while
+	// this is true. viewOverview adds one sentence to the healthy-state line
+	// for it, once, rather than a per-output note that never changes and so
+	// never gets read.
+	outputFreshnessUnverified bool
+	tab                       Tab
+	row                       int // selected index into visibleNames()
+	col                       int // selected index into mx.Profiles
 
 	// projects lists every registered project id, for the switcher `p`
 	// opens. It never changes after New: internal/ui does no I/O, so a
@@ -222,6 +232,14 @@ type Params struct {
 	Matrix   *Matrix
 	Problems []Problem
 
+	// OutputFreshnessUnverified is true when at least one output's
+	// freshness could not be determined without reading a secret -- see
+	// internal/cli's outputStates, which computes it alongside Problems'
+	// own outputs map. Never folded into Problems itself: it is not a
+	// per-output fact this package could point a cell or a Fix at, only a
+	// caveat on how complete the Overview's own answer is.
+	OutputFreshnessUnverified bool
+
 	// Projects lists every registered project id, for the switcher `p`
 	// opens. internal/cli loads it via config.LoadRegistry(); this package
 	// never reads the registry itself.
@@ -236,16 +254,17 @@ type Params struct {
 // cannot read them itself.
 func New(p Params) Model {
 	return Model{
-		project:      p.Project,
-		profile:      p.Profile,
-		source:       p.Source,
-		manifestPath: p.ManifestPath,
-		worktree:     p.Worktree,
-		backend:      p.Backend,
-		mx:           p.Matrix,
-		problems:     p.Problems,
-		projects:     p.Projects,
-		tab:          TabOverview,
+		project:                   p.Project,
+		profile:                   p.Profile,
+		source:                    p.Source,
+		manifestPath:              p.ManifestPath,
+		worktree:                  p.Worktree,
+		backend:                   p.Backend,
+		mx:                        p.Matrix,
+		problems:                  p.Problems,
+		outputFreshnessUnverified: p.OutputFreshnessUnverified,
+		projects:                  p.Projects,
+		tab:                       TabOverview,
 	}
 }
 
@@ -1109,6 +1128,16 @@ func (m Model) viewOverview() string {
 
 	if len(m.problems) == 0 {
 		b.WriteString("No problems found. This project is healthy -- nothing needs attention.\n")
+		if m.outputFreshnessUnverified {
+			// An empty list otherwise implicitly claims "here is everything
+			// wrong with this project", which is false the instant an
+			// output's freshness went unchecked -- the reader has no way to
+			// tell "nothing is wrong" from "nothing I can see is wrong".
+			// Said once, here, never per-output: a note on every
+			// secret-bearing output would be permanent noise that never
+			// changes and so never gets read.
+			b.WriteString("Freshness of outputs with secrets is not checked here -- trenvy status checks it.\n")
+		}
 		return b.String()
 	}
 

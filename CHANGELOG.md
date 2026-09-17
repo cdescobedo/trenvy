@@ -144,8 +144,12 @@ the command surface may still move under you.
   screen: it repeats `status`'s own project, profile (and where it came
   from) and backend facts, then lists every detected problem with the exact
   command that fixes it, or says plainly that nothing needs attention when
-  there are none. Pressing enter on a problem jumps straight to the
-  Variables cell it names -- the right row and the right profile column --
+  there are none -- naming `trenvy status` as the one check it cannot make
+  itself when an output selecting a secret is among the healthy ones, since
+  an empty list otherwise reads as "nothing is wrong" when the honest answer
+  is "nothing I can see is wrong". Pressing enter on a problem jumps
+  straight to the Variables cell it names -- the right row and the right
+  profile column --
   or, for a problem about an output's freshness, to the Outputs tab, since
   no single cell answers it. `p` opens a switcher over every registered
   project and, on a different choice, reloads the session against it in
@@ -180,8 +184,10 @@ the command surface may still move under you.
   first -- a file that was never rendered, or one `trenvy` has no render
   record for, or one hand-edited since, are all decidable without reading
   the secret, and a match against its own record is treated as fine rather
-  than as an alarm nothing pressable inside `trenvy ui` could ever clear. A
-  commit that fails manifest validation now always says the rest of the
+  than as an alarm nothing pressable inside `trenvy ui` could ever clear.
+  The healthy-state line names `trenvy status` in that case, once, rather
+  than flagging any individual output -- see above. A commit that fails
+  manifest validation now always says the rest of the
   batch was lost, not only when the batch also touched the keyring: a bare
   `a NEW_VAR` (nothing else set on it) failing Validate used to reach the
   terminal as a raw manifest error with no word that every other edit

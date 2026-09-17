@@ -44,7 +44,8 @@ func newUiCmd(opts *Options) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				ps := ui.Problems(mx, outputStates(opts, app, mx))
+				states, unverified := outputStates(opts, app, mx)
+				ps := ui.Problems(mx, states)
 				// Header facts mirror status.go's, from the same places: app.Profile
 				// for the active profile and where it came from, config.ManifestPath
 				// and app.Worktree for the same manifest path and worktree status
@@ -52,15 +53,16 @@ func newUiCmd(opts *Options) *cobra.Command {
 				// Named fields, not positional args: Params exists precisely so these
 				// adjacent strings can't be transposed here and still compile.
 				m := ui.New(ui.Params{
-					Project:      app.Entry.ID,
-					Profile:      app.Profile.Name,
-					Source:       app.Profile.Source,
-					ManifestPath: config.ManifestPath(app.Entry.ID),
-					Worktree:     app.Worktree,
-					Backend:      store.ResolveBackendName(opts.Backend),
-					Matrix:       mx,
-					Problems:     ps,
-					Projects:     projects,
+					Project:                   app.Entry.ID,
+					Profile:                   app.Profile.Name,
+					Source:                    app.Profile.Source,
+					ManifestPath:              config.ManifestPath(app.Entry.ID),
+					Worktree:                  app.Worktree,
+					Backend:                   store.ResolveBackendName(opts.Backend),
+					Matrix:                    mx,
+					Problems:                  ps,
+					OutputFreshnessUnverified: unverified,
+					Projects:                  projects,
 				})
 
 				final, err := opts.RunUI(m, func(name, profile string) (string, error) {
@@ -390,7 +392,13 @@ func matrixFromManifest(app *appContext) (*ui.Matrix, error) {
 // Because quick is never the user's own choice here, this function treats
 // classifyOutput's outputQuickSkipped differently than status.go's own
 // describeOutput does -- see the case below.
-func outputStates(opts *Options, app *appContext, mx *ui.Matrix) map[string]string {
+// The bool return says whether at least one output's freshness could not be
+// determined here because doing so would require reading a secret's value
+// (the outputQuickSkipped case below) -- ui.Problems has no way to surface
+// that itself, since flagging it there would recreate the exact permanent,
+// unfixable false alarm Fix 2 removed. The caller uses it to caveat the
+// Overview's own healthy-state line, once, rather than per output.
+func outputStates(opts *Options, app *appContext, mx *ui.Matrix) (map[string]string, bool) {
 	missing := false
 	for _, name := range mx.Names {
 		if mx.Cell(name, app.Profile.Name) == ui.CellMissing {
@@ -399,6 +407,7 @@ func outputStates(opts *Options, app *appContext, mx *ui.Matrix) map[string]stri
 		}
 	}
 
+	unverified := false
 	states := make(map[string]string, len(app.Manifest.Outputs))
 	for name, o := range app.Manifest.Outputs {
 		switch st := classifyOutput(opts, app, name, o, missing, true); st {
@@ -426,13 +435,18 @@ func outputStates(opts *Options, app *appContext, mx *ui.Matrix) map[string]stri
 			// inside `trenvy ui` could ever clear it, because ui never stops
 			// being quick. `trenvy status` (no --quick) remains the command
 			// that actually reads the value and can tell fresh from stale.
+			// The caller is told via the bool return instead, so the
+			// Overview can say so once rather than not at all.
 			states[name] = ui.StateFresh
+			unverified = true
 		case outputSecretsMissing, outputErrored:
 			// Both mean "not resolved to an answer", for different reasons --
 			// a missing secret (a real, actionable gap: `trenvy secret set`
 			// clears it) or a read failure already logged to stderr.
 			// ui.Problems' Fix for StateUnknown names `trenvy status`, which
-			// is the right next step for both.
+			// is the right next step for both. Neither sets unverified: both
+			// already surface as their own Problem, so the empty-list case
+			// this bool exists for cannot occur alongside them.
 			states[name] = ui.StateUnknown
 		default:
 			// classifyOutput's outputState has exactly the cases above. A
@@ -447,5 +461,5 @@ func outputStates(opts *Options, app *appContext, mx *ui.Matrix) map[string]stri
 			panic(fmt.Sprintf("ui: outputStates: unhandled output state %d for %q", st, name))
 		}
 	}
-	return states
+	return states, unverified
 }
