@@ -799,7 +799,18 @@ func (m Model) revealRequest() (RevealRequestMsg, bool) {
 
 // beginEdit opens an input mode on the cell under the cursor: ModeEditValue
 // for a plain variable, ModeEditSecret for a secret. One key, one meaning,
-// whatever the row -- `s` is the separate, row-level toggle of secret-ness.
+// whatever the row -- secret-ness toggling is not a key this package has (see
+// toggleDelete's own doc for why d and e must never both apply to one row).
+//
+// A staged delete for this row is cancelled first, unconditionally. Leaving
+// it staged underneath a new edit is exactly the Fix 1 bug: commitStaged
+// applies changes in staged order, so a delete followed by a set-value read
+// Vars[name] AFTER the delete had already removed it, silently reconstructing
+// the variable from a zero Var with every profile but the one just edited
+// wiped -- the delete itself discarded in the process, with no warning
+// either way. Cancelling here means editing a deleted row is now a clear,
+// visible decision to keep it: the "(deleted)" marker disappears from the
+// row the instant this runs, so nothing about undoing the delete is silent.
 //
 // A secret's buffer starts empty rather than prefilled with its current
 // value, unlike a plain cell's. Prefilling it would mean reading the secret
@@ -814,6 +825,7 @@ func (m *Model) beginEdit() {
 		return
 	}
 	name := names[m.row]
+	m.removeDelete(name)
 	if m.mx.Vars[name].Secret {
 		m.mode = ModeEditSecret
 		m.buffer = ""
@@ -824,9 +836,30 @@ func (m *Model) beginEdit() {
 	m.buffer = m.currentValue(name, profile)
 }
 
+// removeDelete un-stages a delete-var change for name, if one is staged.
+// Shared by toggleDelete's own toggle-off and beginEdit's cancel-on-edit, so
+// there is exactly one place that knows how to find and drop a staged
+// delete-var change rather than two loops that could drift apart.
+func (m *Model) removeDelete(name string) {
+	for i, c := range m.staged {
+		if c.Kind == ChangeDeleteVar && c.Name == name {
+			m.staged = append(m.staged[:i], m.staged[i+1:]...)
+			return
+		}
+	}
+}
+
 // toggleDelete stages delete-var for the row under the cursor, or un-stages
 // it if it is already staged -- the user has not saved anything yet and can
 // still change their mind.
+//
+// A row with a staged cell edit (set-value or set-secret) refuses a new
+// delete instead of adding one: committing both for the same variable is the
+// other half of the Fix 1 bug (see beginEdit's doc) -- delete-then-edit is
+// prevented there by cancelling the delete, but edit-then-delete reaches
+// commitStaged with both still staged unless d itself declines here. The two
+// keys now settle on one outcome regardless of order: whichever of d/e is
+// pressed second, the row ends up edited, never resurrected with a gap.
 func (m *Model) toggleDelete() {
 	if m.tab != TabVariables {
 		return
@@ -836,9 +869,12 @@ func (m *Model) toggleDelete() {
 		return
 	}
 	name := names[m.row]
-	for i, c := range m.staged {
-		if c.Kind == ChangeDeleteVar && c.Name == name {
-			m.staged = append(m.staged[:i], m.staged[i+1:]...)
+	if m.isDeleted(name) {
+		m.removeDelete(name)
+		return
+	}
+	for _, c := range m.staged {
+		if (c.Kind == ChangeSetValue || c.Kind == ChangeSetSecret) && c.Name == name {
 			return
 		}
 	}

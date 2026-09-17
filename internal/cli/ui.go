@@ -188,12 +188,36 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 		}
 	}
 
+	// deletedNames marks every variable this batch also deletes, so the
+	// set-value/set-secret cases below can refuse to read-modify-write a Var
+	// that delete-var has removed, or is about to. That read-modify-write
+	// against an already-deleted entry is the actual data-loss mechanism
+	// behind the Fix 1 bug: Vars[c.Name] on a name delete already handled
+	// returns a ZERO Var, and writing it back silently resurrects the
+	// variable with every profile but the one this change touches missing.
+	// internal/ui's own d and e now refuse to stage this combination in the
+	// first place (beginEdit cancels a pending delete; toggleDelete refuses
+	// a new one over a staged edit -- see their doc comments), so reaching
+	// this branch from a real `trenvy ui` session should not be possible.
+	// It stays here anyway: a Change slice is a plain exported value, and
+	// this function must not trust that every caller built one the only way
+	// internal/ui's keys currently allow.
+	deletedNames := make(map[string]bool, len(staged))
+	for _, c := range staged {
+		if c.Kind == ui.ChangeDeleteVar {
+			deletedNames[c.Name] = true
+		}
+	}
+
 	// Only now does the manifest change, and only in memory -- Validate runs
 	// before anything reaches disk, so a rejected manifest cannot leave a
 	// half-applied shape behind.
 	for _, c := range staged {
 		switch c.Kind {
 		case ui.ChangeSetValue:
+			if deletedNames[c.Name] {
+				continue
+			}
 			// A per-profile override, never the shared Value: editing one
 			// cell in the matrix must not change what every other profile
 			// resolves to, and Classify already reads Profiles[profile]
@@ -211,6 +235,9 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 		case ui.ChangeDeleteVar:
 			delete(app.Manifest.Vars, c.Name)
 		case ui.ChangeSetSecret:
+			if deletedNames[c.Name] {
+				continue
+			}
 			v := app.Manifest.Vars[c.Name]
 			v.Secret = true
 			v.Value = nil

@@ -412,6 +412,53 @@ func TestDeleteTogglesOff(t *testing.T) {
 	}
 }
 
+// d then e must not resurrect the row with an untouched profile silently
+// wiped (the Fix 1 bug): pressing e on a row staged for deletion cancels the
+// delete before opening the edit, so the row is never both "staged for
+// deletion" and "staged for an edit" for commitStaged to reconcile badly.
+// The cancellation is visible immediately -- the "(deleted)" marker
+// disappears -- so nothing about it is silent the way the discarded delete
+// used to be.
+func TestEditCancelsAPendingDelete(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = m.Update(ui.KeyRune('2'))
+	m, _ = m.Update(ui.KeyRune('d')) // stage delete for OVERRIDE (row 0)
+
+	m = editCell(m, "NEWVAL") // e must cancel the delete, then stage the edit
+
+	staged := m.Staged()
+	want := ui.Change{Kind: ui.ChangeSetValue, Name: "OVERRIDE", Profile: "dev", Value: "NEWVAL"}
+	if len(staged) != 1 || staged[0] != want {
+		t.Fatalf("Staged() = %+v, want exactly %+v (the delete must be cancelled, not merely outlived)", staged, want)
+	}
+	if strings.Contains(lineFor(t, m.View(), "OVERRIDE"), "deleted") {
+		t.Errorf("row still marked deleted after editing it:\n%s", m.View())
+	}
+}
+
+// e then d is the reverse order: the row already has a staged edit when d is
+// pressed. d must refuse rather than delete out from under it -- deleting
+// would run commitStaged's read-modify-write on a variable the same batch
+// deletes, the exact zero-value-reconstruction mechanism that wiped an
+// untouched profile in the Fix 1 bug. Refusing keeps the two orders
+// consistent: whichever of d/e is pressed second, the row ends up edited,
+// never deleted-with-a-lost-edit or resurrected-with-a-gap.
+func TestDeleteRefusesOverAStagedEdit(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = m.Update(ui.KeyRune('2'))
+	m = editCell(m, "NEWVAL")        // stage an edit for OVERRIDE (row 0)
+	m, _ = m.Update(ui.KeyRune('d')) // must not delete out from under it
+
+	staged := m.Staged()
+	want := ui.Change{Kind: ui.ChangeSetValue, Name: "OVERRIDE", Profile: "dev", Value: "NEWVAL"}
+	if len(staged) != 1 || staged[0] != want {
+		t.Fatalf("Staged() = %+v, want exactly %+v (d must refuse, not add a delete over a staged edit)", staged, want)
+	}
+	if strings.Contains(lineFor(t, m.View(), "OVERRIDE"), "deleted") {
+		t.Errorf("row marked deleted despite d being refused:\n%s", m.View())
+	}
+}
+
 // The load-bearing filter assertion: after narrowing, the cursor must land
 // on a row that is still visible, not merely have the row count shrink under
 // it. Positioning on the last row first means a clamp that only resets to 0

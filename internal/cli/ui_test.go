@@ -294,6 +294,105 @@ value = "http://+:8080"
 	}
 }
 
+// dbURLManifest builds a project with one variable, DB_URL, that has a value
+// under "dev" only -- the exact shape of the live Fix 1 repro (dev set,
+// prod missing) so pressing d then e on its prod cell either resurrects it
+// with dev silently wiped, or correctly keeps dev intact.
+func dbURLManifest(t *testing.T) *manifest.Manifest {
+	t.Helper()
+	m, err := manifest.Parse([]byte(`
+[project]
+id = "vpb"
+profiles = ["dev", "prod"]
+default_profile = "dev"
+salt = "abc123"
+
+[vars.DB_URL]
+profiles = { dev = "postgres://dev" }
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// The Fix 1 regression, order 1: d (stage delete) then e (edit the prod
+// cell). Before the fix, this silently discarded the delete AND wiped dev --
+// commitStaged's set-value branch read Vars["DB_URL"] after the delete had
+// already removed it, reconstructing a Var with only prod's value. After the
+// fix, e cancels the pending delete before staging the edit, so dev survives
+// and DB_URL is never deleted at all.
+func TestUiDeleteThenEditPreservesTheUntouchedProfile(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", dbURLManifest(t))
+
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('2')) // Variables tab; only row: DB_URL
+		mo, _ = mo.Update(ui.KeyRune('d')) // stage delete
+		mo, _ = mo.Update(ui.KeyRune('l')) // move to the prod column
+		mo = clearAndType(mo, "postgres://prod")
+		return markUISaved(mo), nil
+	}
+
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
+	}
+
+	m, err := manifest.Load(config.ManifestPath("vpb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, ok := m.Vars["DB_URL"]
+	if !ok {
+		t.Fatalf("DB_URL was deleted -- want it kept, with the edit cancelling the delete")
+	}
+	if got := v.Profiles["dev"]; got != "postgres://dev" {
+		t.Errorf("DB_URL profiles[dev] = %q, want the untouched value %q to survive", got, "postgres://dev")
+	}
+	if got := v.Profiles["prod"]; got != "postgres://prod" {
+		t.Errorf("DB_URL profiles[prod] = %q, want the staged edit %q", got, "postgres://prod")
+	}
+}
+
+// The Fix 1 regression, order 2: e (edit the prod cell) then d. Before the
+// fix this already deleted DB_URL cleanly (dev included) -- the bug report's
+// own "reverse order deletes correctly" -- but that still destroys dev, a
+// value the user never edited, only because d happened to be pressed last.
+// After the fix, d refuses to stage a delete over a row that already has a
+// staged edit, so both orders converge on the same outcome: the edit lands,
+// dev survives, and DB_URL is never deleted.
+func TestUiEditThenDeletePreservesTheUntouchedProfile(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", dbURLManifest(t))
+
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('2')) // Variables tab; only row: DB_URL
+		mo, _ = mo.Update(ui.KeyRune('l')) // move to the prod column first
+		mo = clearAndType(mo, "postgres://prod")
+		mo, _ = mo.Update(ui.KeyRune('d')) // must refuse: a staged edit exists
+		return markUISaved(mo), nil
+	}
+
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
+	}
+
+	m, err := manifest.Load(config.ManifestPath("vpb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, ok := m.Vars["DB_URL"]
+	if !ok {
+		t.Fatalf("DB_URL was deleted -- want d refused over the staged edit")
+	}
+	if got := v.Profiles["dev"]; got != "postgres://dev" {
+		t.Errorf("DB_URL profiles[dev] = %q, want the untouched value %q to survive", got, "postgres://dev")
+	}
+	if got := v.Profiles["prod"]; got != "postgres://prod" {
+		t.Errorf("DB_URL profiles[prod] = %q, want the staged edit %q", got, "postgres://prod")
+	}
+}
+
 // A staged set-value must land in the manifest as a per-profile override,
 // not as the shared Value -- editing one cell must not change what every
 // other profile resolves to.

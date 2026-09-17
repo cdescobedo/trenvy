@@ -165,7 +165,14 @@ the command surface may still move under you.
   cannot remember any other key always has an exit that writes nothing. A
   status line, visible on every tab, names the staged count and the w/q keys
   that resolve it -- and says plainly that nothing is staged rather than
-  offering to save or discard when there is nothing to lose.
+  offering to save or discard when there is nothing to lose. `d` marking a
+  row deleted and `e` editing one of its cells no longer fight over the same
+  variable: editing a deleted row cancels the delete instead of leaving it
+  staged underneath the edit, and deleting a row that already has a staged
+  edit is refused instead of silently discarding it -- either order used to
+  be able to commit both, which read `Vars[name]` after a delete in the same
+  batch had already removed it and rewrote the variable from scratch with
+  every other profile's value gone.
 
 ### Changed
 
