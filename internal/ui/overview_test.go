@@ -28,13 +28,23 @@ func overviewFixture(t *testing.T) (*ui.Matrix, []ui.Problem) {
 }
 
 // The header repeats trenvy status's facts verbatim: project id, active
-// profile and its source, backend name.
+// profile and its source, manifest path, worktree, backend name -- the spec
+// asks for all six; only project/profile/backend shipped originally (Fix 5).
 func TestOverviewRendersHeaderFacts(t *testing.T) {
 	mx, ps := overviewFixture(t)
-	m := ui.New(ui.Params{Project: "demo", Profile: "staging", Source: "--profile", Backend: "keychain", Matrix: mx, Problems: ps})
+	m := ui.New(ui.Params{
+		Project:      "demo",
+		Profile:      "staging",
+		Source:       "--profile",
+		Backend:      "keychain",
+		ManifestPath: "/config/projects/demo.toml",
+		Worktree:     "/home/demo/app",
+		Matrix:       mx,
+		Problems:     ps,
+	})
 
 	v := m.View()
-	for _, want := range []string{"demo", "staging", "--profile", "keychain"} {
+	for _, want := range []string{"demo", "staging", "--profile", "keychain", "/config/projects/demo.toml", "/home/demo/app"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("overview header missing %q:\n%s", want, v)
 		}

@@ -189,7 +189,10 @@ the command surface may still move under you.
   gone too. A short key reminder is now visible on every tab regardless of
   staged count, and `?` opens the full key list -- the binary previously
   documented none of its own keys and relied entirely on the README, which
-  works only for someone who already knew to go look.
+  works only for someone who already knew to go look. The Overview header
+  now also names the manifest path and worktree, matching `trenvy status`'s
+  own six facts (project, profile and its source, manifest, worktree,
+  backend); only three of the six had shipped.
 
 ### Changed
 

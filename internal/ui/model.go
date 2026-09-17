@@ -143,15 +143,17 @@ type revealedCell struct{ Name, Profile, Value string }
 // sibling flat-table model. Any data the model needs from outside (the
 // keyring, the registry) arrives as a message; Update never fetches it.
 type Model struct {
-	project  string
-	profile  string // active profile name, e.g. "prod"
-	source   string // where profile came from: "--profile", "TRENVY_PROFILE", "default"
-	backend  string // keyring backend name
-	mx       *Matrix
-	problems []Problem
-	tab      Tab
-	row      int // selected index into visibleNames()
-	col      int // selected index into mx.Profiles
+	project      string
+	profile      string // active profile name, e.g. "prod"
+	source       string // where profile came from: "--profile", "TRENVY_PROFILE", "default"
+	manifestPath string // path to this project's manifest file
+	worktree     string // this worktree's root, resolved the same way `trenvy status` does
+	backend      string // keyring backend name
+	mx           *Matrix
+	problems     []Problem
+	tab          Tab
+	row          int // selected index into visibleNames()
+	col          int // selected index into mx.Profiles
 
 	// projects lists every registered project id, for the switcher `p`
 	// opens. It never changes after New: internal/ui does no I/O, so a
@@ -210,10 +212,12 @@ type Model struct {
 // site's argument order, which is exactly what a positional signature would
 // have forced the moment it grew a fifth string.
 type Params struct {
-	Project string // project id
-	Profile string // active profile name, e.g. "prod"
-	Source  string // where profile came from: "--profile", "TRENVY_PROFILE", "default"
-	Backend string // keyring backend name
+	Project      string // project id
+	Profile      string // active profile name, e.g. "prod"
+	Source       string // where profile came from: "--profile", "TRENVY_PROFILE", "default"
+	ManifestPath string // path to this project's manifest file, e.g. from config.ManifestPath
+	Worktree     string // this worktree's root, e.g. from resolve.WorktreeRoot
+	Backend      string // keyring backend name
 
 	Matrix   *Matrix
 	Problems []Problem
@@ -225,20 +229,23 @@ type Params struct {
 }
 
 // New builds a model over one project's matrix and its detected problems.
-// Profile, Source and Backend are the same facts `trenvy status` reports --
-// project id, active profile and where it came from, and the keyring
-// backend -- passed in rather than re-derived, since this package does no
-// I/O and cannot read them itself.
+// Profile, Source, ManifestPath, Worktree and Backend are the same facts
+// `trenvy status` reports -- project id, active profile and where it came
+// from, the manifest's path, the worktree root, and the keyring backend --
+// passed in rather than re-derived, since this package does no I/O and
+// cannot read them itself.
 func New(p Params) Model {
 	return Model{
-		project:  p.Project,
-		profile:  p.Profile,
-		source:   p.Source,
-		backend:  p.Backend,
-		mx:       p.Matrix,
-		problems: p.Problems,
-		projects: p.Projects,
-		tab:      TabOverview,
+		project:      p.Project,
+		profile:      p.Profile,
+		source:       p.Source,
+		manifestPath: p.ManifestPath,
+		worktree:     p.Worktree,
+		backend:      p.Backend,
+		mx:           p.Matrix,
+		problems:     p.Problems,
+		projects:     p.Projects,
+		tab:          TabOverview,
 	}
 }
 
@@ -1068,9 +1075,10 @@ func (m Model) viewHelp() string {
 	return b.String()
 }
 
-// viewOverview renders the landing screen: the same project/profile/backend
-// facts `trenvy status` reports (same words, so a user does not learn a
-// second vocabulary for them here), then either the problem list or a plain
+// viewOverview renders the landing screen: the same project, profile (and
+// its source), manifest path, worktree and backend facts `trenvy status`
+// reports (same words, same order, so a user does not learn a second
+// vocabulary for them here), then either the problem list or a plain
 // statement that there is nothing to fix.
 //
 // This is the screen a healthy project sees most of the time, so "no
@@ -1079,6 +1087,8 @@ func (m Model) viewOverview() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "project   %s\n", m.project)
 	fmt.Fprintf(&b, "profile   %s  (%s)\n", m.profile, m.source)
+	fmt.Fprintf(&b, "manifest  %s\n", m.manifestPath)
+	fmt.Fprintf(&b, "worktree  %s\n", m.worktree)
 	fmt.Fprintf(&b, "backend   %s\n\n", m.backend)
 
 	if len(m.problems) == 0 {
