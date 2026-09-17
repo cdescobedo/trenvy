@@ -459,6 +459,52 @@ func TestDeleteRefusesOverAStagedEdit(t *testing.T) {
 	}
 }
 
+// Fix wave round 2, concern 2: a refusal that says nothing is the same class
+// of defect this project has already paid for twice -- e on a secret cell
+// was a silent no-op until Ruling 3, and s was promised everywhere and
+// implemented nowhere until Task 13 pressed it. d's refusal over a staged
+// edit must say why, and what to do about it, in the same place the UI
+// already talks to the user -- derived from state Update already keeps
+// (mirroring internal/tui's addNameWarning), not a new mutable "message"
+// field, and shown whether or not d was actually pressed: it is true the
+// moment the row has both a staged edit and the cursor on it.
+func TestDeleteRefusalExplainsWhy(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = m.Update(ui.KeyRune('2'))
+	m = editCell(m, "NEWVAL") // stage an edit for OVERRIDE (row 0)
+
+	v := m.View()
+	if !strings.Contains(v, "d is disabled") {
+		t.Errorf("no explanation for d's refusal:\n%s", v)
+	}
+	if !strings.Contains(v, "OVERRIDE") {
+		t.Errorf("explanation does not name the row:\n%s", v)
+	}
+	if !strings.Contains(v, "q discards everything staged") {
+		t.Errorf("explanation does not say what to do about it:\n%s", v)
+	}
+
+	// Pressing d must not change the message or the state: it is still
+	// refused, and the explanation is still there, not a one-shot flash
+	// that disappears once "seen".
+	m, _ = m.Update(ui.KeyRune('d'))
+	if !strings.Contains(m.View(), "d is disabled") {
+		t.Errorf("explanation vanished after pressing the refused key:\n%s", m.View())
+	}
+}
+
+// A row with no staged edit must show no explanation at all -- the message
+// is specific to the one condition that blocks d, not a permanent fixture
+// of the Variables tab.
+func TestNoDeleteExplanationWithoutAStagedEdit(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = m.Update(ui.KeyRune('2'))
+
+	if v := m.View(); strings.Contains(v, "d is disabled") {
+		t.Errorf("explanation shown despite no staged edit:\n%s", v)
+	}
+}
+
 // The load-bearing filter assertion: after narrowing, the cursor must land
 // on a row that is still visible, not merely have the row count shrink under
 // it. Positioning on the last row first means a clamp that only resets to 0

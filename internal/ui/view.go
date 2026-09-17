@@ -105,6 +105,10 @@ func (m Model) viewVariables() string {
 		fmt.Fprintf(&b, "\n new variable name: %s_\n", m.buffer)
 	case ModeFilter:
 		fmt.Fprintf(&b, "\n filter: %s_\n", m.buffer)
+	case ModeBrowse:
+		if reason := m.deleteBlockedReason(); reason != "" {
+			fmt.Fprintf(&b, "\n%s\n", reason)
+		}
 	}
 
 	return b.String()

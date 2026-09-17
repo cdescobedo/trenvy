@@ -930,6 +930,11 @@ func (m *Model) removeDelete(name string) {
 // commitStaged with both still staged unless d itself declines here. The two
 // keys now settle on one outcome regardless of order: whichever of d/e is
 // pressed second, the row ends up edited, never resurrected with a gap.
+//
+// The refusal is silent here on purpose -- see deleteBlockedReason, which
+// View renders it through, rather than this function reaching for a message
+// field. A key that quietly does nothing is its own defect (see that
+// function's doc), so the silence must not reach the user.
 func (m *Model) toggleDelete() {
 	if m.tab != TabVariables {
 		return
@@ -949,6 +954,45 @@ func (m *Model) toggleDelete() {
 		}
 	}
 	m.staged = append(m.staged, Change{Kind: ChangeDeleteVar, Name: name})
+}
+
+// deleteBlockedReason explains why d would currently refuse on the row
+// under the cursor, or "" when it would not -- derived purely from state
+// Update already keeps (mirroring internal/tui's addNameWarning), rather
+// than a new mutable field that would need its own clearing logic. It is
+// deliberately true whenever the condition holds, not only right after d is
+// pressed: a user resting the cursor on an already-edited row learns d will
+// not work there before ever trying it, the same way addNameWarning shows
+// "already exists" while still typing rather than only after enter.
+//
+// A silent refusal here is the same class of defect this project has
+// already paid for twice: e on a secret cell was a no-op until Ruling 3
+// split its meaning from s, and s itself was documented everywhere and
+// implemented nowhere until Task 13 pressed it and found out. Both times
+// the cost was someone concluding the tool was broken. There is no key that
+// reverts a single staged edit, so the only honest advice is q, which
+// discards the whole session's staged work -- inventing a narrower one here
+// would be reporting a fix that does not exist.
+func (m Model) deleteBlockedReason() string {
+	if m.tab != TabVariables {
+		return ""
+	}
+	names := m.visibleNames()
+	if len(names) == 0 || m.row >= len(names) {
+		return ""
+	}
+	name := names[m.row]
+	if m.isDeleted(name) {
+		return ""
+	}
+	for _, c := range m.staged {
+		if (c.Kind == ChangeSetValue || c.Kind == ChangeSetSecret) && c.Name == name {
+			return fmt.Sprintf(
+				"d is disabled here: %s has a staged edit -- q discards everything staged; there is no key that reverts just this one",
+				name)
+		}
+	}
+	return ""
 }
 
 // updateInput handles typing in whichever of the three text-entry modes is
