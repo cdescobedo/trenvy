@@ -71,10 +71,24 @@ func TestStatusWithoutQuickReadsSecretValues(t *testing.T) {
 // --quick must skip every value read while still reporting presence through
 // Has alone: on macOS a read can raise an authorization prompt, so a status
 // that only wants to see what is present must not pay for reading it too.
+//
+// The output is rendered first so the freshness check lands on the one
+// genuinely ambiguous case --quick cannot resolve: the file exists, matches
+// its own recorded hash (not hand-edited) and has a render record (not
+// foreign), so only fresh-versus-stale is left, and that needs the secret's
+// value. Before Fix 2, --quick reported "unknown" for a secret-bearing
+// output regardless of whether the file even existed; this pins the case
+// that is still genuinely unknown after the fix, not the one that turned
+// out to be knowable without a read (see status.go's classifyOutput).
 func TestStatusQuickSkipsSecretReadsButStillReportsPresence(t *testing.T) {
 	h := newHarness(t)
+	h.gitInit("src/.env\n")
 	h.register("vpb", fixtureManifest(t))
 	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "s3cretvalue")
+	if err := h.run("render", "docker"); err != nil {
+		t.Fatal(err)
+	}
+	before := len(h.mem.Calls())
 
 	if err := h.run("status", "--quick"); err != nil {
 		t.Fatal(err)
@@ -86,9 +100,9 @@ func TestStatusQuickSkipsSecretReadsButStillReportsPresence(t *testing.T) {
 	if !strings.Contains(out, "unknown (--quick)") {
 		t.Errorf("--quick did not mark the output's freshness unknown:\n%s", out)
 	}
-	for _, call := range h.mem.Calls() {
+	for _, call := range h.mem.Calls()[before:] {
 		if strings.HasPrefix(call, "Get ") {
-			t.Errorf("status --quick read a secret value: %v", h.mem.Calls())
+			t.Errorf("status --quick read a secret value: %v", h.mem.Calls()[before:])
 		}
 	}
 }

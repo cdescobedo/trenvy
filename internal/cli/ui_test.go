@@ -206,19 +206,18 @@ value = "http://+:8080"
 	}
 }
 
-// An output that selects a secret must not cost a keyring Get just because
-// the ui command opened: the presence loop's Has-only guarantee would be
-// pointless if the output-freshness pass turned around and read the value
-// anyway. describeOutput's own --quick branch is what ui relies on for this,
-// and its "unknown (--quick)" must reach the Overview as the plain token
-// "unknown" -- "--quick" is a trenvy status flag the ui user never typed and
-// cannot type, and problem.go's Fix for it must name trenvy status, not
-// trenvy render (rendering does not resolve not-knowing, and can fail
-// outright on a hand-edited file).
-func TestUiOverviewReportsUnknownForAnOutputWithASecret(t *testing.T) {
+// A secret genuinely missing from the keyring -- not merely unread under
+// ui's always-quick pass -- is a real, actionable "unknown": classifyOutput's
+// secretsMissing branch (unaffected by Fix 2) already inspects the file
+// before deciding this, so it must still surface as a problem. The output
+// path exists here (a stray file, no render record) specifically so this
+// exercises secretsMissing rather than the never-rendered case, which is
+// TestUiOverviewHasNoProblemForASecretBearingOutputNeverRendered's job.
+func TestUiOverviewReportsUnknownForAMissingSecret(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t)) // docker output includes ALPHA_TOKEN (secret)
-	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "v")
+	h.writeSample(t, "src/.env", "FOO=bar\n")
+	// ALPHA_TOKEN deliberately never seeded -- missing under dev.
 
 	var got *ui.Model
 	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
@@ -248,12 +247,6 @@ func TestUiOverviewReportsUnknownForAnOutputWithASecret(t *testing.T) {
 // became a permanent false alarm the first time anyone opened `trenvy ui`.
 // classifyOutput's typed outputAbsent must reach ui.Problems as
 // ui.StateAbsent, which Problems already knows to skip.
-//
-// The output here selects only a plain variable, deliberately: one that also
-// selects a secret takes the quick-skip branch regardless of whether the
-// file exists (TestUiOverviewReportsUnknownForAnOutputWithASecret covers
-// that path), so it would not exercise the guard.StatusAbsent branch this
-// test is pinned to.
 func TestUiOverviewHasNoProblemForAnOutputNeverRendered(t *testing.T) {
 	h := newHarness(t)
 	m, err := manifest.Parse([]byte(`
@@ -291,6 +284,73 @@ value = "http://+:8080"
 	out := got.View()
 	if !strings.Contains(out, "No problems found") {
 		t.Errorf("a never-rendered output produced a problem:\n%s", out)
+	}
+}
+
+// Fix 2 (CRITICAL): the case the test above deliberately sidestepped. Before
+// the fix, classifyOutput's quick branch returned outputQuickSkipped for
+// ANY output selecting a secret before ever calling guard.Inspect, so a
+// secret-bearing output that had simply never been rendered -- the ordinary
+// state of a fresh clone -- became a permanent, unfixable false problem:
+// ui.go's outputStates always passes quick=true, so no user action inside
+// `trenvy ui` could ever clear it. Running the Fix's own suggestion
+// (`trenvy status`) proved nothing was wrong and did not clear it either.
+func TestUiOverviewHasNoProblemForASecretBearingOutputNeverRendered(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t)) // docker output includes ALPHA_TOKEN (secret)
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "v")
+	// src/.env is never written at all -- not hand-edited, not rendered,
+	// just absent, exactly like the plain-variable case above but with a
+	// secret in the mix, which is what used to reach the quick-skip branch
+	// before ever checking whether the file existed.
+
+	var got *ui.Model
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		got = &mo
+		return mo, nil
+	}
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
+	}
+
+	out := got.View()
+	if !strings.Contains(out, "No problems found") {
+		t.Errorf("a never-rendered secret-bearing output produced a problem:\n%s", out)
+	}
+}
+
+// Fix 2's harder case, and the one the live verification is built around: a
+// secret-bearing output that HAS been rendered and IS fresh must also read
+// as no problem, not just an absent one. classifyOutput's quick branch now
+// inspects the file first: once it is neither absent, foreign, nor hand
+// -edited, the one thing left unresolved -- a secret's value changing since
+// the render, with the file otherwise untouched -- is invisible to any check
+// that does not read it, so ui treats it as fine rather than as a permanent
+// "unknown" nothing the user can do inside `trenvy ui` would ever clear.
+// `trenvy status` (no --quick) remains the command that actually reads the
+// value and can tell fresh from stale for real; see the final-fix-report for
+// a live run of both side by side.
+func TestUiOverviewHasNoProblemForARenderedFreshSecretBearingOutput(t *testing.T) {
+	h := newHarness(t)
+	h.gitInit("src/.env\n")
+	h.register("vpb", fixtureManifest(t)) // docker output includes ALPHA_TOKEN (secret)
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "s3cretvalue")
+	if err := h.run("render", "docker"); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	var got *ui.Model
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		got = &mo
+		return mo, nil
+	}
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
+	}
+
+	out := got.View()
+	if !strings.Contains(out, "No problems found") {
+		t.Errorf("a rendered, fresh, secret-bearing output produced a problem:\n%s", out)
 	}
 }
 

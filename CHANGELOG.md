@@ -172,7 +172,15 @@ the command surface may still move under you.
   edit is refused instead of silently discarding it -- either order used to
   be able to commit both, which read `Vars[name]` after a delete in the same
   batch had already removed it and rewrote the variable from scratch with
-  every other profile's value gone.
+  every other profile's value gone. The Overview no longer flags a
+  permanent, unfixable problem for every output that selects a secret: it
+  always classifies freshness in `--quick`-style mode to avoid a keyring
+  read on every launch, and that mode used to report "unknown" for such an
+  output before even checking whether the file existed. It now checks
+  first -- a file that was never rendered, or one `trenvy` has no render
+  record for, or one hand-edited since, are all decidable without reading
+  the secret, and a match against its own record is treated as fine rather
+  than as an alarm nothing pressable inside `trenvy ui` could ever clear.
 
 ### Changed
 

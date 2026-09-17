@@ -140,8 +140,13 @@ const (
 	// profile, so resolve.Values would error instead of producing a value to
 	// hash -- there is nothing to compare against the render record.
 	outputSecretsMissing
-	// outputQuickSkipped: --quick (or ui.go's always-quick freshness pass)
-	// deliberately did not read a secret this output selects.
+	// outputQuickSkipped: the file exists, is not hand-edited and has a
+	// render record -- so it is not outputAbsent, outputForeign or
+	// outputModified -- but --quick (or ui.go's always-quick freshness pass)
+	// deliberately did not read the secret this output selects, and telling
+	// fresh from stale needs that value. Absence, a foreign file and a hand
+	// edit are all decided from the file and the state record alone, with no
+	// value required; only this one distinction is actually unknown.
 	outputQuickSkipped
 	// outputErrored: guard.Inspect or resolve.Values itself failed; the
 	// detail is already written to opts.Stderr by classifyOutput.
@@ -176,7 +181,32 @@ func classifyOutput(opts *Options, app *appContext, name string, o manifest.Outp
 			return outputErrored
 		}
 		if hasSecret {
-			return outputQuickSkipped
+			// Absence and "a file exists that we have no record of" are both
+			// decidable from the file and the state record alone, with no
+			// secret value needed -- this used to skip straight to
+			// outputQuickSkipped without ever calling guard.Inspect, so an
+			// output that had simply never been rendered (the ordinary state
+			// of a fresh clone) was indistinguishable from a genuinely stale
+			// one. Passing "" as wantSum mirrors the secretsMissing branch
+			// above: entry.Sum is never actually "" for a real render, so
+			// the one case this cannot rule out (the file matches its own
+			// record, and only fresh-versus-stale remains) still correctly
+			// falls through to outputQuickSkipped below.
+			st, err := guard.Inspect(abs, "", entry, have)
+			if err != nil {
+				fmt.Fprintf(opts.Stderr, "trenvy: status: %s: %v\n", name, err)
+				return outputErrored
+			}
+			switch st {
+			case guard.StatusAbsent:
+				return outputAbsent
+			case guard.StatusForeign:
+				return outputForeign
+			case guard.StatusModified:
+				return outputModified
+			default:
+				return outputQuickSkipped
+			}
 		}
 	}
 

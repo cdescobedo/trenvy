@@ -376,6 +376,10 @@ func matrixFromManifest(app *appContext) (*ui.Matrix, error) {
 // task is scoped to auditing for Get calls turns around and calls Get anyway,
 // once per secret an output references -- the exact prompt storm Has exists
 // to avoid.
+//
+// Because quick is never the user's own choice here, this function treats
+// classifyOutput's outputQuickSkipped differently than status.go's own
+// describeOutput does -- see the case below.
 func outputStates(opts *Options, app *appContext, mx *ui.Matrix) map[string]string {
 	missing := false
 	for _, name := range mx.Names {
@@ -398,12 +402,27 @@ func outputStates(opts *Options, app *appContext, mx *ui.Matrix) map[string]stri
 			states[name] = ui.StateModified
 		case outputForeign:
 			states[name] = ui.StateForeign
-		case outputSecretsMissing, outputQuickSkipped, outputErrored:
-			// All three mean "not resolved to an answer", for different
-			// reasons -- a missing secret, a deliberate --quick-style skip,
-			// or a read failure already logged to stderr. ui.Problems' Fix
-			// for StateUnknown names `trenvy status`, which is the right
-			// next step for all three.
+		case outputQuickSkipped:
+			// Deliberately NOT ui.StateUnknown here, unlike outputSecretsMissing
+			// and outputErrored below. classifyOutput only reaches this case
+			// once it has already ruled out absent, foreign and hand-edited
+			// (Fix 2) -- the one thing left unresolved is a secret's value
+			// changing since the last render with the file otherwise
+			// untouched, and that is invisible to any check that does not
+			// read it. ui always classifies with quick=true; it is never the
+			// user's own deliberate tradeoff the way `status --quick` is, so
+			// flagging this here would be exactly the "permanent, unfixable
+			// false problem" Fix 2 exists to remove -- nothing pressable
+			// inside `trenvy ui` could ever clear it, because ui never stops
+			// being quick. `trenvy status` (no --quick) remains the command
+			// that actually reads the value and can tell fresh from stale.
+			states[name] = ui.StateFresh
+		case outputSecretsMissing, outputErrored:
+			// Both mean "not resolved to an answer", for different reasons --
+			// a missing secret (a real, actionable gap: `trenvy secret set`
+			// clears it) or a read failure already logged to stderr.
+			// ui.Problems' Fix for StateUnknown names `trenvy status`, which
+			// is the right next step for both.
 			states[name] = ui.StateUnknown
 		default:
 			// classifyOutput's outputState has exactly the cases above. A
