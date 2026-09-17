@@ -541,6 +541,25 @@ func TestFilterClampsToLastValidIndexNotAlwaysZero(t *testing.T) {
 	}
 }
 
+// Fix 6: a committed filter has no other on-screen trace once rows are
+// narrowed -- rows just vanish, with nothing saying why. This pins that the
+// active filter stays visible once it has actually hidden something, not
+// only in the "no rows match" special case (see viewVariables).
+func TestActiveFilterStaysVisibleOnceRowsAreNarrowed(t *testing.T) {
+	m := newTestModel(t) // OVERRIDE, SHARED, TOKEN
+	m, _ = m.Update(ui.KeyRune('2'))
+	m, _ = m.Update(ui.KeyRune('/'))
+	for _, r := range "SHA" {
+		m, _ = m.Update(ui.KeyRune(r))
+	}
+	m, _ = m.Update(ui.KeyType(tea.KeyEnter))
+
+	v := m.View()
+	if !strings.Contains(v, `filter: "SHA"`) {
+		t.Errorf("active filter is not shown once rows are narrowed:\n%s", v)
+	}
+}
+
 // secretsModel builds a model with two already-stored secrets, so a
 // RevealedMsg's effect on one can be checked against the other: revealing
 // TOKEN must never cause OTHER_SECRET, or TOKEN's other profile, to show a
@@ -652,6 +671,26 @@ func TestRevealKeyEmitsRequestWithoutFetching(t *testing.T) {
 	want := ui.RevealRequestMsg{Name: "TOKEN", Profile: "prod"}
 	if !ok || got != want {
 		t.Errorf("cmd() = %#v, want %#v", got, want)
+	}
+}
+
+// Fix 6: r over a cell with a staged set-secret must not even ask to fetch.
+// cellText already shows "secret (pending)" for this cell regardless of
+// what the keyring holds, so fetching the current value would cost a real
+// Get -- on macOS, a real authorization prompt -- for an answer that is
+// never displayed and immediately discarded.
+func TestRevealRefusesOverAStagedSetSecret(t *testing.T) {
+	m := secretsModel(t)             // rows: OTHER_SECRET(0), TOKEN(1); cols: dev(0), prod(1)
+	m, _ = m.Update(ui.KeyRune('j')) // TOKEN row, dev column
+	m, _ = m.Update(ui.KeyRune('e'))
+	for _, r := range "newvalue" {
+		m, _ = m.Update(ui.KeyRune(r))
+	}
+	m, _ = m.Update(ui.KeyType(tea.KeyEnter)) // stages set-secret for TOKEN/dev
+
+	_, cmd := m.Update(ui.KeyRune('r'))
+	if cmd != nil {
+		t.Errorf("r over a staged set-secret produced a command, want none -- it must not fetch")
 	}
 }
 

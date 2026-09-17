@@ -39,6 +39,15 @@ func (m Model) viewVariables() string {
 	}
 
 	var b strings.Builder
+	if m.filter != "" {
+		// A committed filter otherwise leaves no trace on screen once rows
+		// are narrowed: they simply vanish, with nothing here saying why --
+		// the empty-result message above is the only place that named it,
+		// and only when the filter hid EVERY row. / then enter with nothing
+		// typed clears it, which is worth saying here since there is no
+		// dedicated key for "clear the filter".
+		fmt.Fprintf(&b, "filter: %q  (press / then enter with nothing typed to clear)\n\n", m.filter)
+	}
 	w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 
 	header := append([]string{"", "NAME", ""}, m.mx.Profiles...)

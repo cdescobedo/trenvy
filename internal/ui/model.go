@@ -380,8 +380,10 @@ func (m Model) isDeleted(name string) bool {
 // its Value the way set-value does. Echoing a just-typed secret into the grid
 // the instant it is staged would defeat the whole point of masking the input
 // for it -- the plaintext would simply reappear one line up. "pending" says a
-// write is staged without saying what it will write; r still reveals what is
-// actually in the keyring today.
+// write is staged without saying what it will write; r itself refuses this
+// cell outright while the write is pending (see revealRequest), rather than
+// fetching the keyring's current value only to show "pending" over it anyway
+// -- so there is no read left that could ever disagree with this text.
 func (m Model) cellText(name, profile string) string {
 	for i := len(m.staged) - 1; i >= 0; i-- {
 		c := m.staged[i]
@@ -817,6 +819,14 @@ func (m Model) updateBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 // is on a secret cell. It only reads state; it never fetches anything --
 // that is the whole reason reveal is a message: a stray r must never risk
 // the authorization prompt a real keyring Get can raise on macOS.
+//
+// It also refuses when this exact cell already has a staged set-secret
+// (Fix 6): cellText shows "secret (pending)" for that cell no matter what
+// the keyring currently holds, so fetching the current value would cost a
+// real Get -- a real authorization prompt on macOS -- for an answer that is
+// never displayed and immediately thrown away. That was the discarded
+// prompt this fix removes: r looked like a silent no-op on such a cell, but
+// still ran the fetch underneath it.
 func (m Model) revealRequest() (RevealRequestMsg, bool) {
 	if m.tab != TabVariables {
 		return RevealRequestMsg{}, false
@@ -829,7 +839,13 @@ func (m Model) revealRequest() (RevealRequestMsg, bool) {
 	if !m.mx.Vars[name].Secret {
 		return RevealRequestMsg{}, false
 	}
-	return RevealRequestMsg{Name: name, Profile: m.mx.Profiles[m.col]}, true
+	profile := m.mx.Profiles[m.col]
+	for _, c := range m.staged {
+		if c.Kind == ChangeSetSecret && c.Name == name && c.Profile == profile {
+			return RevealRequestMsg{}, false
+		}
+	}
+	return RevealRequestMsg{Name: name, Profile: profile}, true
 }
 
 // beginEdit opens an input mode on the cell under the cursor: ModeEditValue
