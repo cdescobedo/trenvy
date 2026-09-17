@@ -19,7 +19,7 @@ func revealTestModel() Model {
 		},
 	}
 	mx := NewMatrix(m, nil)
-	return New("demo", mx, nil)
+	return New(Params{Project: "demo", Profile: "dev", Source: "default", Backend: "keychain", Matrix: mx})
 }
 
 // A failed reveal -- including one for a secret that is genuinely absent --

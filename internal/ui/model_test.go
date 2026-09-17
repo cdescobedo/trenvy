@@ -10,6 +10,14 @@ import (
 	"github.com/cdescobedo/trenvy/internal/ui"
 )
 
+// testParams fills in header facts that most tests never look at, so each
+// test only has to supply the matrix and problems that actually vary. A test
+// asserting on the header itself (see overview_test.go) builds a ui.Params
+// directly instead of going through this helper.
+func testParams(mx *ui.Matrix, ps []ui.Problem) ui.Params {
+	return ui.Params{Project: "demo", Profile: "dev", Source: "default", Backend: "keychain", Matrix: mx, Problems: ps}
+}
+
 // newTestModel builds a model over a two-profile, three-variable fixture:
 // one shared, one overridden, one secret so the matrix has something under
 // every Cell kind the later tabs will need to render.
@@ -25,7 +33,7 @@ func newTestModel(t *testing.T) ui.Model {
 	}
 	mx := ui.NewMatrix(m, nil)
 	ps := ui.Problems(mx, nil)
-	return ui.New("demo", mx, ps)
+	return ui.New(testParams(mx, ps))
 }
 
 func TestTabSwitchingByNumberAndTab(t *testing.T) {
@@ -103,7 +111,7 @@ func allCellsModel(t *testing.T) ui.Model {
 	}
 	mx := ui.NewMatrix(m, stored)
 	ps := ui.Problems(mx, nil)
-	mod := ui.New("demo", mx, ps)
+	mod := ui.New(testParams(mx, ps))
 	mod, _ = mod.Update(ui.KeyRune('2')) // Variables tab
 	return mod
 }
@@ -505,7 +513,7 @@ func secretsModel(t *testing.T) ui.Model {
 	}
 	mx := ui.NewMatrix(m, stored)
 	ps := ui.Problems(mx, nil)
-	mod := ui.New("demo", mx, ps)
+	mod := ui.New(testParams(mx, ps))
 	mod, _ = mod.Update(ui.KeyRune('2')) // Variables tab
 	return mod
 }

@@ -112,11 +112,22 @@ type revealedCell struct{ Name, Profile, Value string }
 // keyring, the registry) arrives as a message; Update never fetches it.
 type Model struct {
 	project  string
+	profile  string // active profile name, e.g. "prod"
+	source   string // where profile came from: "--profile", "TRENVY_PROFILE", "default"
+	backend  string // keyring backend name
 	mx       *Matrix
 	problems []Problem
 	tab      Tab
 	row      int // selected index into visibleNames()
 	col      int // selected index into mx.Profiles
+
+	// overviewRow is the Overview tab's own cursor, scoped to problems. It is
+	// a separate field from row/col rather than reusing them: those are
+	// scoped to the Variables matrix, and moving through the problem list
+	// would otherwise silently move the matrix cursor too -- so jumping to a
+	// problem, or later pressing e, could land on a cell the user never
+	// selected. Flagged during Task 5's review and recorded for this task.
+	overviewRow int
 
 	mode   Mode
 	buffer string
@@ -135,14 +146,45 @@ type Model struct {
 	revealed []revealedCell
 }
 
-// New builds a model over one project's matrix and its detected problems.
+// Params is what New needs to build a model. Named fields, not positional
+// strings: Project, Profile, Source and Backend are four adjacent strings,
+// and a positional New(project, profile, source, backend string, ...) lets
+// two of them be transposed at a call site and still compile -- silently
+// printing, say, "profile dev (keychain)" with backend where source belongs.
+// A UI whose job includes telling the user which profile is active is the
+// wrong place for that kind of silent swap.
 //
-// The signature takes exactly what this task needs. It is expected to grow:
-// a later task's project switcher needs the list of registered projects,
-// which this package cannot read itself since it does no I/O. That addition
-// is deliberately left unresolved here rather than guessed.
-func New(project string, mx *Matrix, ps []Problem) Model {
-	return Model{project: project, mx: mx, problems: ps, tab: TabOverview}
+// It is also expected to grow: a later task's project switcher needs the
+// list of registered projects, which this package cannot read itself since
+// it does no I/O. A struct makes that additive -- a new field -- rather than
+// a break to every call site's argument order, which is exactly the problem
+// a positional signature would have hit again the moment it grew a fifth
+// string.
+type Params struct {
+	Project string // project id
+	Profile string // active profile name, e.g. "prod"
+	Source  string // where profile came from: "--profile", "TRENVY_PROFILE", "default"
+	Backend string // keyring backend name
+
+	Matrix   *Matrix
+	Problems []Problem
+}
+
+// New builds a model over one project's matrix and its detected problems.
+// Profile, Source and Backend are the same facts `trenvy status` reports --
+// project id, active profile and where it came from, and the keyring
+// backend -- passed in rather than re-derived, since this package does no
+// I/O and cannot read them itself.
+func New(p Params) Model {
+	return Model{
+		project:  p.Project,
+		profile:  p.Profile,
+		source:   p.Source,
+		backend:  p.Backend,
+		mx:       p.Matrix,
+		problems: p.Problems,
+		tab:      TabOverview,
+	}
 }
 
 // Tab reports the active tab.
@@ -328,6 +370,27 @@ func (m *Model) reclampRow() {
 	}
 }
 
+// moveCursorDown and moveCursorUp route j/k and the down/up arrows to
+// whichever cursor the active tab owns: the Overview tab's own overviewRow,
+// or the Variables matrix's row. Routing by tab here, rather than in every
+// caller, is what keeps the two cursors from ever being moved by the wrong
+// tab's keypress.
+func (m *Model) moveCursorDown() {
+	if m.tab == TabOverview {
+		m.moveOverviewRow(1)
+		return
+	}
+	m.moveRow(1)
+}
+
+func (m *Model) moveCursorUp() {
+	if m.tab == TabOverview {
+		m.moveOverviewRow(-1)
+		return
+	}
+	m.moveRow(-1)
+}
+
 // moveRow shifts the row cursor by delta, clamping at both edges rather than
 // wrapping. Unlike the tab ring, a variable list can be long, and wrapping
 // from the last row to the first would put a later delete key on whatever
@@ -350,6 +413,54 @@ func (m *Model) moveCol(delta int) {
 		return
 	}
 	m.col = clamp(m.col+delta, 0, len(m.mx.Profiles)-1)
+}
+
+// moveOverviewRow shifts the Overview tab's own cursor by delta, clamping
+// rather than wrapping for the same reason moveRow does. It never touches
+// row/col: see overviewRow's field comment.
+func (m *Model) moveOverviewRow(delta int) {
+	if len(m.problems) == 0 {
+		return
+	}
+	m.overviewRow = clamp(m.overviewRow+delta, 0, len(m.problems)-1)
+}
+
+// jumpToProblem moves the cursor to the cell the problem under the Overview
+// cursor names. A "missing" problem always has a Profile and a matrix cell:
+// enter switches to Variables with row/col on exactly that (name, profile).
+//
+// An "output" problem has no cell -- Profile is empty, since freshness is a
+// property of the whole rendered file, not one variable under one profile.
+// Guessing a cell for it would be a silent wrong answer, so enter instead
+// switches to the Outputs tab: inert in phase 1, but the closest the model
+// can move today without landing somewhere the problem never named.
+func (m *Model) jumpToProblem() {
+	if m.overviewRow < 0 || m.overviewRow >= len(m.problems) {
+		return
+	}
+	p := m.problems[m.overviewRow]
+	if p.Kind != "missing" {
+		m.tab = TabOutputs
+		return
+	}
+
+	m.tab = TabVariables
+	// Clear the filter: the jump must land exactly, and a filter that
+	// happens to hide p.Name would otherwise make the row impossible to
+	// find, or worse, silently select the wrong row.
+	m.filter = ""
+	for i, n := range m.visibleNames() {
+		if n == p.Name {
+			m.row = i
+			break
+		}
+	}
+	for i, profile := range m.mx.Profiles {
+		if profile == p.Profile {
+			m.col = i
+			break
+		}
+	}
 }
 
 func clamp(v, lo, hi int) int {
@@ -394,16 +505,25 @@ func (m Model) updateBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.tab = (m.tab - 1 + tabCount) % tabCount
 		return m, nil
 	case tea.KeyUp:
-		m.moveRow(-1)
+		m.moveCursorUp()
 		return m, nil
 	case tea.KeyDown:
-		m.moveRow(1)
+		m.moveCursorDown()
 		return m, nil
 	case tea.KeyLeft:
-		m.moveCol(-1)
+		if m.tab == TabVariables {
+			m.moveCol(-1)
+		}
 		return m, nil
 	case tea.KeyRight:
-		m.moveCol(1)
+		if m.tab == TabVariables {
+			m.moveCol(1)
+		}
+		return m, nil
+	case tea.KeyEnter:
+		if m.tab == TabOverview {
+			m.jumpToProblem()
+		}
 		return m, nil
 	}
 	switch msg.String() {
@@ -416,13 +536,17 @@ func (m Model) updateBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "4":
 		m.tab = TabOutputs
 	case "j":
-		m.moveRow(1)
+		m.moveCursorDown()
 	case "k":
-		m.moveRow(-1)
+		m.moveCursorUp()
 	case "h":
-		m.moveCol(-1)
+		if m.tab == TabVariables {
+			m.moveCol(-1)
+		}
 	case "l":
-		m.moveCol(1)
+		if m.tab == TabVariables {
+			m.moveCol(1)
+		}
 	case "e":
 		m.beginEdit()
 	case "a":
@@ -618,14 +742,32 @@ func (m Model) View() string {
 	return b.String()
 }
 
+// viewOverview renders the landing screen: the same project/profile/backend
+// facts `trenvy status` reports (same words, so a user does not learn a
+// second vocabulary for them here), then either the problem list or a plain
+// statement that there is nothing to fix.
+//
+// This is the screen a healthy project sees most of the time, so "no
+// problems" must read as success, not as an empty panel that looks broken.
 func (m Model) viewOverview() string {
-	if len(m.problems) == 0 {
-		return "No problems found.\n"
-	}
 	var b strings.Builder
-	for _, p := range m.problems {
-		fmt.Fprintf(&b, "%s -- %s\n", p.Detail, p.Fix)
+	fmt.Fprintf(&b, "project   %s\n", m.project)
+	fmt.Fprintf(&b, "profile   %s  (%s)\n", m.profile, m.source)
+	fmt.Fprintf(&b, "backend   %s\n\n", m.backend)
+
+	if len(m.problems) == 0 {
+		b.WriteString("No problems found. This project is healthy -- nothing needs attention.\n")
+		return b.String()
 	}
+
+	for i, p := range m.problems {
+		cursor := " "
+		if i == m.overviewRow {
+			cursor = ">"
+		}
+		fmt.Fprintf(&b, "%s %s -- %s\n", cursor, p.Detail, p.Fix)
+	}
+	fmt.Fprint(&b, "\npress enter to jump to the cell that fixes the selected problem\n")
 	return b.String()
 }
 

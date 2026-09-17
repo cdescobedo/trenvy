@@ -140,7 +140,14 @@ the command surface may still move under you.
   kind stalled. The session that staged the batch has already ended by
   then, so the fix is not a resume: it names `trenvy ui` as a fresh session
   to redo whatever the failed run did not finish, the same honesty `edit`'s
-  own partial-failure handling practices.
+  own partial-failure handling practices. The Overview tab is the landing
+  screen: it repeats `status`'s own project, profile (and where it came
+  from) and backend facts, then lists every detected problem with the exact
+  command that fixes it, or says plainly that nothing needs attention when
+  there are none. Pressing enter on a problem jumps straight to the
+  Variables cell it names -- the right row and the right profile column --
+  or, for a problem about an output's freshness, to the Outputs tab, since
+  no single cell answers it.
 
 ### Changed
 

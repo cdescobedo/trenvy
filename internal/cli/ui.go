@@ -29,7 +29,19 @@ func newUiCmd(opts *Options) *cobra.Command {
 				return err
 			}
 			ps := ui.Problems(mx, outputStates(opts, app, mx))
-			m := ui.New(app.Entry.ID, mx, ps)
+			// Header facts mirror status.go's, from the same places: app.Profile
+			// for the active profile and where it came from, ResolveBackendName
+			// for the same backend name status prints. Named fields, not
+			// positional args: Params exists precisely so Source and Backend
+			// (or Profile and Project) can't be transposed here and still compile.
+			m := ui.New(ui.Params{
+				Project:  app.Entry.ID,
+				Profile:  app.Profile.Name,
+				Source:   app.Profile.Source,
+				Backend:  store.ResolveBackendName(opts.Backend),
+				Matrix:   mx,
+				Problems: ps,
+			})
 
 			final, err := opts.RunUI(m, func(name, profile string) (string, error) {
 				s, err := app.store()
