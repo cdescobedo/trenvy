@@ -749,3 +749,52 @@ func TestFilterWithNoMatches(t *testing.T) {
 		}
 	}
 }
+
+// Fix 4: the UI must document its own keys rather than relying entirely on
+// the README. The hint line is persistent -- shown on every tab, regardless
+// of staged count -- unlike statusLine, which only names w/q and only once
+// something is staged. `s` must never appear: Ruling 8 descoped the
+// secret-toggle key, and a hint naming a dead key is worse than no hint.
+func TestKeyHintLineIsAlwaysVisible(t *testing.T) {
+	m := newTestModel(t) // opens on Overview, nothing staged
+	v := m.View()
+	for _, want := range []string{"e edit", "a add", "d delete", "filter", "? help"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("hint line missing %q:\n%s", want, v)
+		}
+	}
+	if strings.Contains(v, "s secret") {
+		t.Errorf("hint line names the descoped s key:\n%s", v)
+	}
+}
+
+// ? opens the full key list from any tab, mirroring p. It must name every
+// key this package actually implements, including ones the short hint line
+// leaves out (r, w, q, ctrl+c), and must never name s.
+func TestHelpKeyShowsTheFullKeyList(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = m.Update(ui.KeyRune('?'))
+	if m.Mode() != ui.ModeHelp {
+		t.Fatalf("mode after ? = %v, want ModeHelp", m.Mode())
+	}
+	v := m.View()
+	for _, want := range []string{"e", "r", "a", "d", "/", "p", "w", "q", "ctrl+c", "?"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("help panel missing key %q:\n%s", want, v)
+		}
+	}
+	if strings.Contains(v, "\ts\t") || strings.Contains(v, " s ") {
+		t.Errorf("help panel names the descoped s key:\n%s", v)
+	}
+}
+
+// esc backs out of the help panel, mirroring the switcher's own esc-cancels
+// convention, without disturbing anything else about the model.
+func TestEscClosesHelp(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = m.Update(ui.KeyRune('?'))
+	m, _ = m.Update(ui.KeyType(tea.KeyEsc))
+	if m.Mode() != ui.ModeBrowse {
+		t.Errorf("mode after esc from help = %v, want ModeBrowse", m.Mode())
+	}
+}

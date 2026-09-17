@@ -424,7 +424,9 @@ variable deleted; `/` filters the rows by substring; `p` opens a switcher over
 every registered project and reloads the session against your choice, asking
 first if you have staged changes; `w` writes everything staged; `q` quits,
 asking first if anything is staged; `ctrl+c` quits immediately from anywhere,
-without asking, and without writing anything.
+without asking, and without writing anything; `?` shows the full key list.
+A short reminder of the same keys stays on screen on every tab, so none of
+this has to be memorized up front.
 
 Nothing reaches disk until `w`. It then writes keyring changes first — new
 secret values, then deletions of a removed variable's secret under every

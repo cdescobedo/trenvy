@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"text/tabwriter"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -70,6 +71,12 @@ const (
 	// Update). Unlike ModeConfirmSwitch, there is nothing to remember about
 	// which target was asked for -- quitting has exactly one destination.
 	ModeConfirmQuit
+	// ModeHelp is the panel `?` opens: the full key list, available from any
+	// tab like the switcher. It exists because the short, persistent hint
+	// line (see keyHints) is deliberately incomplete -- naming every key,
+	// including movement and tab-switching, would defeat the point of a
+	// one-line reminder -- so `?` is where the rest is discoverable.
+	ModeHelp
 )
 
 // String names the mode for test failure messages.
@@ -91,6 +98,8 @@ func (md Mode) String() string {
 		return "confirm-switch"
 	case ModeConfirmQuit:
 		return "confirm-quit"
+	case ModeHelp:
+		return "help"
 	}
 	return "unknown"
 }
@@ -639,6 +648,18 @@ func (m Model) updateConfirmQuit(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 }
 
+// updateHelp handles keys while the help panel is open: esc backs out,
+// mirroring the switcher's own esc-cancels convention. Any other key is
+// ignored rather than falling through to whatever it would have meant in
+// ModeBrowse -- a key pressed while reading the key list must not also act
+// on the cursor underneath it.
+func (m Model) updateHelp(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if msg.Type == tea.KeyEsc {
+		m.mode = ModeBrowse
+	}
+	return m, nil
+}
+
 func clamp(v, lo, hi int) int {
 	if v < lo {
 		return lo
@@ -681,6 +702,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return m.updateConfirmSwitch(msg)
 		case ModeConfirmQuit:
 			return m.updateConfirmQuit(msg)
+		case ModeHelp:
+			return m.updateHelp(msg)
 		default:
 			return m.updateBrowse(msg)
 		}
@@ -758,9 +781,14 @@ func (m Model) updateBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, func() tea.Msg { return req }
 		}
 	case "p":
-		// Available from any tab, unlike e/a/d/s: picking a different
+		// Available from any tab, unlike e/a/d: picking a different
 		// registered project is not a Variables-tab concept.
 		m.beginSwitch()
+	case "?":
+		// Available from any tab, like p: the full key list is not scoped
+		// to whichever tab happens to be open when someone wonders what
+		// they can press.
+		m.mode = ModeHelp
 	case "w":
 		m.saved = true
 		return m, tea.Quit
@@ -952,10 +980,13 @@ func (m Model) updateInput(msg tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 // View renders the tab bar and the active tab's body, or the project
-// switcher's own panel while it is open.
+// switcher's or help panel's own view while one of those is open.
 func (m Model) View() string {
 	if m.mode == ModeSwitchProject || m.mode == ModeConfirmSwitch {
 		return m.viewSwitcher()
+	}
+	if m.mode == ModeHelp {
+		return m.viewHelp()
 	}
 
 	var b strings.Builder
@@ -982,12 +1013,58 @@ func (m Model) View() string {
 
 	// The status line lives outside the per-tab switch above, not inside
 	// viewVariables: q and its confirmation apply from every tab, so what is
-	// pending must be visible no matter which one is on screen.
+	// pending must be visible no matter which one is on screen. keyHints
+	// follows it for the same reason -- discoverability is one of this
+	// feature's four stated purposes, so the reminder of what the keys do
+	// must not depend on which tab happens to be open, or on anything being
+	// staged the way statusLine's own w/q mention does.
 	fmt.Fprintf(&b, "\n%s\n", m.statusLine())
+	fmt.Fprintln(&b, m.keyHints())
 	if m.mode == ModeConfirmQuit {
 		b.WriteString("quit anyway and discard them? [y/N]\n")
 	}
 
+	return b.String()
+}
+
+// keyHints is the persistent, short reminder of what the keys do -- shown on
+// every tab regardless of staged count, unlike statusLine's own w/q mention.
+// It is deliberately incomplete (no movement keys, no tab switching, no w/q,
+// already covered by statusLine): naming everything here would defeat the
+// point of a one-line reminder, so `?` opens viewHelp for the rest. `s` is
+// never listed -- Ruling 8 descoped the secret-toggle key, and it does
+// nothing today, so naming it here would be worse than no hint at all.
+func (m Model) keyHints() string {
+	return "e edit · r reveal · a add · d delete · / filter · p switch · ? help"
+}
+
+// viewHelp renders the full key list `?` opens, replacing the tab bar and
+// body the same way viewSwitcher does. Every key named here is one this
+// package actually implements -- checked by running each in a built binary,
+// not transcribed from the spec -- and `s` is never among them.
+func (m Model) viewHelp() string {
+	var b strings.Builder
+	b.WriteString("Keys\n\n")
+	rows := []struct{ key, action string }{
+		{"1-4, tab, shift+tab", "switch tabs"},
+		{"j/k, h/l, up/down/left/right", "move the cursor"},
+		{"e", "edit the cell under the cursor (masked while typing if it is a secret)"},
+		{"r", "reveal the cell under the cursor's real value (one keyring read)"},
+		{"a", "add a variable"},
+		{"d", "mark the selected variable deleted (press again to un-mark it)"},
+		{"/", "filter rows by name substring"},
+		{"p", "switch to a different registered project"},
+		{"w", "commit everything staged"},
+		{"q", "quit, asking first if anything is staged"},
+		{"ctrl+c", "quit immediately, without asking, without writing anything"},
+		{"?", "show this list"},
+	}
+	w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+	for _, r := range rows {
+		fmt.Fprintf(w, "  %s\t%s\n", r.key, r.action)
+	}
+	_ = w.Flush()
+	b.WriteString("\npress esc to go back\n")
 	return b.String()
 }
 

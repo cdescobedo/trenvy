@@ -186,7 +186,10 @@ the command surface may still move under you.
   `a NEW_VAR` (nothing else set on it) failing Validate used to reach the
   terminal as a raw manifest error with no word that every other edit
   staged that session -- a value typed into some other cell, say -- was
-  gone too.
+  gone too. A short key reminder is now visible on every tab regardless of
+  staged count, and `?` opens the full key list -- the binary previously
+  documented none of its own keys and relied entirely on the README, which
+  works only for someone who already knew to go look.
 
 ### Changed
 
