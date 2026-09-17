@@ -48,6 +48,11 @@ const (
 	ModeAddName
 	// ModeFilter is typing the substring that narrows the visible rows.
 	ModeFilter
+	// ModeEditSecret is typing a replacement value for a secret cell. The
+	// buffer is masked in View() (see viewVariables) rather than echoed, so a
+	// secret is never printed to the screen -- and to terminal scrollback --
+	// while it is being typed.
+	ModeEditSecret
 )
 
 // String names the mode for test failure messages.
@@ -61,6 +66,8 @@ func (md Mode) String() string {
 		return "add"
 	case ModeFilter:
 		return "filter"
+	case ModeEditSecret:
+		return "edit-secret"
 	}
 	return "unknown"
 }
@@ -83,6 +90,22 @@ type Change struct {
 	Kind, Name, Profile, Value string
 }
 
+// RevealRequestMsg asks the host to fetch one secret's value for one
+// profile. Unlike internal/tui's flat table, a row here has one cell per
+// profile, so Name alone cannot say which keyring entry to fetch -- Profile
+// is what keeps a reveal of one column from being ambiguous with another.
+type RevealRequestMsg struct{ Name, Profile string }
+
+// RevealedMsg carries a secret value fetched in response to r, for exactly
+// one (Name, Profile) cell. Folding it in must never mark more than that one
+// cell revealed: not the variable's other profiles, and not another secret
+// entirely -- see Model.setRevealed.
+type RevealedMsg struct{ Name, Profile, Value string }
+
+// revealedCell is one secret value the user has explicitly revealed with r,
+// scoped to exactly the cell that produced it.
+type revealedCell struct{ Name, Profile, Value string }
+
 // Model is the management interface's state. Update is a pure function:
 // state in, state out, no I/O — mirroring internal/tui, this package's
 // sibling flat-table model. Any data the model needs from outside (the
@@ -99,6 +122,12 @@ type Model struct {
 	buffer string
 	filter string
 	staged []Change
+
+	// revealed holds cells the user has explicitly revealed with r this
+	// session. A slice, not a map keyed by name: it must scope to exactly
+	// one profile per entry, mirroring how staged already scopes Change by
+	// (Name, Profile) rather than by Name alone.
+	revealed []revealedCell
 }
 
 // New builds a model over one project's matrix and its detected problems.
@@ -146,6 +175,31 @@ func (m *Model) stage(c Change) {
 		}
 	}
 	m.staged = append(m.staged, c)
+}
+
+// setRevealed records that (name, profile) was revealed with value v,
+// replacing any earlier reveal of the same cell rather than appending a
+// duplicate.
+func (m *Model) setRevealed(name, profile, v string) {
+	for i, r := range m.revealed {
+		if r.Name == name && r.Profile == profile {
+			m.revealed[i].Value = v
+			return
+		}
+	}
+	m.revealed = append(m.revealed, revealedCell{Name: name, Profile: profile, Value: v})
+}
+
+// revealedValue reports the value revealed for exactly (name, profile), if
+// any. Looking it up by both fields, not by name alone, is what stops
+// revealing one profile's secret from displaying on another's.
+func (m Model) revealedValue(name, profile string) (string, bool) {
+	for _, r := range m.revealed {
+		if r.Name == name && r.Profile == profile {
+			return r.Value, true
+		}
+	}
+	return "", false
 }
 
 // allNames returns every variable name the matrix knows about plus any not
@@ -198,12 +252,28 @@ func (m Model) isDeleted(name string) bool {
 // cellText is what a cell renders: a staged set-value's literal text takes
 // precedence over the matrix's on-disk classification, so an edit is visible
 // the instant it is staged rather than only after w writes it out.
+//
+// A staged set-secret is deliberately handled differently: it must NOT show
+// its Value the way set-value does. Echoing a just-typed secret into the grid
+// the instant it is staged would defeat the whole point of masking the input
+// for it -- the plaintext would simply reappear one line up. "pending" says a
+// write is staged without saying what it will write; r still reveals what is
+// actually in the keyring today.
 func (m Model) cellText(name, profile string) string {
 	for i := len(m.staged) - 1; i >= 0; i-- {
 		c := m.staged[i]
-		if c.Kind == ChangeSetValue && c.Name == name && c.Profile == profile {
-			return c.Value
+		if c.Name != name || c.Profile != profile {
+			continue
 		}
+		switch c.Kind {
+		case ChangeSetValue:
+			return c.Value
+		case ChangeSetSecret:
+			return "secret (pending)"
+		}
+	}
+	if v, ok := m.revealedValue(name, profile); ok {
+		return v
 	}
 	return string(m.mx.Cell(name, profile))
 }
@@ -290,9 +360,13 @@ func (m Model) Init() tea.Cmd { return nil }
 // nothing here performs I/O.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case RevealedMsg:
+		m.setRevealed(msg.Name, msg.Profile, msg.Value)
+		return m, nil
+
 	case tea.KeyMsg:
 		switch m.mode {
-		case ModeEditValue, ModeAddName, ModeFilter:
+		case ModeEditValue, ModeEditSecret, ModeAddName, ModeFilter:
 			return m.updateInput(msg)
 		default:
 			return m.updateBrowse(msg)
@@ -353,14 +427,41 @@ func (m Model) updateBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.mode = ModeFilter
 			m.buffer = ""
 		}
+	case "r":
+		if req, ok := m.revealRequest(); ok {
+			return m, func() tea.Msg { return req }
+		}
 	}
 	return m, nil
 }
 
-// beginEdit opens ModeEditValue on the cell under the cursor. Secrets are
-// out of scope here: they get their own masked-input mode and set-secret
-// Kind from `s`, so e is a no-op on a secret row rather than a plain-text
-// edit of something that must not be echoed.
+// revealRequest names the (Name, Profile) cell r would fetch, if the cursor
+// is on a secret cell. It only reads state; it never fetches anything --
+// that is the whole reason reveal is a message: a stray r must never risk
+// the authorization prompt a real keyring Get can raise on macOS.
+func (m Model) revealRequest() (RevealRequestMsg, bool) {
+	if m.tab != TabVariables {
+		return RevealRequestMsg{}, false
+	}
+	names := m.visibleNames()
+	if len(names) == 0 || m.col >= len(m.mx.Profiles) {
+		return RevealRequestMsg{}, false
+	}
+	name := names[m.row]
+	if !m.mx.Vars[name].Secret {
+		return RevealRequestMsg{}, false
+	}
+	return RevealRequestMsg{Name: name, Profile: m.mx.Profiles[m.col]}, true
+}
+
+// beginEdit opens an input mode on the cell under the cursor: ModeEditValue
+// for a plain variable, ModeEditSecret for a secret. One key, one meaning,
+// whatever the row -- `s` is the separate, row-level toggle of secret-ness.
+//
+// A secret's buffer starts empty rather than prefilled with its current
+// value, unlike a plain cell's. Prefilling it would mean reading the secret
+// just to open the prompt, which is exactly the keyring Get this package's
+// design (Has-only, no Get) exists to avoid triggering unasked.
 func (m *Model) beginEdit() {
 	if m.tab != TabVariables {
 		return
@@ -371,6 +472,8 @@ func (m *Model) beginEdit() {
 	}
 	name := names[m.row]
 	if m.mx.Vars[name].Secret {
+		m.mode = ModeEditSecret
+		m.buffer = ""
 		return
 	}
 	profile := m.mx.Profiles[m.col]
@@ -416,6 +519,16 @@ func (m Model) updateInput(msg tea.KeyMsg) (Model, tea.Cmd) {
 			if m.row < len(names) && m.col < len(m.mx.Profiles) {
 				m.stage(Change{
 					Kind:    ChangeSetValue,
+					Name:    names[m.row],
+					Profile: m.mx.Profiles[m.col],
+					Value:   m.buffer,
+				})
+			}
+		case ModeEditSecret:
+			names := m.visibleNames()
+			if m.row < len(names) && m.col < len(m.mx.Profiles) {
+				m.stage(Change{
+					Kind:    ChangeSetSecret,
 					Name:    names[m.row],
 					Profile: m.mx.Profiles[m.col],
 					Value:   m.buffer,

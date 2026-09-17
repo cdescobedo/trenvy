@@ -85,6 +85,13 @@ func (m Model) viewVariables() string {
 	switch m.mode {
 	case ModeEditValue:
 		fmt.Fprintf(&b, "\n value: %s_\n", m.buffer)
+	case ModeEditSecret:
+		// The literal buffer must never appear here: this line, not just the
+		// grid, is part of View(), and a secret typed in plain sight defeats
+		// masking as surely as printing it in the matrix would, with the
+		// added risk of surviving in terminal scrollback. Asterisks by count
+		// give typing feedback without the content.
+		fmt.Fprintf(&b, "\n secret value: %s_\n", strings.Repeat("*", len(m.buffer)))
 	case ModeAddName:
 		fmt.Fprintf(&b, "\n new variable name: %s_\n", m.buffer)
 	case ModeFilter:
