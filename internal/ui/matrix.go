@@ -8,8 +8,8 @@ import (
 
 // Matrix is the rows-by-profiles grid behind the management TUI.
 type Matrix struct {
-	Names    []string                  // sorted variable names
-	Profiles []string                  // manifest order
+	Names    []string // sorted variable names
+	Profiles []string // manifest order
 	Vars     map[string]manifest.Var
 	Stored   map[string]map[string]bool // name -> profile -> keyring presence
 }
