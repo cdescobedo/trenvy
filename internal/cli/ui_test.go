@@ -919,6 +919,502 @@ func TestUiCommitsStagedDeleteVarAcrossEveryProfilesKeyringAndTheManifest(t *tes
 	}
 }
 
+// Task 5 staged add-output, rename-output, remove-output and default-output
+// but never wired any of them into commitStaged -- before this task, w
+// silently dropped all four: Validate saw no change to object to, the
+// manifest saved anyway, byte-identical, and "saved N changes" counted
+// changes that never landed. These four tests are what catches that.
+
+// add-output is the simplest of the four: a pure manifest insertion.
+func TestUiCommitsAddOutputToTheManifest(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t)) // one output already: "docker"
+
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('4')) // Outputs tab
+		mo, _ = mo.Update(ui.KeyRune('a'))
+		mo, _ = mo.Update(keyRunes("public"))
+		mo, _ = mo.Update(keyEnter())
+		mo, _ = mo.Update(keyRunes("json"))
+		mo, _ = mo.Update(keyEnter())
+		mo, _ = mo.Update(keyRunes("public/env.json"))
+		mo, _ = mo.Update(keyEnter())
+		return markUISaved(mo), nil
+	}
+
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
+	}
+
+	m, err := manifest.Load(config.ManifestPath("vpb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, ok := m.Outputs["public"]
+	if !ok {
+		t.Fatal("the staged output was not added to the manifest")
+	}
+	if o.Format != "json" || o.Path != "public/env.json" {
+		t.Errorf("output public = %+v, want format json, path public/env.json", o)
+	}
+	if _, ok := m.Outputs["docker"]; !ok {
+		t.Error("the pre-existing output was lost")
+	}
+}
+
+// rename-output must move the manifest key AND repoint project.output when
+// the renamed row held it -- mirroring trenvy output rename's own
+// `if app.Manifest.Project.Output == old { ... = name }` (internal/cli/output.go),
+// the one other place this coupling exists. Missing it here would leave
+// project.output naming an output that no longer exists, failing Validate
+// on every commit after this one.
+func TestUiCommitsRenameOutputMovesTheManifestKeyAndUpdatesTheDefault(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t)) // "docker" is format dotenv, path src/.env, and the default
+
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('4'))
+		mo, _ = mo.Update(ui.KeyRune('r'))
+		mo, _ = mo.Update(keyRunes("prod-env"))
+		mo, _ = mo.Update(keyEnter())
+		return markUISaved(mo), nil
+	}
+
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
+	}
+
+	m, err := manifest.Load(config.ManifestPath("vpb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, gone := m.Outputs["docker"]; gone {
+		t.Error("the old name is still defined")
+	}
+	o, ok := m.Outputs["prod-env"]
+	if !ok {
+		t.Fatal("the new name was not created")
+	}
+	if o.Format != "dotenv" || o.Path != "src/.env" {
+		t.Errorf("renamed output lost its facts: %+v", o)
+	}
+	if m.Project.Output != "prod-env" {
+		t.Errorf("project.output = %q, want prod-env", m.Project.Output)
+	}
+}
+
+// remove-output must clear project.output when the removed row held it,
+// mirroring trenvy output rm's own clearedDefault logic -- otherwise
+// Validate refuses every subsequent commit, since project.output would name
+// an output that no longer exists.
+func TestUiCommitsRemoveOutputAndClearsTheDefaultItHeld(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t)) // "docker" is the default
+
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('4'))
+		mo, _ = mo.Update(ui.KeyRune('d'))
+		return markUISaved(mo), nil
+	}
+
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
+	}
+
+	m, err := manifest.Load(config.ManifestPath("vpb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.Outputs["docker"]; ok {
+		t.Error("the removed output is still defined")
+	}
+	if m.Project.Output != "" {
+		t.Errorf("project.output = %q, want cleared", m.Project.Output)
+	}
+	if err := m.Validate(); err != nil {
+		t.Errorf("the committed manifest fails Validate: %v", err)
+	}
+}
+
+// default-output must flip project.output to the staged row.
+func TestUiCommitsDefaultOutputFlipsProjectOutput(t *testing.T) {
+	h := newHarness(t)
+	m, err := manifest.Parse([]byte(`
+[project]
+id = "vpb"
+profiles = ["dev"]
+default_profile = "dev"
+output = "docker"
+salt = "abc123"
+
+[outputs.docker]
+format = "dotenv"
+path = "src/.env"
+
+[outputs.public]
+format = "json"
+path = "public/env.json"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.register("vpb", m)
+
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('4'))
+		mo, _ = mo.Update(ui.KeyRune('j')) // "docker" then "public": sorted order
+		mo, _ = mo.Update(ui.KeyRune('D'))
+		return markUISaved(mo), nil
+	}
+
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
+	}
+
+	m2, err := manifest.Load(config.ManifestPath("vpb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m2.Project.Output != "public" {
+		t.Errorf("project.output = %q, want public", m2.Project.Output)
+	}
+}
+
+// A bad format never gets caught at keypress (Task 5's confirmOutputAddFormat
+// deliberately defers to manifest.Validate at commit time -- see its own
+// doc). Validate's own message already names the two legal formats
+// verbatim ("format must be %q or %q", FormatDotenv, FormatJSON), so this
+// test exists to confirm the wrapping in commitStaged does not swallow that
+// text behind a bare "invalid manifest" -- and that Fix 3's warning about
+// the rest of the batch still fires alongside it.
+func TestUiAddOutputWithBadFormatNamesTheLegalFormats(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('4'))
+		mo, _ = mo.Update(ui.KeyRune('a'))
+		mo, _ = mo.Update(keyRunes("public"))
+		mo, _ = mo.Update(keyEnter())
+		mo, _ = mo.Update(keyRunes("yaml")) // not dotenv, not json
+		mo, _ = mo.Update(keyEnter())
+		mo, _ = mo.Update(keyRunes("public/env.yaml"))
+		mo, _ = mo.Update(keyEnter())
+		return markUISaved(mo), nil
+	}
+
+	err := h.run("ui")
+	if err == nil {
+		t.Fatal("ui succeeded with an illegal output format")
+	}
+	if !strings.Contains(err.Error(), `"dotenv"`) || !strings.Contains(err.Error(), `"json"`) {
+		t.Errorf("error does not name the legal formats: %v", err)
+	}
+	if !strings.Contains(err.Error(), "everything else staged this session is gone") {
+		t.Errorf("error does not warn that the rest of the batch is lost: %v", err)
+	}
+	m, err := manifest.Load(config.ManifestPath("vpb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.Outputs["public"]; ok {
+		t.Error("the invalid output was saved anyway")
+	}
+}
+
+// Ordering rule 2 (keyring writes before keyring deletes) is phase 1's own
+// rule, carried forward -- but nothing before this test ever checked the
+// ORDER directly, only that both eventually landed. A future refactor that
+// interleaves or reverses the two loops would leave every existing
+// assertion here green; only the store's own call log catches it.
+func TestUiCommitsKeyringWritesBeforeKeyringDeletes(t *testing.T) {
+	h := newHarness(t)
+	m, err := manifest.Parse([]byte(`
+[project]
+id = "vpb"
+profiles = ["dev"]
+default_profile = "dev"
+salt = "abc123"
+
+[vars.ALPHA_TOKEN]
+secret = true
+
+[vars.SECOND_TOKEN]
+secret = true
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.register("vpb", m)
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "old")
+
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('2'))
+		mo, _ = mo.Update(ui.KeyRune('d')) // row 0: ALPHA_TOKEN -> stage delete-var
+		mo, _ = mo.Update(ui.KeyRune('j')) // row 1: SECOND_TOKEN
+		mo, _ = mo.Update(ui.KeyRune('e'))
+		mo, _ = mo.Update(keyRunes("new-value"))
+		mo, _ = mo.Update(keyEnter()) // stage set-secret
+		return markUISaved(mo), nil
+	}
+
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
+	}
+
+	calls := h.mem.Calls()
+	setIdx, delIdx := -1, -1
+	for i, c := range calls {
+		if c == "Set trenvy/vpb/dev/SECOND_TOKEN" {
+			setIdx = i
+		}
+		if c == "Delete trenvy/vpb/dev/ALPHA_TOKEN" {
+			delIdx = i
+		}
+	}
+	if setIdx == -1 || delIdx == -1 {
+		t.Fatalf("expected both a Set and a Delete call, got %v", calls)
+	}
+	if setIdx > delIdx {
+		t.Errorf("the keyring write happened after the delete, not before: %v", calls)
+	}
+}
+
+// Ordering rule 3 (state file before manifest): a rename with an existing
+// render record must repoint that record BEFORE the manifest save is even
+// attempted -- mirrors internal/cli/output_test.go's
+// TestOutputRenameWritesStateBeforeManifestSoARetryConverges for the CLI's
+// own `output rename`, now proven for the UI's phased commit too. A
+// read-only manifest directory fails the manifest save without touching the
+// state save, since ManifestPath and StatePath live under different
+// directories.
+func TestUiRenameOutputWritesStateBeforeManifestSoTheRecordIsNotForeign(t *testing.T) {
+	skipIfNotRestrictable(t)
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t)) // output "docker"
+	h.recordRender(t, "vpb", h.root, "docker", "src/.env")
+
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('4'))
+		mo, _ = mo.Update(ui.KeyRune('r'))
+		mo, _ = mo.Update(keyRunes("prod-env"))
+		mo, _ = mo.Update(keyEnter())
+		return markUISaved(mo), nil
+	}
+
+	dir := filepath.Join(config.Dir(), "projects")
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	restored := false
+	restore := func() {
+		if restored {
+			return
+		}
+		restored = true
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	defer restore()
+
+	err := h.run("ui")
+	if err == nil {
+		t.Fatal("ui succeeded despite a read-only manifest directory")
+	}
+
+	st := h.state(t, "vpb")
+	if _, ok := st.Find(h.root, "prod-env"); !ok {
+		t.Fatal("state was not updated before the manifest save failed; " +
+			"the rendered file would now read FOREIGN")
+	}
+
+	restore()
+	m, err2 := manifest.Load(config.ManifestPath("vpb"))
+	if err2 != nil {
+		t.Fatal(err2)
+	}
+	if _, ok := m.Outputs["docker"]; !ok {
+		t.Error("the old name should still be defined so a retry can find it")
+	}
+}
+
+// Ordering rule 4 (additions before removals): adding an output and, in the
+// SAME session, removing that very row before ever pressing w must never
+// resurrect it. This is reachable because outputIdentityNames includes a
+// staged add-output's name (see its own doc), so the row exists to select
+// and delete before w ever runs. If removals were applied ahead of
+// additions, remove-output would delete a key that is not in the map yet (a
+// harmless no-op), and add-output would then create it afterward --
+// resurrecting exactly what the user staged getting rid of. This is the
+// output-tab shape of the Fix 1 bug already fixed for vars.
+func TestUiAddThenRemoveSameOutputInOneSessionNeverReachesTheManifest(t *testing.T) {
+	h := newHarness(t)
+	m, err := manifest.Parse([]byte(`
+[project]
+id = "vpb"
+profiles = ["dev"]
+default_profile = "dev"
+salt = "abc123"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.register("vpb", m) // zero outputs to start
+
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('4'))
+		mo, _ = mo.Update(ui.KeyRune('a'))
+		mo, _ = mo.Update(keyRunes("temp"))
+		mo, _ = mo.Update(keyEnter())
+		mo, _ = mo.Update(keyRunes("dotenv"))
+		mo, _ = mo.Update(keyEnter())
+		mo, _ = mo.Update(keyRunes("temp/.env"))
+		mo, _ = mo.Update(keyEnter())      // stages add-output "temp"
+		mo, _ = mo.Update(ui.KeyRune('d')) // stages remove-output "temp", same row, same session
+		return markUISaved(mo), nil
+	}
+
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
+	}
+
+	m2, err := manifest.Load(config.ManifestPath("vpb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m2.Outputs["temp"]; ok {
+		t.Error("an output added and removed in the same session was resurrected in the manifest")
+	}
+}
+
+// Extends the partial-failure story (Five Things #5) to the new state-file
+// phase: a rename's State.Save can fail for the same reason a manifest save
+// can (a read-only directory, say), and the report must say how far the run
+// got using the SAME shape partialCommitError already uses for keyring ops
+// -- not a parallel error type, and not silence about a keyring write that
+// already, really landed.
+func TestUiPartialFailureWhenStateSaveFailsReportsProgressAndLeavesManifestAlone(t *testing.T) {
+	skipIfNotRestrictable(t)
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('2'))
+		mo, _ = mo.Update(ui.KeyRune('e')) // ALPHA_TOKEN, secret
+		mo, _ = mo.Update(keyRunes("new-secret-value"))
+		mo, _ = mo.Update(keyEnter()) // stage set-secret
+
+		mo, _ = mo.Update(ui.KeyRune('4'))
+		mo, _ = mo.Update(ui.KeyRune('r'))
+		mo, _ = mo.Update(keyRunes("prod-env"))
+		mo, _ = mo.Update(keyEnter()) // stage rename-output
+		return markUISaved(mo), nil
+	}
+
+	dir := filepath.Join(config.Dir(), "state")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	restored := false
+	restore := func() {
+		if restored {
+			return
+		}
+		restored = true
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	defer restore()
+
+	err := h.run("ui")
+	if err == nil {
+		t.Fatal("ui succeeded despite a read-only state directory")
+	}
+	if !strings.Contains(err.Error(), "stored 1 of 1 secrets") {
+		t.Errorf("error does not report the keyring write that already landed: %v", err)
+	}
+	if !strings.Contains(err.Error(), "manifest was not saved") {
+		t.Errorf("error does not say the manifest is unsaved: %v", err)
+	}
+	if !strings.Contains(err.Error(), "trenvy ui") {
+		t.Errorf("error does not name the way back: %v", err)
+	}
+
+	restore()
+	got, getErr := h.mem.Get("trenvy/vpb/dev/ALPHA_TOKEN")
+	if getErr != nil {
+		t.Fatalf("the keyring write should have already landed: %v", getErr)
+	}
+	if got != "new-secret-value" {
+		t.Errorf("stored secret = %q, want the write that already landed", got)
+	}
+	m, loadErr := manifest.Load(config.ManifestPath("vpb"))
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	if _, ok := m.Outputs["docker"]; !ok {
+		t.Error("the manifest was changed despite the state save failing")
+	}
+}
+
+// Five Things #5's honesty requirement goes one step further than a state
+// save that fails outright: if the state save SUCCEEDS -- a rename's render
+// record really is repointed on disk -- and the manifest is then refused by
+// validation because of something else entirely in the same batch (an
+// illegal output format, say), the old blanket "everything staged this
+// session is gone" would be a lie about the one thing that is not gone. The
+// error must say the render record was already repointed, in the same
+// commitProgress shape the keyring counts already use.
+func TestUiPartialFailureNamesTheRepointedRecordWhenStateAlreadySavedButValidationFails(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t)) // output "docker"
+	h.recordRender(t, "vpb", h.root, "docker", "src/.env")
+
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('4'))
+		mo, _ = mo.Update(ui.KeyRune('r'))
+		mo, _ = mo.Update(keyRunes("prod-env"))
+		mo, _ = mo.Update(keyEnter()) // stage rename-output: its state save succeeds
+
+		mo, _ = mo.Update(ui.KeyRune('a'))
+		mo, _ = mo.Update(keyRunes("bad"))
+		mo, _ = mo.Update(keyEnter())
+		mo, _ = mo.Update(keyRunes("yaml")) // illegal format -> Validate refuses the batch
+		mo, _ = mo.Update(keyEnter())
+		mo, _ = mo.Update(keyRunes("bad.yaml"))
+		mo, _ = mo.Update(keyEnter())
+		return markUISaved(mo), nil
+	}
+
+	err := h.run("ui")
+	if err == nil {
+		t.Fatal("ui succeeded with an illegal output format")
+	}
+	if !strings.Contains(err.Error(), "repointed 1 render record(s)") {
+		t.Errorf("error does not report the render record already repointed on disk: %v", err)
+	}
+	if !strings.Contains(err.Error(), "manifest was not saved") {
+		t.Errorf("error does not say the manifest is unsaved: %v", err)
+	}
+
+	st := h.state(t, "vpb")
+	if _, ok := st.Find(h.root, "prod-env"); !ok {
+		t.Error("the state save that already succeeded must not be undone or reported as lost")
+	}
+	m, loadErr := manifest.Load(config.ManifestPath("vpb"))
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	if _, ok := m.Outputs["docker"]; !ok {
+		t.Error("the manifest should still declare the old name; Validate refused the whole batch")
+	}
+}
+
 // The whole batch model rests on this: staging every kind of change and
 // quitting any way other than w must leave the manifest byte-identical and
 // must never touch the keyring, including the Has calls the presence load
