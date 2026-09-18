@@ -3,12 +3,13 @@ package ui
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // Problem is one thing wrong with the project, paired with the command that
 // fixes it, for the Overview tab.
 type Problem struct {
-	Kind    string // "missing", "output"
+	Kind    string // "missing", "output", "membership"
 	Name    string // variable or output name
 	Profile string // empty for output problems
 	Detail  string // human sentence
@@ -95,6 +96,45 @@ func Problems(mx *Matrix, outputs map[string]string) []Problem {
 			Detail: fmt.Sprintf("%s is %s", name, state),
 			Fix:    fmt.Sprintf("trenvy render %s", name),
 		})
+	}
+
+	// Membership: does a variable reach any output at all, or too many?
+	// Neither is an error -- exec and shell deliver a project's whole
+	// environment without naming a single output, so a project using only
+	// those legitimately has every variable at zero, and nothing stops two
+	// outputs from carrying the same variable on purpose. This only surfaces
+	// a fact a user cannot otherwise get without reading every output's
+	// globs by hand; a variable selected by exactly one output is the
+	// unremarkable case and is not reported at all.
+	//
+	// Skipped entirely when the project defines no outputs -- the normal
+	// shape of an exec/shell-only project (see viewOutputs' own placeholder
+	// for the same case). In that case EVERY variable is at zero by
+	// definition, and reporting that fact once per variable would bury an
+	// otherwise healthy Overview in N copies of the same non-problem.
+	if len(mx.Outputs) > 0 {
+		byName := membershipOutputsForMatrix(mx)
+		for _, name := range mx.Names {
+			outs := byName[name]
+			switch {
+			case len(outs) == 0:
+				ps = append(ps, Problem{
+					Kind:   "membership",
+					Name:   name,
+					Detail: fmt.Sprintf("%s reaches no output", name),
+					Fix: fmt.Sprintf(
+						"Outputs tab (4): enter on an output, then space to include %s -- if it should reach a file",
+						name),
+				})
+			case len(outs) > 1:
+				ps = append(ps, Problem{
+					Kind:   "membership",
+					Name:   name,
+					Detail: fmt.Sprintf("%s reaches %d outputs: %s", name, len(outs), strings.Join(outs, ", ")),
+					Fix:    "Outputs tab (4): enter on each listed output to review its globs, if that's not intended",
+				})
+			}
+		}
 	}
 
 	// The Overview re-renders on every keystroke; an unstable order would

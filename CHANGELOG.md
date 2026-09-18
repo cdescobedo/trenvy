@@ -303,7 +303,17 @@ the command surface may still move under you.
   works only for someone who already knew to go look. The Overview header
   now also names the manifest path and worktree, matching `trenvy status`'s
   own six facts (project, profile and its source, manifest, worktree,
-  backend); only three of the six had shipped.
+  backend); only three of the six had shipped. The Overview also flags
+  membership: a variable no output selects, or two or more select, each
+  reported as a plain fact rather than an error -- `exec` and `shell`
+  read a project's whole environment directly and need no output at all, and
+  nothing stops two outputs from carrying the same variable on purpose. A
+  variable selected by exactly one output, the unremarkable case, is not
+  reported. Membership is computed through the same `resolve.Selects` the
+  render path already depends on, never a second glob match, and is skipped
+  entirely on a project with no outputs defined at all, where every variable
+  is at zero by definition and repeating that fact once per variable would
+  just be noise.
 
 ### Changed
 

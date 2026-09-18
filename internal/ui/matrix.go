@@ -12,6 +12,12 @@ type Matrix struct {
 	Profiles []string // manifest order
 	Vars     map[string]manifest.Var
 	Stored   map[string]map[string]bool // name -> profile -> keyring presence
+	// Outputs is the manifest's outputs, carried alongside Vars so Problems
+	// can compute Task 9's membership warnings (does a variable reach any
+	// output, or too many) through resolve.Selects without a second
+	// reference to the manifest of its own -- Matrix is already the one
+	// artifact built once from it and handed to Problems.
+	Outputs map[string]manifest.Output
 }
 
 // NewMatrix builds a matrix from a manifest and keyring presence map.
@@ -34,6 +40,7 @@ func NewMatrix(m *manifest.Manifest, stored map[string]map[string]bool) *Matrix 
 		Profiles: profiles,
 		Vars:     m.Vars,
 		Stored:   stored,
+		Outputs:  m.Outputs,
 	}
 }
 

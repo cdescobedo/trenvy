@@ -103,6 +103,123 @@ func TestProblemsFixNamesSecretSet(t *testing.T) {
 	}
 }
 
+// A variable no output selects and a variable two outputs select both reach
+// the Overview; a variable exactly one output selects does not. This is
+// Task 9's Step 1, both directions and the non-flagged middle case in one
+// test so a fix for one side can't silently break the other.
+func TestProblemsFlagsMembershipAtZeroAndSeveralNotOne(t *testing.T) {
+	m := &manifest.Manifest{
+		Project: manifest.Project{Profiles: []string{"dev"}},
+		Outputs: map[string]manifest.Output{
+			"api": {Format: manifest.FormatDotenv, Path: "api.env", Include: []string{"API_*", "SHARED"}},
+			"web": {Format: manifest.FormatDotenv, Path: "web.env", Include: []string{"WEB_*", "SHARED"}},
+		},
+		Vars: map[string]manifest.Var{
+			"API_KEY": {Value: s("a")}, // exactly one output (api) -- must NOT appear
+			"WEB_URL": {Value: s("w")}, // exactly one output (web) -- must NOT appear
+			"SHARED":  {Value: s("s")}, // both outputs -- must appear
+			"ORPHAN":  {Value: s("o")}, // no output -- must appear
+		},
+	}
+	ps := ui.Problems(ui.NewMatrix(m, nil), nil)
+
+	byName := map[string]ui.Problem{}
+	for _, p := range ps {
+		if p.Kind == "membership" {
+			byName[p.Name] = p
+		}
+	}
+	if len(byName) != 2 {
+		t.Fatalf("membership problems = %+v, want exactly SHARED and ORPHAN", byName)
+	}
+	if _, ok := byName["API_KEY"]; ok {
+		t.Errorf("API_KEY is selected by exactly one output and must not be flagged: %+v", ps)
+	}
+	if _, ok := byName["WEB_URL"]; ok {
+		t.Errorf("WEB_URL is selected by exactly one output and must not be flagged: %+v", ps)
+	}
+
+	orphan, ok := byName["ORPHAN"]
+	if !ok {
+		t.Fatalf("ORPHAN (selected by no output) was not flagged: %+v", ps)
+	}
+	if !strings.Contains(orphan.Detail, "ORPHAN") {
+		t.Errorf("ORPHAN Detail = %q, want it to name the variable", orphan.Detail)
+	}
+
+	shared, ok := byName["SHARED"]
+	if !ok {
+		t.Fatalf("SHARED (selected by two outputs) was not flagged: %+v", ps)
+	}
+	if !strings.Contains(shared.Detail, "api") || !strings.Contains(shared.Detail, "web") {
+		t.Errorf("SHARED Detail = %q, want it to name both outputs (api, web)", shared.Detail)
+	}
+}
+
+// Neither membership condition is an error -- exec and shell need no output
+// at all, and nothing stops two outputs from carrying the same variable on
+// purpose -- so the wording must read as a fact, not a defect. This pins the
+// words that must NOT appear, the same shape as
+// TestProblemsGivesUnknownItsOwnFixNamingStatus above.
+func TestProblemsMembershipWordingIsNotAlarming(t *testing.T) {
+	m := &manifest.Manifest{
+		Project: manifest.Project{Profiles: []string{"dev"}},
+		Outputs: map[string]manifest.Output{
+			"out": {Format: manifest.FormatDotenv, Path: "out.env", Include: []string{"NONE_OF_THESE"}},
+		},
+		Vars: map[string]manifest.Var{"ORPHAN": {Value: s("o")}},
+	}
+	ps := ui.Problems(ui.NewMatrix(m, nil), nil)
+	if len(ps) != 1 {
+		t.Fatalf("Problems = %+v, want exactly one", ps)
+	}
+	for _, bad := range []string{"error", "missing", "invalid", "broken", "wrong"} {
+		if strings.Contains(strings.ToLower(ps[0].Detail), bad) {
+			t.Errorf("Detail = %q, reads like an error (contains %q)", ps[0].Detail, bad)
+		}
+	}
+}
+
+// trenvy render fixes nothing here -- there is no output to render this
+// variable into. Five Things #2: a real command that does not address the
+// stated problem is the same failure as a fabricated one.
+func TestProblemsMembershipFixIsNotRender(t *testing.T) {
+	m := &manifest.Manifest{
+		Project: manifest.Project{Profiles: []string{"dev"}},
+		Outputs: map[string]manifest.Output{
+			"out": {Format: manifest.FormatDotenv, Path: "out.env", Include: []string{"NONE_OF_THESE"}},
+		},
+		Vars: map[string]manifest.Var{"ORPHAN": {Value: s("o")}},
+	}
+	ps := ui.Problems(ui.NewMatrix(m, nil), nil)
+	if len(ps) != 1 {
+		t.Fatalf("Problems = %+v, want exactly one", ps)
+	}
+	if strings.Contains(ps[0].Fix, "render") {
+		t.Errorf("Fix = %q, `trenvy render` fixes nothing here -- there is nothing to render it into", ps[0].Fix)
+	}
+	if !strings.Contains(ps[0].Fix, "Outputs tab") {
+		t.Errorf("Fix = %q, want it to point at the Outputs tab, the actual way to change membership", ps[0].Fix)
+	}
+}
+
+// A project with no outputs at all (the exec/shell-only shape) must not warn
+// once per variable -- every variable is at zero there by definition, and
+// that is normal, not broken (see viewOutputs' own placeholder for the same
+// case). Five Things #3.
+func TestProblemsSuppressesMembershipWhenProjectHasNoOutputs(t *testing.T) {
+	m := &manifest.Manifest{
+		Project: manifest.Project{Profiles: []string{"dev"}},
+		Vars: map[string]manifest.Var{
+			"ONE": {Value: s("1")}, "TWO": {Value: s("2")}, "THREE": {Value: s("3")},
+		},
+	}
+	ps := ui.Problems(ui.NewMatrix(m, nil), nil)
+	if len(ps) != 0 {
+		t.Errorf("Problems = %+v, want none: an exec/shell-only project has every variable at zero by definition", ps)
+	}
+}
+
 // Problems must sort by name then profile so the Overview list holds still
 // between renders. Several problems across profiles, asserted in full
 // expected order — not "contains" — so an accidentally-passing run (map

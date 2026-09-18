@@ -183,6 +183,32 @@ func TestEnterOnOutputProblemSwitchesToOutputsNotAWrongCell(t *testing.T) {
 	}
 }
 
+// A membership problem routes exactly like an output problem: no matrix
+// cell to jump to (there is no single "right" cell for "reaches no output"),
+// so enter goes to the Outputs tab instead, end to end from a real manifest
+// through Problems and into the Model.
+func TestEnterOnMembershipProblemSwitchesToOutputs(t *testing.T) {
+	m := &manifest.Manifest{
+		Project: manifest.Project{Profiles: []string{"dev"}},
+		Outputs: map[string]manifest.Output{
+			"out": {Format: manifest.FormatDotenv, Path: "out.env", Include: []string{"NONE_OF_THESE"}},
+		},
+		Vars: map[string]manifest.Var{"ORPHAN": {Value: s("o")}},
+	}
+	mx := ui.NewMatrix(m, nil)
+	ps := ui.Problems(mx, nil)
+	if len(ps) != 1 || ps[0].Kind != "membership" {
+		t.Fatalf("setup: want exactly one membership problem, got %+v", ps)
+	}
+	mod := ui.New(testParams(mx, ps))
+
+	mod, _ = mod.Update(ui.KeyType(tea.KeyEnter))
+
+	if mod.Tab() != ui.TabOutputs {
+		t.Errorf("tab after enter on a membership problem = %v, want Outputs", mod.Tab())
+	}
+}
+
 // The Overview needs its own cursor: reusing row/col for the problem list
 // would mean moving through problems silently moves the Variables matrix
 // cursor too, and jumping would then land wherever that stray movement left
