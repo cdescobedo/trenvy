@@ -1,6 +1,7 @@
 package ui_test
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -86,7 +87,7 @@ func TestQConfirmationDecliningLeavesStagedAndCursorUntouched(t *testing.T) {
 			t.Error("declining a quit must not end the session")
 		}
 	}
-	if got := m.Staged(); len(got) != len(staged) || got[0] != staged[0] {
+	if got := m.Staged(); len(got) != len(staged) || !reflect.DeepEqual(got[0], staged[0]) {
 		t.Errorf("Staged() = %+v after declining, want untouched %+v", got, staged)
 	}
 	if m.Tab() != wantTab || m.Row() != wantRow || m.Col() != wantCol {

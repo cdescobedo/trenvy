@@ -1,6 +1,7 @@
 package ui_test
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -172,7 +173,7 @@ func TestSwitcherDecliningConfirmationLeavesStagedAndProjectUntouched(t *testing
 	if id, ok := m.SwitchTo(); ok {
 		t.Errorf("SwitchTo() = %q, true after declining; want no switch", id)
 	}
-	if got := m.Staged(); len(got) != len(staged) || got[0] != staged[0] {
+	if got := m.Staged(); len(got) != len(staged) || !reflect.DeepEqual(got[0], staged[0]) {
 		t.Errorf("Staged() = %+v after declining, want untouched %+v", got, staged)
 	}
 	if cmd != nil {

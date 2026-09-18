@@ -180,12 +180,43 @@ the command surface may still move under you.
   only one output can hold that slot; it does nothing, and says so, on a row
   that is already the default. `d` marks an output deleted without removing
   it from view, the same staged-not-applied convention the Variables tab
-  already uses, and refuses over a row with a staged rename or a staged
-  default rather than leaving a later `w` to guess which one was meant --
-  renaming or defaulting a deleted row cancels the delete first, the same
-  cancel-on-edit rule `e` already follows there. A project with no outputs
-  now names `a` first, ahead of the CLI equivalent it named alone before this
-  key was wired. Nothing here reaches disk until `w`, and `w` now commits in
+  already uses, and refuses over a row with a staged rename, a staged
+  default, or a staged membership edit (below) rather than leaving a later
+  `w` to guess which one was meant -- renaming or defaulting a deleted row
+  cancels the delete first, the same cancel-on-edit rule `e` already follows
+  there. **`enter` on a row opens the include/exclude editor** -- one
+  checkbox per variable this session already knows about, including one only
+  staged with `a` on the Variables tab -- for setting exactly which of them
+  this output writes, a hand edit of the manifest's `include`/`exclude` lists
+  until now. Every box is derived from what those globs actually select
+  today, through the same `resolve.Selects` `render` itself depends on, never
+  by pattern-matching the glob strings by hand -- a hand parse would disagree
+  with the rendered file the moment a pattern is more than a bare name, e.g.
+  `PUBLIC_*`. `m` switches which of two futures a variable that does not
+  exist yet falls into -- *everything except*, where it is written by
+  default, or *only these*, where it is not -- named in one plain sentence on
+  screen that changes the instant `m` is pressed, because that sentence is
+  the entire reason this editor exists rather than a plainer one: a manifest
+  stores globs, not membership, and the two modes are two different futures
+  for a name nobody has typed yet, not two different selections of the names
+  that already exist. Switching it never moves a single one of today's
+  checked boxes -- the checkbox map and the mode are separate state -- and a
+  round trip through both modes with nothing else touched proves it. `space`
+  toggles the variable under the cursor; `enter` saves, staging `set-globs`;
+  `esc` abandons the whole edit, mirroring every other input mode's own
+  convention, and the Outputs table's own SELECTS column reflects a staged
+  membership edit the instant it is staged, the same instant-visibility rule
+  a staged cell edit already gets on the Variables tab. A row this session
+  also staged removing refuses to open the editor at all, rather than
+  cancelling the pending delete the way `r` and `D` do: editing the
+  membership of something the same batch deletes is a contradiction the
+  commit would have to resolve arbitrarily, the exact shape of the phase-1
+  Critical where `d` then `e` on one row diverged by keypress order -- and
+  the refusal runs in the other direction too, so `d` after a staged
+  membership edit also refuses, rather than letting keypress order decide
+  which of the two wins. A project with no outputs now names `a` first, ahead
+  of the CLI equivalent it named alone before this key was wired. Nothing
+  here reaches disk until `w`, and `w` now commits in
   six phases, not three: structural additions (a new variable or output)
   land first, since a row this same session both added and later renamed,
   defaulted or removed needs to exist before any of those act on it; keyring

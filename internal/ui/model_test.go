@@ -1,6 +1,7 @@
 package ui_test
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -304,7 +305,7 @@ func TestEditCommitsSetValueForOneProfileOnly(t *testing.T) {
 		t.Fatalf("Staged() = %+v, want exactly one change", staged)
 	}
 	want := ui.Change{Kind: ui.ChangeSetValue, Name: "OVERRIDE", Profile: "dev", Value: "NEWVAL"}
-	if staged[0] != want {
+	if !reflect.DeepEqual(staged[0], want) {
 		t.Errorf("Staged()[0] = %+v, want %+v", staged[0], want)
 	}
 }
@@ -363,7 +364,7 @@ func TestAddStagesAddVarAndAppearsInView(t *testing.T) {
 
 	staged := m.Staged()
 	want := ui.Change{Kind: ui.ChangeAddVar, Name: "NEWVAR"}
-	if len(staged) != 1 || staged[0] != want {
+	if len(staged) != 1 || !reflect.DeepEqual(staged[0], want) {
 		t.Fatalf("Staged() = %+v, want exactly %+v", staged, want)
 	}
 	if !strings.Contains(m.View(), "NEWVAR") {
@@ -382,7 +383,7 @@ func TestDeleteMarksRowWithoutRemovingIt(t *testing.T) {
 
 	staged := m.Staged()
 	want := ui.Change{Kind: ui.ChangeDeleteVar, Name: "OVERRIDE"}
-	if len(staged) != 1 || staged[0] != want {
+	if len(staged) != 1 || !reflect.DeepEqual(staged[0], want) {
 		t.Fatalf("Staged() = %+v, want exactly %+v", staged, want)
 	}
 
@@ -431,7 +432,7 @@ func TestEditCancelsAPendingDelete(t *testing.T) {
 
 	staged := m.Staged()
 	want := ui.Change{Kind: ui.ChangeSetValue, Name: "OVERRIDE", Profile: "dev", Value: "NEWVAL"}
-	if len(staged) != 1 || staged[0] != want {
+	if len(staged) != 1 || !reflect.DeepEqual(staged[0], want) {
 		t.Fatalf("Staged() = %+v, want exactly %+v (the delete must be cancelled, not merely outlived)", staged, want)
 	}
 	if strings.Contains(lineFor(t, m.View(), "OVERRIDE"), "deleted") {
@@ -454,7 +455,7 @@ func TestDeleteRefusesOverAStagedEdit(t *testing.T) {
 
 	staged := m.Staged()
 	want := ui.Change{Kind: ui.ChangeSetValue, Name: "OVERRIDE", Profile: "dev", Value: "NEWVAL"}
-	if len(staged) != 1 || staged[0] != want {
+	if len(staged) != 1 || !reflect.DeepEqual(staged[0], want) {
 		t.Fatalf("Staged() = %+v, want exactly %+v (d must refuse, not add a delete over a staged edit)", staged, want)
 	}
 	if strings.Contains(lineFor(t, m.View(), "OVERRIDE"), "deleted") {
@@ -666,7 +667,7 @@ func TestEditOnSecretCellMasksTypingAndStagesSetSecret(t *testing.T) {
 
 	staged := m.Staged()
 	want := ui.Change{Kind: ui.ChangeSetSecret, Name: "TOKEN", Profile: "dev", Value: typed}
-	if len(staged) != 1 || staged[0] != want {
+	if len(staged) != 1 || !reflect.DeepEqual(staged[0], want) {
 		t.Fatalf("Staged() = %+v, want exactly %+v", staged, want)
 	}
 
@@ -779,7 +780,7 @@ func sameStaged(got, want []ui.Change) bool {
 		return false
 	}
 	for i := range want {
-		if got[i] != want[i] {
+		if !reflect.DeepEqual(got[i], want[i]) {
 			return false
 		}
 	}
@@ -833,7 +834,7 @@ func TestPromoteStagesSetSecretForOverriddenProfilesOnly(t *testing.T) {
 		t.Fatalf("Staged() = %+v, want %+v", staged, want)
 	}
 	for i := range want {
-		if staged[i] != want[i] {
+		if !reflect.DeepEqual(staged[i], want[i]) {
 			t.Errorf("Staged()[%d] = %+v, want %+v", i, staged[i], want[i])
 		}
 	}

@@ -21,6 +21,15 @@ type OutputRow struct {
 	// IsDefault marks project.Output, so the tab can mark it with "*" the
 	// same way `trenvy output list` does.
 	IsDefault bool
+	// Include and Exclude are the raw globs behind Selects -- Task 8's
+	// editor needs the actual patterns, not the prose, to derive its
+	// opening checkbox state through resolve.Selects (see
+	// Model.deriveOutputGlobsChecked). Selects stays as its own field
+	// rather than being recomputed from these here: SelectsSummary is a
+	// pure function of an Output, and calling it twice from two different
+	// inputs that are supposed to agree is exactly the "two places compute
+	// one fact" shape that already produced a phase-1 Critical.
+	Include, Exclude []string
 }
 
 // SelectsSummary renders an output's globs as prose, because the globs

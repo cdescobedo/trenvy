@@ -431,6 +431,25 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 				continue
 			}
 			app.Manifest.Project.Output = c.Name
+		case ui.ChangeSetGlobs:
+			// Task 8's own kind (see commitStaged's doc): it did not exist
+			// when the six phases above it were built, so it lands here,
+			// in the manifest-edits phase, as one more case -- never a
+			// restructuring of the phases themselves.
+			if removedOutputNames[c.Name] {
+				continue
+			}
+			o, ok := app.Manifest.Outputs[c.Name]
+			if !ok {
+				// Phase 1 already ran, so the only way this row is
+				// missing is a hand-built Change naming an identity that
+				// never existed -- nothing to set globs on, mirroring
+				// ChangeRenameOutput's own guard just above.
+				continue
+			}
+			o.Include = c.Include
+			o.Exclude = c.Exclude
+			app.Manifest.Outputs[c.Name] = o
 		}
 	}
 
@@ -545,6 +564,12 @@ func buildOutputRows(m *manifest.Manifest, states map[string]string) []ui.Output
 			Selects:   ui.SelectsSummary(o),
 			State:     states[name],
 			IsDefault: name == m.Project.Output,
+			// Include/Exclude are the raw globs behind Selects' prose --
+			// Task 8's editor needs them to derive its opening checkbox
+			// state through resolve.Selects, never by parsing Selects
+			// itself.
+			Include: o.Include,
+			Exclude: o.Exclude,
 		})
 	}
 	return rows

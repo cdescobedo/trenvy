@@ -1,6 +1,7 @@
 package ui_test
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -198,7 +199,7 @@ func TestOutputAddPromptsNameThenFormatThenPath(t *testing.T) {
 	}
 	staged := m.Staged()
 	want := ui.Change{Kind: ui.ChangeAddOutput, Name: "public", Format: "dotenv", Path: "public/.env"}
-	if len(staged) != 1 || staged[0] != want {
+	if len(staged) != 1 || !reflect.DeepEqual(staged[0], want) {
 		t.Fatalf("Staged() = %+v, want exactly %+v", staged, want)
 	}
 	if !strings.Contains(m.View(), "public") {
@@ -291,7 +292,7 @@ func TestOutputRenameStagesRenameOutput(t *testing.T) {
 
 	staged := m.Staged()
 	want := ui.Change{Kind: ui.ChangeRenameOutput, Name: "api", Value: "gateway"}
-	if len(staged) != 1 || staged[0] != want {
+	if len(staged) != 1 || !reflect.DeepEqual(staged[0], want) {
 		t.Fatalf("Staged() = %+v, want exactly %+v", staged, want)
 	}
 	line := lineFor(t, m.View(), "api")
@@ -381,7 +382,7 @@ func TestOutputDefaultStagesDefaultOutput(t *testing.T) {
 
 	staged := m.Staged()
 	want := ui.Change{Kind: ui.ChangeDefaultOutput, Name: "public"}
-	if len(staged) != 1 || staged[0] != want {
+	if len(staged) != 1 || !reflect.DeepEqual(staged[0], want) {
 		t.Fatalf("Staged() = %+v, want exactly %+v", staged, want)
 	}
 
@@ -424,7 +425,7 @@ func TestOutputDeleteMarksRowWithoutRemovingIt(t *testing.T) {
 
 	staged := m.Staged()
 	want := ui.Change{Kind: ui.ChangeRemoveOutput, Name: "api"}
-	if len(staged) != 1 || staged[0] != want {
+	if len(staged) != 1 || !reflect.DeepEqual(staged[0], want) {
 		t.Fatalf("Staged() = %+v, want exactly %+v", staged, want)
 	}
 	line := lineFor(t, m.View(), "api")
@@ -465,7 +466,7 @@ func TestOutputDeleteRefusesOverStagedRename(t *testing.T) {
 
 	staged := m.Staged()
 	want := ui.Change{Kind: ui.ChangeRenameOutput, Name: "api", Value: "gateway"}
-	if len(staged) != 1 || staged[0] != want {
+	if len(staged) != 1 || !reflect.DeepEqual(staged[0], want) {
 		t.Fatalf("Staged() = %+v, want exactly %+v (d must refuse over a staged rename)", staged, want)
 	}
 	v := m.View()
@@ -491,7 +492,7 @@ func TestOutputDeleteRefusesOverStagedDefault(t *testing.T) {
 
 	staged := m.Staged()
 	want := ui.Change{Kind: ui.ChangeDefaultOutput, Name: "public"}
-	if len(staged) != 1 || staged[0] != want {
+	if len(staged) != 1 || !reflect.DeepEqual(staged[0], want) {
 		t.Fatalf("Staged() = %+v, want exactly %+v (d must refuse over a staged default)", staged, want)
 	}
 	if !strings.Contains(m.View(), "d is disabled") {
@@ -515,7 +516,7 @@ func TestOutputRenameCancelsAPendingDelete(t *testing.T) {
 
 	staged := m.Staged()
 	want := ui.Change{Kind: ui.ChangeRenameOutput, Name: "api", Value: "gateway"}
-	if len(staged) != 1 || staged[0] != want {
+	if len(staged) != 1 || !reflect.DeepEqual(staged[0], want) {
 		t.Fatalf("Staged() = %+v, want exactly %+v (the delete must be cancelled, not merely outlived)", staged, want)
 	}
 }
@@ -528,7 +529,7 @@ func TestOutputDefaultCancelsAPendingDelete(t *testing.T) {
 
 	staged := m.Staged()
 	want := ui.Change{Kind: ui.ChangeDefaultOutput, Name: "api"}
-	if len(staged) != 1 || staged[0] != want {
+	if len(staged) != 1 || !reflect.DeepEqual(staged[0], want) {
 		t.Fatalf("Staged() = %+v, want exactly %+v (the delete must be cancelled, not merely outlived)", staged, want)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/resolve"
 )
 
 // Tab is one of the panels in the management interface's tab bar.
@@ -100,6 +101,15 @@ const (
 	// ModeOutputRename is typing the new name for the Outputs tab row under
 	// the cursor (`r`).
 	ModeOutputRename
+	// ModeOutputGlobs is the include/exclude editor `enter` opens on the
+	// Outputs tab row under the cursor (Task 8): a checkbox per variable
+	// this package already knows about, plus the mode toggle (`m`) that
+	// says which of the two ModeEverythingExcept/ModeOnlyThese futures a
+	// variable that does not exist yet falls into. Nothing stages until
+	// enter commits it as set-globs; esc abandons the whole edit, mirroring
+	// every other input mode's own esc-abandons convention.
+	ModeOutputGlobs
+
 	// ModeEverythingExcept and ModeOnlyThese are not FSM states the way the
 	// modes above are; they answer a different question -- for one output's
 	// membership editor (Task 8), which of two futures a variable that does
@@ -142,6 +152,8 @@ func (md Mode) String() string {
 		return "output-add-path"
 	case ModeOutputRename:
 		return "output-rename"
+	case ModeOutputGlobs:
+		return "output-globs"
 	case ModeEverythingExcept:
 		return "everything-except"
 	case ModeOnlyThese:
@@ -166,6 +178,12 @@ func (md Mode) String() string {
 // target -- see outputIdentityNames -- so a row that is both renamed and,
 // say, made default in the same session stages two Changes that agree about
 // which row they mean.
+//
+// ChangeSetGlobs is Task 8's own addition, keyed by identity the same way:
+// the include/exclude editor's save. It did not exist when Task 6 built
+// commitStaged's phases, so wiring it in means adding a case to whichever
+// phase it belongs in, never restructuring the phases themselves (see
+// commitStaged's own doc in internal/cli/ui.go).
 const (
 	ChangeSetValue      = "set-value"
 	ChangeAddVar        = "add-var"
@@ -176,6 +194,7 @@ const (
 	ChangeRenameOutput  = "rename-output"
 	ChangeRemoveOutput  = "remove-output"
 	ChangeDefaultOutput = "default-output"
+	ChangeSetGlobs      = "set-globs"
 )
 
 // Change is one uncommitted edit, held in the model until w writes it to the
@@ -191,9 +210,14 @@ const (
 //
 // Format and Path carry add-output's definition; every other kind leaves
 // them empty.
+//
+// Include and Exclude carry set-globs' own definition: exactly what
+// WriteGlobs produced from the editor's checkbox state and mode at the
+// moment enter saved it. Every other kind leaves them nil.
 type Change struct {
 	Kind, Name, Profile, Value string
 	Format, Path               string
+	Include, Exclude           []string
 }
 
 // RevealRequestMsg asks the host to fetch one secret's value for one
@@ -286,6 +310,32 @@ type Model struct {
 	// cleared the instant the flow ends, staged or abandoned, so a later `a`
 	// never starts from a stale draft.
 	draftOutputName, draftOutputFormat string
+
+	// globsTarget is the output identity ModeOutputGlobs is currently
+	// editing -- captured once at beginOutputGlobsEdit so enter's save
+	// stages set-globs against the same row the editor opened on, even
+	// though outputRow (the Outputs tab's own cursor) is a live field this
+	// mode never touches while it is open.
+	globsTarget string
+	// globsFuture holds the editor's own mode choice -- ModeEverythingExcept
+	// or ModeOnlyThese, never any other Mode value -- separately from
+	// globsChecked so that toggling it with `m` (toggleGlobsFuture) can
+	// never accidentally touch which boxes are checked. See Five Things #2
+	// on the task brief: switching mode must not move a single checkbox.
+	globsFuture Mode
+	// globsChecked is the editor's own checkbox state, one entry per name in
+	// allNames() -- derived once at open time via deriveOutputGlobsChecked
+	// (resolve.Selects against the row's CURRENT globs, never a hand-rolled
+	// parse of Include/Exclude; see Five Things #3), then mutated only by
+	// space (toggleGlobsChecked). Cleared when the editor closes, saved or
+	// cancelled, so a later open always starts from a fresh derivation
+	// rather than a stale map left over from editing a different row.
+	globsChecked map[string]bool
+	// globsRow is the editor's own cursor, scoped to allNames() the same
+	// way overviewRow is scoped to problems and outputRow to
+	// outputIdentityNames -- a separate field so opening the editor never
+	// disturbs row/col or outputRow.
+	globsRow int
 
 	mode   Mode
 	buffer string
@@ -583,14 +633,38 @@ func (m Model) isOutputDeleted(identity string) bool {
 // check ran that did not.
 func (m Model) outputFacts(identity string) (format, path, selects, state string) {
 	if o, ok := m.outputByName(identity); ok {
-		return o.Format, o.Path, o.Selects, o.State
+		selects = o.Selects
+		if staged, ok := m.stagedGlobsSelects(identity); ok {
+			selects = staged
+		}
+		return o.Format, o.Path, selects, o.State
 	}
 	for _, c := range m.staged {
 		if c.Kind == ChangeAddOutput && c.Name == identity {
-			return c.Format, c.Path, "all", "pending"
+			selects = "all"
+			if staged, ok := m.stagedGlobsSelects(identity); ok {
+				selects = staged
+			}
+			return c.Format, c.Path, selects, "pending"
 		}
 	}
 	return "", "", "", ""
+}
+
+// stagedGlobsSelects reports the SELECTS prose a staged set-globs implies
+// for identity, if one is staged -- shared by both of outputFacts' branches
+// (an existing output and one only staged as add-output this session) so
+// there is exactly one place that re-derives this prose from a staged edit,
+// mirroring cellText's own staged-takes-precedence rule for the Variables
+// tab: a membership edit must be visible in the table the instant it is
+// staged, not only after w writes it to disk.
+func (m Model) stagedGlobsSelects(identity string) (string, bool) {
+	for _, c := range m.staged {
+		if c.Kind == ChangeSetGlobs && c.Name == identity {
+			return SelectsSummary(manifest.Output{Include: c.Include, Exclude: c.Exclude}), true
+		}
+	}
+	return "", false
 }
 
 // outputNameProblem explains why name would be refused as an output's name
@@ -1033,6 +1107,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return m.updateConfirmPromote(msg)
 		case ModeHelp:
 			return m.updateHelp(msg)
+		case ModeOutputGlobs:
+			return m.updateOutputGlobs(msg)
 		default:
 			return m.updateBrowse(msg)
 		}
@@ -1067,6 +1143,9 @@ func (m Model) updateBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case tea.KeyEnter:
 		if m.tab == TabOverview {
 			m.jumpToProblem()
+		}
+		if m.tab == TabOutputs {
+			m.beginOutputGlobsEdit()
 		}
 		return m, nil
 	}
@@ -1632,12 +1711,19 @@ func (m Model) defaultBlockedReason() string {
 // un-stages it if already staged -- mirrors toggleDelete's own toggle: the
 // user has not saved anything yet and can still change their mind.
 //
-// Refuses over a staged rename-output or default-output for the same row,
-// the Outputs-tab counterpart of toggleDelete's own refusal over a staged
-// set-value/set-secret (see its doc): committing a rename or a new default
-// for a row the same batch also removes is contradictory, not merely
-// redundant, and letting both stage would leave Task 6's commit to guess
-// which one the user actually meant.
+// Refuses over a staged rename-output, default-output or set-globs for the
+// same row, the Outputs-tab counterpart of toggleDelete's own refusal over a
+// staged set-value/set-secret (see its doc): committing a rename, a new
+// default or a membership edit for a row the same batch also removes is
+// contradictory, not merely redundant, and letting both stage would leave
+// Task 6's commit to guess which one the user actually meant. set-globs is
+// refused here rather than cancelled the way beginOutputRename and
+// stageOutputDefault cancel a pending delete: the opposite order --
+// beginOutputGlobsEdit opening on a row THIS session already marked deleted
+// -- refuses outright (see its own doc), and letting d win when pressed
+// second here while the editor's own save loses when pressed second there
+// would make the outcome depend on keypress order, exactly the phase-1
+// Critical this whole family of refusals exists to prevent.
 func (m *Model) toggleOutputDelete() {
 	if m.tab != TabOutputs {
 		return
@@ -1652,7 +1738,7 @@ func (m *Model) toggleOutputDelete() {
 		return
 	}
 	for _, c := range m.staged {
-		if (c.Kind == ChangeRenameOutput || c.Kind == ChangeDefaultOutput) && c.Name == identity {
+		if (c.Kind == ChangeRenameOutput || c.Kind == ChangeDefaultOutput || c.Kind == ChangeSetGlobs) && c.Name == identity {
 			return
 		}
 	}
@@ -1695,6 +1781,8 @@ func (m Model) outputDeleteBlockedReason() string {
 			word = "rename"
 		case c.Kind == ChangeDefaultOutput && c.Name == identity:
 			word = "default"
+		case c.Kind == ChangeSetGlobs && c.Name == identity:
+			word = "membership edit"
 		}
 		if word != "" {
 			return fmt.Sprintf(
@@ -1703,6 +1791,224 @@ func (m Model) outputDeleteBlockedReason() string {
 		}
 	}
 	return ""
+}
+
+// beginOutputGlobsEdit opens ModeOutputGlobs on the Outputs tab row under the
+// cursor (`enter`), Task 8's include/exclude editor.
+//
+// Refuses outright on a row this session already staged removing, rather
+// than cancelling the delete the way beginOutputRename and stageOutputDefault
+// cancel one -- see Five Things #4 on the task brief: editing the membership
+// of an output the same batch deletes is a contradiction the commit would
+// have to resolve arbitrarily, the exact shape of the phase-1 Critical where
+// d then e on one row diverged by keypress order. outputGlobsBlockedReason
+// (View) explains the refusal live, mirroring every other blocked-key idiom
+// in this file.
+func (m *Model) beginOutputGlobsEdit() {
+	if m.tab != TabOutputs || m.mx == nil {
+		return
+	}
+	names := m.outputIdentityNames()
+	if len(names) == 0 || m.outputRow >= len(names) {
+		return
+	}
+	identity := names[m.outputRow]
+	if m.isOutputDeleted(identity) {
+		return
+	}
+	include, exclude := m.currentOutputGlobs(identity)
+	m.globsTarget = identity
+	m.globsFuture = inferGlobsMode(include)
+	m.globsChecked = m.deriveOutputGlobsChecked(identity, include, exclude)
+	m.globsRow = 0
+	m.mode = ModeOutputGlobs
+}
+
+// currentOutputGlobs reports the include/exclude currently in effect for
+// identity: a staged set-globs takes precedence over the on-disk fact,
+// mirroring currentValue's own precedence for a Variables-tab cell --
+// re-opening the editor before w must show the edit just staged, not
+// silently discard it back to what was on disk before this session touched
+// it. An identity with neither -- a fresh add-output, never yet saved or
+// edited -- reports nil, nil, meaning "all" (see outputFacts' own doc for
+// why that is add-output's honest default).
+func (m Model) currentOutputGlobs(identity string) (include, exclude []string) {
+	for i := len(m.staged) - 1; i >= 0; i-- {
+		c := m.staged[i]
+		if c.Kind == ChangeSetGlobs && c.Name == identity {
+			return c.Include, c.Exclude
+		}
+	}
+	if o, ok := m.outputByName(identity); ok {
+		return o.Include, o.Exclude
+	}
+	return nil, nil
+}
+
+// inferGlobsMode says which of the editor's two futures include, taken
+// alone, currently implies: empty (or the literal ["*"] SelectsSummary
+// already treats the same way) means a variable that does not exist yet is
+// selected by default -- ModeEverythingExcept -- while any other include
+// list means one is not -- ModeOnlyThese. This is the mode the editor OPENS
+// in for an existing output; nothing here reads exclude, because exclude
+// never changes which future an unseen name falls into (see WriteGlobs' own
+// doc). Getting this wrong would make Five Things #1's whole point false the
+// instant the editor opened: showing "everything except" over an output
+// whose real Include list actually excludes every future variable would be
+// lying about the current state before the user ever touches a box.
+func inferGlobsMode(include []string) Mode {
+	if len(include) == 0 {
+		return ModeEverythingExcept
+	}
+	if len(include) == 1 && include[0] == "*" {
+		return ModeEverythingExcept
+	}
+	return ModeOnlyThese
+}
+
+// deriveOutputGlobsChecked builds the editor's opening checkbox state by
+// running every name in allNames() through resolve.Selects against a
+// throwaway manifest holding exactly include/exclude under identity -- never
+// by inspecting Include/Exclude's strings directly. See Five Things #3 on
+// the task brief: an output's globs may be arbitrary patterns (PUBLIC_*, say)
+// with both lists populated, and only resolve.Selects -- the same function
+// render.Dotenv and render.JSON depend on -- knows what they actually mean
+// for a given name today. Mirrors globs_test.go's own selectsAll helper,
+// which exists for exactly this reason on the WriteGlobs side.
+//
+// A resolve.Selects error here would mean include or exclude already holds
+// an invalid glob pattern -- data already on disk (or already staged) before
+// this function ever ran, not a mistake this function is making. Rather than
+// panic over a manifest fact this package did not write, the name is left
+// unchecked: the editor still opens, and saving it overwrites the broken
+// pattern with something WriteGlobs guarantees is well-formed.
+func (m Model) deriveOutputGlobsChecked(identity string, include, exclude []string) map[string]bool {
+	scratch := &manifest.Manifest{Outputs: map[string]manifest.Output{
+		identity: {Include: include, Exclude: exclude},
+	}}
+	checked := make(map[string]bool, len(m.allNames()))
+	for _, name := range m.allNames() {
+		sel, err := resolve.Selects(scratch, identity, name)
+		if err != nil {
+			continue
+		}
+		checked[name] = sel
+	}
+	return checked
+}
+
+// moveGlobsRow shifts the editor's own cursor by delta, clamping rather than
+// wrapping for the same reason moveRow does.
+func (m *Model) moveGlobsRow(delta int) {
+	n := len(m.allNames())
+	if n == 0 {
+		return
+	}
+	m.globsRow = clamp(m.globsRow+delta, 0, n-1)
+}
+
+// toggleGlobsChecked flips the box for the variable under the editor's
+// cursor (`space`). It never touches globsFuture: checking or unchecking a
+// box only ever answers "what is selected today", and mixing the two
+// concerns in one function is exactly how switching mode could start moving
+// boxes by accident (see Five Things #2).
+func (m *Model) toggleGlobsChecked() {
+	names := m.allNames()
+	if len(names) == 0 || m.globsRow >= len(names) {
+		return
+	}
+	name := names[m.globsRow]
+	if m.globsChecked == nil {
+		m.globsChecked = map[string]bool{}
+	}
+	m.globsChecked[name] = !m.globsChecked[name]
+}
+
+// toggleGlobsFuture flips which of the two futures a variable that does not
+// exist yet falls into (`m`). It touches globsFuture ONLY -- see
+// toggleGlobsChecked's own doc, and TestGlobsEditorSwitchingModeDoesNotMoveCheckboxes,
+// which is what would catch a regression here.
+func (m *Model) toggleGlobsFuture() {
+	if m.globsFuture == ModeOnlyThese {
+		m.globsFuture = ModeEverythingExcept
+		return
+	}
+	m.globsFuture = ModeOnlyThese
+}
+
+// globsFutureLine states, in plain words, which future the editor's current
+// mode choice implies for a variable that does not exist yet -- the one
+// sentence Task 8 exists to make visible (see Five Things #1 and WriteGlobs'
+// own doc). Checking boxes only ever answers what is selected TODAY; this is
+// the only place that answers what happens to the NEXT variable added.
+func (m Model) globsFutureLine() string {
+	if m.globsFuture == ModeOnlyThese {
+		return "only these: a variable added later WILL NOT appear in this file"
+	}
+	return "everything except: a variable added later WILL appear in this file"
+}
+
+// outputGlobsBlockedReason explains why `enter` would currently refuse to
+// open the membership editor for the row under the cursor, mirroring
+// outputDeleteBlockedReason's derivation from state Update already keeps
+// rather than a stored message. Non-empty exactly when that row has a staged
+// remove-output (see beginOutputGlobsEdit's own doc for why that refuses
+// rather than cancelling the delete).
+func (m Model) outputGlobsBlockedReason() string {
+	if m.tab != TabOutputs || m.mode != ModeBrowse {
+		return ""
+	}
+	names := m.outputIdentityNames()
+	if len(names) == 0 || m.outputRow >= len(names) {
+		return ""
+	}
+	identity := names[m.outputRow]
+	if !m.isOutputDeleted(identity) {
+		return ""
+	}
+	return fmt.Sprintf(
+		"enter is disabled here: %s has a staged delete -- q discards everything staged; there is no key that reverts just this one",
+		identity)
+}
+
+// updateOutputGlobs handles keys while the membership editor is open: j/k
+// and the arrows move its own cursor, space toggles the box under it, m
+// switches which future applies, enter saves (staging set-globs) and esc
+// abandons the whole edit without staging anything -- mirroring every other
+// input mode's own esc-abandons convention.
+func (m Model) updateOutputGlobs(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.mode = ModeBrowse
+		m.globsTarget = ""
+		m.globsChecked = nil
+		return m, nil
+	case tea.KeyEnter:
+		include, exclude := WriteGlobs(m.globsFuture, m.allNames(), m.globsChecked)
+		m.stage(Change{Kind: ChangeSetGlobs, Name: m.globsTarget, Include: include, Exclude: exclude})
+		m.mode = ModeBrowse
+		m.globsTarget = ""
+		m.globsChecked = nil
+		return m, nil
+	case tea.KeyUp:
+		m.moveGlobsRow(-1)
+		return m, nil
+	case tea.KeyDown:
+		m.moveGlobsRow(1)
+		return m, nil
+	case tea.KeySpace:
+		m.toggleGlobsChecked()
+		return m, nil
+	}
+	switch msg.String() {
+	case "j":
+		m.moveGlobsRow(1)
+	case "k":
+		m.moveGlobsRow(-1)
+	case "m":
+		m.toggleGlobsFuture()
+	}
+	return m, nil
 }
 
 // updateInput handles typing in whichever text-entry mode is active,
@@ -1857,7 +2163,7 @@ func (m Model) View() string {
 // Task 5 has given them different meanings on that tab. D exists only here.
 func (m Model) keyHints() string {
 	if m.tab == TabOutputs {
-		return "a add · r rename · D default · d delete · ? help"
+		return "a add · r rename · D default · d delete · enter edit membership · ? help"
 	}
 	return "e edit · r reveal · a add · d delete · s promote · / filter · ? help"
 }
@@ -1885,6 +2191,9 @@ func (m Model) viewHelp() string {
 		{"a", "add a variable (Variables tab); add an output -- name, then format, then path (Outputs tab)"},
 		{"d", "mark the selected variable or output deleted (press again to un-mark it)"},
 		{"D", "make the selected output the default (Outputs tab only)"},
+		{"enter", "jump to the cell for the selected problem (Overview tab); edit the selected output's included/excluded variables (Outputs tab)"},
+		{"space", "toggle the variable under the cursor, inside the membership editor"},
+		{"m", "switch the membership editor's mode between everything-except and only-these, inside the editor"},
 		{"s", "promote the selected variable to a secret -- one-way, there is no key that turns it back"},
 		{"/", "filter rows by name substring"},
 		{"p", "switch to a different registered project"},
@@ -1986,6 +2295,14 @@ func (m Model) viewProfiles() string {
 // there IS something to render -- the prompt for whichever step is active
 // -- even before the first output exists to put a row on screen for.
 func (m Model) viewOutputs() string {
+	if m.mode == ModeOutputGlobs {
+		// Full replacement of this tab's body, not the table plus a prompt
+		// appended below the way the add/rename wizards render: "every
+		// variable" can be a long list, and stacking it under the full
+		// outputs table would bury the one thing this mode is for.
+		return m.viewOutputGlobsEditor()
+	}
+
 	names := m.outputIdentityNames()
 	if len(names) == 0 && m.mode == ModeBrowse {
 		return "no outputs; exec and shell need none.\n" +
@@ -2046,8 +2363,42 @@ func (m Model) viewOutputs() string {
 		if reason := m.defaultBlockedReason(); reason != "" {
 			fmt.Fprintf(&b, "\n%s\n", reason)
 		}
+		if reason := m.outputGlobsBlockedReason(); reason != "" {
+			fmt.Fprintf(&b, "\n%s\n", reason)
+		}
 	}
 
+	return b.String()
+}
+
+// viewOutputGlobsEditor renders Task 8's include/exclude editor: one line
+// per variable allNames() knows about, a checkbox and a cursor, then the one
+// sentence Five Things #1 exists for -- which future the current mode
+// implies for a variable that does not exist yet -- and finally the keys
+// that act here. It replaces viewOutputs' table entirely while open (see
+// that function's own doc for why), rather than rendering alongside it.
+func (m Model) viewOutputGlobsEditor() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Editing membership for %s\n\n", m.globsTarget)
+
+	names := m.allNames()
+	if len(names) == 0 {
+		b.WriteString("no variables defined yet -- add one on the Variables tab first.\n")
+	}
+	for i, name := range names {
+		cursor := " "
+		if i == m.globsRow {
+			cursor = ">"
+		}
+		box := "[ ]"
+		if m.globsChecked[name] {
+			box = "[x]"
+		}
+		fmt.Fprintf(&b, "%s %s %s\n", cursor, box, name)
+	}
+
+	fmt.Fprintf(&b, "\n%s\n", m.globsFutureLine())
+	b.WriteString("\nspace toggle · m switch mode · enter save · esc cancel\n")
 	return b.String()
 }
 

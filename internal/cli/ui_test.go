@@ -962,6 +962,90 @@ func TestUiCommitsAddOutputToTheManifest(t *testing.T) {
 	}
 }
 
+// set-globs must land on the EXISTING output's Include/Exclude, leaving its
+// format and path untouched -- Task 8's own controller amendment: this kind
+// did not exist when commitStaged's phases were built, so this is the test
+// that pins it landing in the manifest-edits phase rather than nowhere.
+func TestUiCommitsSetGlobsToTheManifest(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t)) // "docker": Include ["*"], vars APP_URL + ALPHA_TOKEN
+
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('4'))          // Outputs tab, cursor on "docker"
+		mo, _ = mo.Update(keyEnter())               // open the membership editor
+		mo, _ = mo.Update(ui.KeyRune('j'))          // move to the second variable (sorted: ALPHA_TOKEN, APP_URL)
+		mo, _ = mo.Update(ui.KeyType(tea.KeySpace)) // uncheck it
+		mo, _ = mo.Update(keyEnter())               // save: stages set-globs
+		return markUISaved(mo), nil
+	}
+
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
+	}
+
+	m, err := manifest.Load(config.ManifestPath("vpb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, ok := m.Outputs["docker"]
+	if !ok {
+		t.Fatal("docker was removed from the manifest")
+	}
+	if o.Format != "dotenv" || o.Path != "src/.env" {
+		t.Errorf("set-globs touched format/path: %+v", o)
+	}
+	if len(o.Exclude) != 1 {
+		t.Fatalf("docker.Exclude = %#v, want exactly one excluded name", o.Exclude)
+	}
+	if len(o.Include) != 0 {
+		t.Errorf("docker.Include = %#v, want empty (everything-except mode)", o.Include)
+	}
+}
+
+// A membership edit staged for an output ADDED in the same session must
+// still land: phase 1 inserts the add-output row before phase 5 (where
+// set-globs lives) ever runs, so the row it needs to mutate already exists
+// in app.Manifest.Outputs by the time it gets there.
+func TestUiCommitsSetGlobsForAFreshlyAddedOutputInTheSameSession(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t)) // "docker" already exists, sorts before "public"
+
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('4'))
+		mo, _ = mo.Update(ui.KeyRune('a'))
+		mo, _ = mo.Update(keyRunes("public"))
+		mo, _ = mo.Update(keyEnter())
+		mo, _ = mo.Update(keyRunes("dotenv"))
+		mo, _ = mo.Update(keyEnter())
+		mo, _ = mo.Update(keyRunes("public/.env"))
+		mo, _ = mo.Update(keyEnter())               // stages add-output "public"
+		mo, _ = mo.Update(ui.KeyRune('j'))          // "docker" then "public": sorted order
+		mo, _ = mo.Update(keyEnter())               // open the membership editor for "public"
+		mo, _ = mo.Update(ui.KeyType(tea.KeySpace)) // uncheck the first variable
+		mo, _ = mo.Update(keyEnter())               // save: stages set-globs for "public"
+		return markUISaved(mo), nil
+	}
+
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
+	}
+
+	m, err := manifest.Load(config.ManifestPath("vpb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, ok := m.Outputs["public"]
+	if !ok {
+		t.Fatal("the staged output was not added to the manifest")
+	}
+	if o.Format != "dotenv" || o.Path != "public/.env" {
+		t.Errorf("public = %+v, want format dotenv, path public/.env", o)
+	}
+	if len(o.Exclude) != 1 {
+		t.Errorf("public.Exclude = %#v, want exactly one excluded name (the membership edit did not land)", o.Exclude)
+	}
+}
+
 // rename-output must move the manifest key AND repoint project.output when
 // the renamed row held it -- mirroring trenvy output rename's own
 // `if app.Manifest.Project.Output == old { ... = name }` (internal/cli/output.go),
