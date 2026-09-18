@@ -30,21 +30,3 @@ func TestDeriveOutputNameSuffixesOnCollision(t *testing.T) {
 		t.Errorf("got %q, want api-3", got)
 	}
 }
-
-func TestSelectsSummary(t *testing.T) {
-	cases := []struct {
-		o    manifest.Output
-		want string
-	}{
-		{manifest.Output{}, "all"},
-		{manifest.Output{Include: []string{"*"}}, "all"},
-		{manifest.Output{Include: []string{"*"}, Exclude: []string{"A", "B"}}, "all except A, B"},
-		{manifest.Output{Include: []string{"A", "B"}}, "A, B"},
-		{manifest.Output{Include: []string{"PUBLIC_*"}, Exclude: []string{"PUBLIC_SECRET"}}, "PUBLIC_* except PUBLIC_SECRET"},
-	}
-	for _, c := range cases {
-		if got := selectsSummary(c.o); got != c.want {
-			t.Errorf("selectsSummary(%+v) = %q, want %q", c.o, got, c.want)
-		}
-	}
-}

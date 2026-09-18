@@ -248,7 +248,7 @@ func outputFor(samplePath, fallbackRoot string) (manifest.Output, error) {
 		// does not cross "/" -- silently dropping a variable named
 		// GROUP/KEY instead of letting render/dotenv.go report its "not a
 		// valid shell identifier" error. The two are identical for every
-		// name that works today; selectsSummary renders both as "all".
+		// name that works today; ui.SelectsSummary renders both as "all".
 	}, nil
 }
 

@@ -411,6 +411,126 @@ value = "http://+:8080"
 	}
 }
 
+// outputsTabFixtureManifest builds a project with two outputs -- "docker" (the
+// default, selecting everything except INTERNAL_ONLY) and "public" (selecting
+// only APP_URL) -- for tests that need more than fixtureManifest's single
+// output to exercise the Outputs tab's per-row rendering and default marker.
+// No secrets, so matrixFromManifest's presence loop and outputStates' global
+// missing-secret check both stay out of the way of what these tests actually
+// check.
+func outputsTabFixtureManifest(t *testing.T) *manifest.Manifest {
+	t.Helper()
+	m, err := manifest.Parse([]byte(`
+[project]
+id = "vpb"
+profiles = ["dev"]
+default_profile = "dev"
+output = "docker"
+salt = "abc123"
+
+[outputs.docker]
+format = "dotenv"
+path = "src/.env"
+include = ["*"]
+exclude = ["INTERNAL_ONLY"]
+
+[outputs.public]
+format = "json"
+path = "public/env.json"
+include = ["APP_URL"]
+
+[vars.APP_URL]
+value = "http://+:8080"
+
+[vars.INTERNAL_ONLY]
+value = "x"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// The Outputs tab is Task 4's own addition: it must render the same facts
+// `trenvy output list` prints -- name, format, path, globs as prose -- plus
+// the render-freshness state outputStates already computes for the Overview,
+// through the exact same map rather than a second pass over the manifest
+// that could disagree with it.
+func TestUiOutputsTabRendersEachOutputsFacts(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", outputsTabFixtureManifest(t))
+
+	var got *ui.Model
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		got = &mo
+		return mo, nil
+	}
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
+	}
+
+	m, _ := got.Update(ui.KeyRune('4')) // Outputs tab
+	out := m.View()
+
+	for _, want := range []string{
+		"NAME", "FORMAT", "PATH", "SELECTS", "STATE",
+		"docker *", "dotenv", "src/.env", "all except INTERNAL_ONLY",
+		"public", "json", "public/env.json", "APP_URL",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("outputs tab missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "public *") {
+		t.Errorf("non-default output marked as default:\n%s", out)
+	}
+	// Neither output was ever rendered, so both must read as absent -- the
+	// same word ui.Problems and the Overview already use for it, reused here
+	// rather than a second vocabulary for the same fact.
+	if strings.Count(out, ui.StateAbsent) != 2 {
+		t.Errorf("want both never-rendered outputs to show %q once each:\n%s", ui.StateAbsent, out)
+	}
+}
+
+// A project with no outputs at all is the normal shape for one that only
+// feeds exec and shell -- this must read as a state, matching `trenvy output
+// list`'s own honesty about the same fact, not as a blank panel.
+func TestUiOutputsTabEmptyStateForAProjectWithNoOutputs(t *testing.T) {
+	h := newHarness(t)
+	m, err := manifest.Parse([]byte(`
+[project]
+id = "vpb"
+profiles = ["dev"]
+default_profile = "dev"
+salt = "abc123"
+
+[vars.APP_URL]
+value = "http://+:8080"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.register("vpb", m)
+
+	var got *ui.Model
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		got = &mo
+		return mo, nil
+	}
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
+	}
+
+	mo, _ := got.Update(ui.KeyRune('4'))
+	out := mo.View()
+	if !strings.Contains(out, "no outputs") {
+		t.Errorf("empty outputs tab does not read as a state:\n%s", out)
+	}
+	if !strings.Contains(out, "trenvy output add") {
+		t.Errorf("empty outputs tab does not name the command that adds one:\n%s", out)
+	}
+}
+
 // dbURLManifest builds a project with one variable, DB_URL, that has a value
 // under "dev" only -- the exact shape of the live Fix 1 repro (dev set,
 // prod missing) so pressing d then e on its prod cell either resurrects it

@@ -10,6 +10,7 @@ import (
 
 	"github.com/cdescobedo/trenvy/internal/config"
 	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/ui"
 )
 
 // newOutputCmd groups the commands that manage a project's outputs.
@@ -62,30 +63,11 @@ func newOutputListCmd(opts *Options) *cobra.Command {
 					marked = name + " *"
 				}
 				fmt.Fprintf(opts.Stdout, "%-12s %-8s %-32s %s\n",
-					marked, o.Format, o.Path, selectsSummary(o))
+					marked, o.Format, o.Path, ui.SelectsSummary(o))
 			}
 			return nil
 		},
 	}
-}
-
-// selectsSummary renders an output's globs as prose, because the globs
-// themselves do not say which of the two futures applies: whether a variable
-// added tomorrow lands in this file or stays out of it.
-//
-// Include and Exclude are independent in resolve.selected -- include decides
-// membership, then exclude is subtracted -- so the exclusions are appended
-// whatever the include list says. Reporting only the include list would tell
-// a reader a variable reaches this file when resolve keeps it out.
-func selectsSummary(o manifest.Output) string {
-	sel := "all"
-	if len(o.Include) > 0 && !(len(o.Include) == 1 && o.Include[0] == "*") {
-		sel = strings.Join(o.Include, ", ")
-	}
-	if len(o.Exclude) > 0 {
-		sel += " except " + strings.Join(o.Exclude, ", ")
-	}
-	return sel
 }
 
 // requireValidOutputName reports a bad name as the argument problem it is.

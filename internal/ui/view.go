@@ -11,6 +11,14 @@ import (
 // grid, so this is generous rather than tuned to a typical name.
 const nameColumnWidth = 40
 
+// outputFreshnessCaveat is the one sentence added, never per output, when at
+// least one output's freshness could not be verified without reading a
+// secret (see Model.outputFreshnessUnverified). Both the Overview's healthy
+// line and the Outputs tab need this exact fact in this exact wording -- two
+// copies of it could drift the way two implementations of the state itself
+// already did once (see outputStates' doc in internal/cli).
+const outputFreshnessCaveat = "Freshness of outputs with secrets is not checked here -- trenvy status checks it.\n"
+
 // viewVariables renders the profile matrix: one row per variable, one column
 // per profile, using the exact Cell words from cell.go (shared, override,
 // stored, MISSING, optional) as the audit surface a user reads to decide

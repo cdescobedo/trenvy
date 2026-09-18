@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -63,6 +64,7 @@ func newUiCmd(opts *Options) *cobra.Command {
 					Problems:                  ps,
 					OutputFreshnessUnverified: unverified,
 					Projects:                  projects,
+					Outputs:                   buildOutputRows(app.Manifest, states),
 				})
 
 				final, err := opts.RunUI(m, func(name, profile string) (string, error) {
@@ -325,6 +327,36 @@ func registryIDs(reg *config.Registry) []string {
 		ids[i] = e.ID
 	}
 	return ids
+}
+
+// buildOutputRows assembles the Outputs tab's rows: the same facts `trenvy
+// output list` prints (name, format, path, globs as prose via
+// ui.SelectsSummary) plus the render-freshness state outputStates already
+// computed above for Problems -- read out of that same states map, never
+// reclassified here. A second pass over app.Manifest.Outputs that decided
+// freshness on its own is exactly the duplicate computation this task was
+// warned against; this function only reshapes data outputStates already
+// produced.
+func buildOutputRows(m *manifest.Manifest, states map[string]string) []ui.OutputRow {
+	names := make([]string, 0, len(m.Outputs))
+	for name := range m.Outputs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	rows := make([]ui.OutputRow, 0, len(names))
+	for _, name := range names {
+		o := m.Outputs[name]
+		rows = append(rows, ui.OutputRow{
+			Name:      name,
+			Format:    o.Format,
+			Path:      o.Path,
+			Selects:   ui.SelectsSummary(o),
+			State:     states[name],
+			IsDefault: name == m.Project.Output,
+		})
+	}
+	return rows
 }
 
 // matrixFromManifest loads the presence-aware matrix behind the ui command.

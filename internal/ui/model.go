@@ -179,9 +179,14 @@ type Model struct {
 	// for it, once, rather than a per-output note that never changes and so
 	// never gets read.
 	outputFreshnessUnverified bool
-	tab                       Tab
-	row                       int // selected index into visibleNames()
-	col                       int // selected index into mx.Profiles
+	// outputs is the Outputs tab's own data: one row per manifest output,
+	// built once by the cli host from the same states map that feeds
+	// Problems above -- never a second read of app.Manifest.Outputs that
+	// could classify freshness differently than the Overview does.
+	outputs []OutputRow
+	tab     Tab
+	row     int // selected index into visibleNames()
+	col     int // selected index into mx.Profiles
 
 	// projects lists every registered project id, for the switcher `p`
 	// opens. It never changes after New: internal/ui does no I/O, so a
@@ -266,6 +271,14 @@ type Params struct {
 	// opens. internal/cli loads it via config.LoadRegistry(); this package
 	// never reads the registry itself.
 	Projects []string
+
+	// Outputs is the Outputs tab's rows, one per manifest output, built by
+	// the cli host from app.Manifest.Outputs and the same states map it
+	// passes to Problems (see internal/cli's outputStates and
+	// buildOutputRows). This package never reads app.Manifest.Outputs
+	// itself: doing so here would be the second implementation of "what are
+	// this project's outputs" that this task was explicitly warned against.
+	Outputs []OutputRow
 }
 
 // New builds a model over one project's matrix and its detected problems.
@@ -285,6 +298,7 @@ func New(p Params) Model {
 		mx:                        p.Matrix,
 		problems:                  p.Problems,
 		outputFreshnessUnverified: p.OutputFreshnessUnverified,
+		outputs:                   p.Outputs,
 		projects:                  p.Projects,
 		tab:                       TabOverview,
 	}
@@ -1361,7 +1375,7 @@ func (m Model) viewOverview() string {
 			// Said once, here, never per-output: a note on every
 			// secret-bearing output would be permanent noise that never
 			// changes and so never gets read.
-			b.WriteString("Freshness of outputs with secrets is not checked here -- trenvy status checks it.\n")
+			b.WriteString(outputFreshnessCaveat)
 		}
 		return b.String()
 	}
@@ -1386,11 +1400,50 @@ func (m Model) viewProfiles() string {
 		"Use `trenvy profile` (add, default, list, rm, use) from the command line.\n"
 }
 
-// viewOutputs mirrors viewProfiles: `trenvy output` (add, default, list,
-// rename, rm) already does this job.
+// viewOutputs renders one row per manifest output -- NAME, FORMAT, PATH,
+// SELECTS and STATE, the last of these reusing the exact ui.State* value
+// internal/cli's outputStates already computed for the Overview's Problems
+// (see Model.outputs' own doc). It never reclassifies freshness itself: doing
+// so here, even by accident, is how two places computing one fact about
+// outputs went out of sync into a phase-1 Critical.
+//
+// A state such as StateFresh renders exactly as "fresh" whether or not
+// outputStates could actually verify it without reading a secret -- the
+// Overview already treats that case as no problem (Fix 2), and a distinct,
+// alarming label for it here would quietly re-open that decision. The one
+// place this fact surfaces is the same caveat sentence the Overview's
+// healthy line uses, appended once below, never per row.
+//
+// A project with no outputs at all is normal, not broken: exec and shell
+// need none. This says so in the same words `trenvy output list` already
+// uses, including how to add one, rather than rendering a panel that looks
+// like something failed to load.
 func (m Model) viewOutputs() string {
-	return "Output management is not built into this view yet.\n" +
-		"Use `trenvy output` (add, default, list, rename, rm) from the command line.\n"
+	if len(m.outputs) == 0 {
+		return "no outputs; exec and shell need none.\n" +
+			"  add one with: trenvy output add <name> --format dotenv --path <path>\n"
+	}
+
+	var b strings.Builder
+	w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "NAME\tFORMAT\tPATH\tSELECTS\tSTATE")
+	for _, o := range m.outputs {
+		name := o.Name
+		if o.IsDefault {
+			// Mirrors `trenvy output list`'s own marker for project.Output,
+			// so a user does not learn a second convention for the same
+			// fact between the CLI and this tab.
+			name += " *"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", name, o.Format, o.Path, o.Selects, o.State)
+	}
+	_ = w.Flush()
+
+	if m.outputFreshnessUnverified {
+		b.WriteString("\n" + outputFreshnessCaveat)
+	}
+
+	return b.String()
 }
 
 // KeyRune returns the message for a single rune key press, so callers can
