@@ -124,11 +124,14 @@ func TestOutputsTabStaysPlainWhenEveryOutputIsVerified(t *testing.T) {
 	}
 }
 
-// The unverified case must not read as a problem: it renders through the
-// same plain State word (StateFresh) every other fresh output uses, never a
-// distinct alarming label -- Phase 1's fix wave settled that an output whose
-// freshness merely could not be checked here is not itself a problem.
-func TestOutputsTabUnverifiedRowStaysPlainFresh(t *testing.T) {
+// The global "something on this tab is unverified" flag must never decorate
+// a row whose OWN State is a definite answer: this row's State is StateFresh
+// (a verified fact, distinct from the global flag being about some OTHER
+// row), so it must render exactly as "fresh" -- not, say, a distinct
+// alarming label borrowed from the flag being set at all. The State column
+// and the one-line caveat below the table are separate mechanisms; this
+// pins that they stay separate.
+func TestOutputsTabUnverifiedFlagDoesNotDecorateAVerifiedRow(t *testing.T) {
 	rows := []ui.OutputRow{
 		{Name: "docker", Format: "dotenv", Path: "src/.env", Selects: "all", State: ui.StateFresh, IsDefault: true},
 	}
@@ -136,19 +139,48 @@ func TestOutputsTabUnverifiedRowStaysPlainFresh(t *testing.T) {
 	m, _ = m.Update(ui.KeyRune('4'))
 
 	v := m.View()
-	var row string
-	for _, line := range strings.Split(v, "\n") {
-		if strings.Contains(line, "docker") {
-			row = line
-			break
+	row := outputTabRow(t, v, "docker")
+	if !strings.Contains(row, ui.StateFresh) {
+		t.Errorf("verified output's own row does not read plainly as %q: %q", ui.StateFresh, row)
+	}
+}
+
+// Fix 2 (CRITICAL, whole-branch review round 2): StateUnverified is what
+// cli.outputStates now actually sends for an output it cannot tell fresh
+// from STALE without reading a secret -- see its own doc in problem.go. It
+// must render literally as its own value ("unknown (--quick)", the same
+// words `trenvy status --quick` prints for this case), plain and
+// undecorated, never StateFresh (a claim this tab cannot back up) and never
+// a distinct alarming label either (Problems already treats it as no
+// problem -- see problem_test.go's TestProblemsIgnoresUnverifiedOutput).
+func TestOutputsTabRendersStateUnverifiedAsUnknownQuick(t *testing.T) {
+	rows := []ui.OutputRow{
+		{Name: "docker", Format: "dotenv", Path: "src/.env", Selects: "all", State: ui.StateUnverified, IsDefault: true},
+	}
+	m := ui.New(outputsParams(rows, true))
+	m, _ = m.Update(ui.KeyRune('4'))
+
+	v := m.View()
+	row := outputTabRow(t, v, "docker")
+	if strings.Contains(row, ui.StateFresh) {
+		t.Errorf("row falsely claims %q: %q", ui.StateFresh, row)
+	}
+	if !strings.Contains(row, ui.StateUnverified) {
+		t.Errorf("row = %q, want the literal %q label", row, ui.StateUnverified)
+	}
+}
+
+// outputTabRow finds the Outputs tab line naming name, failing the test if
+// there is none.
+func outputTabRow(t *testing.T, view, name string) string {
+	t.Helper()
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, name) {
+			return line
 		}
 	}
-	if row == "" {
-		t.Fatalf("docker row not found:\n%s", v)
-	}
-	if !strings.Contains(row, ui.StateFresh) {
-		t.Errorf("unverified output's own row does not read plainly as %q: %q", ui.StateFresh, row)
-	}
+	t.Fatalf("%q row not found:\n%s", name, view)
+	return ""
 }
 
 // outputsModelOnTab builds a model over rows and switches straight to the

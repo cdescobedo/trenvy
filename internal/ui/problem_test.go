@@ -85,6 +85,27 @@ func TestProblemsIgnoresAbsentOutput(t *testing.T) {
 	}
 }
 
+// Fix 2 (CRITICAL, whole-branch review): StateUnverified means the same
+// thing StateUnknown used to get blamed for BEFORE `trenvy ui` always ran in
+// --quick mode -- a fact this view cannot check without reading a secret --
+// but unlike StateUnknown it must NOT become a Problem: the caller
+// (cli.outputStates) reaches it for EVERY secret-bearing output that is not
+// absent, FOREIGN or hand-edited, on EVERY launch, because ui never turns
+// --quick off. Flagging it here would be a permanent, unfixable-from-inside
+// alarm on every healthy project with secrets -- precisely what an earlier
+// fix on this state already removed once by choosing StateFresh, and
+// precisely what choosing StateFresh then went on to hide a genuine STALE
+// output behind. Neither extreme is right; StateUnverified is the third
+// option, and it must render through the plain no-problem path like
+// StateFresh and StateAbsent, not the flagged one like StateUnknown.
+func TestProblemsIgnoresUnverifiedOutput(t *testing.T) {
+	m := &manifest.Manifest{Project: manifest.Project{Profiles: []string{"dev"}}}
+	ps := ui.Problems(ui.NewMatrix(m, nil), map[string]string{"out": ui.StateUnverified})
+	if len(ps) != 0 {
+		t.Errorf("Problems = %+v, want none for an unverified output -- flagging it would be a permanent alarm", ps)
+	}
+}
+
 // Secrets get a different fix command than plain variables.
 func TestProblemsFixNamesSecretSet(t *testing.T) {
 	m := &manifest.Manifest{

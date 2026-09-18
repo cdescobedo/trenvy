@@ -17,7 +17,19 @@ const nameColumnWidth = 40
 // line and the Outputs tab need this exact fact in this exact wording -- two
 // copies of it could drift the way two implementations of the state itself
 // already did once (see outputStates' doc in internal/cli).
-const outputFreshnessCaveat = "A secret's value changing since the last render, with the file otherwise untouched, is not checked here -- trenvy status checks it.\n"
+//
+// Fix 2, round 2: the previous wording claimed only "a secret's value
+// changing... is not checked here", which OVERSTATED how little is checked
+// -- absence, a foreign file and a hand edit are all still verified for a
+// secret-bearing output, same as any other. It also understated how much is
+// actually unknown: once a secret is in the mix, the combined digest cannot
+// be recomputed without reading it, so a PLAIN value changing (an ordinary
+// `trenvy set`, or a glob edit staged in this very tab) is just as invisible
+// as a secret rotating. This wording names the row's own label
+// (StateUnverified renders literally as "unknown (--quick)") so a reader
+// sees one fact stated the same way in both places, rather than two
+// different sentences about the same thing.
+const outputFreshnessCaveat = "A secret-bearing output can't be told fresh from STALE without reading it -- shown as unknown (--quick) here; trenvy status tells you for real.\n"
 
 // viewVariables renders the profile matrix: one row per variable, one column
 // per profile, using the exact Cell words from cell.go (shared, override,

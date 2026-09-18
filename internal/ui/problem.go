@@ -32,6 +32,20 @@ const (
 	// StateUnknown means the caller could not classify the output without
 	// reading a secret it would rather not have read (see cli.outputStates).
 	StateUnknown = "unknown"
+	// StateUnverified means the output's file and render record both check
+	// out -- it is not absent, FOREIGN or hand-edited -- but whether the
+	// resolved values it was last rendered from still match is unknowable
+	// without reading a secret the caller (cli.outputStates) deliberately
+	// never reads. This is NOT the same claim as StateFresh, which says the
+	// render matches now; StateUnverified says only that nothing OBSERVABLE
+	// is wrong, echoing the exact words `trenvy status --quick` already uses
+	// for this case rather than inventing a second one. It is treated as no
+	// problem below for the same reason StateFresh and StateAbsent are: the
+	// caller always classifies in quick mode, so flagging this here would be
+	// a permanent alarm nothing pressable inside `trenvy ui` could ever
+	// clear -- the exact defect an earlier fix on this state already removed
+	// once (see cli.outputStates' own doc).
+	StateUnverified = "unknown (--quick)"
 )
 
 // Problems walks the matrix for CellMissing entries and the outputs map for
@@ -69,10 +83,14 @@ func Problems(mx *Matrix, outputs map[string]string) []Problem {
 
 	// StateFresh means the render matches the manifest; StateAbsent means it
 	// has never been rendered in this worktree, the normal state of a fresh
-	// clone. Reporting StateAbsent as a problem would put a permanent false
-	// alarm in front of every new user.
+	// clone. StateUnverified means the caller could not tell fresh from
+	// STALE without reading a secret it deliberately never reads (see its
+	// own doc above) -- reported once, if at all, via the Overview's own
+	// healthy-line caveat, never per output here. All three would put a
+	// permanent false alarm in front of every new user, or every project
+	// with a secret, if they reached this list.
 	for name, state := range outputs {
-		if state == StateFresh || state == StateAbsent {
+		if state == StateFresh || state == StateAbsent || state == StateUnverified {
 			continue
 		}
 		// StateUnknown is a different problem from STALE/MODIFIED/FOREIGN,

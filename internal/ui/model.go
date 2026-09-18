@@ -2269,12 +2269,16 @@ func (m Model) viewProfiles() string {
 // itself: doing so here, even by accident, is how two places computing one
 // fact about outputs went out of sync into a phase-1 Critical.
 //
-// A state such as StateFresh renders exactly as "fresh" whether or not
-// outputStates could actually verify it without reading a secret -- the
-// Overview already treats that case as no problem (Fix 2), and a distinct,
-// alarming label for it here would quietly re-open that decision. The one
-// place this fact surfaces is the same caveat sentence the Overview's
-// healthy line uses, appended once below, never per row.
+// Whatever cli.outputStates decided renders here verbatim, including
+// StateUnverified's own literal "unknown (--quick)" for an output this view
+// could not actually verify without reading a secret -- see StateUnverified's
+// doc in internal/ui/problem.go for why that is neither StateFresh (a claim
+// this tab never earned for that case) nor the flagged ui.StateUnknown (which
+// would put a permanent, unfixable-from-inside alarm on every row like it,
+// on every launch, since ui never stops classifying in --quick mode). The
+// one place the CAVEAT for that fact surfaces is the same sentence the
+// Overview's healthy line uses, appended once below, never per row -- the
+// row's own STATE word already says "unknown (--quick)" for itself.
 //
 // Rows come from outputIdentityNames, not m.outputs directly: a staged
 // add-output must appear before w ever runs (mirrors the Variables tab

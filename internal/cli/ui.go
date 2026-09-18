@@ -702,8 +702,44 @@ func matrixFromManifest(app *appContext) (*ui.Matrix, error) {
 // determined here because doing so would require reading a secret's value
 // (the outputQuickSkipped case below) -- ui.Problems has no way to surface
 // that itself, since flagging it there would recreate the exact permanent,
-// unfixable false alarm Fix 2 removed. The caller uses it to caveat the
-// Overview's own healthy-state line, once, rather than per output.
+// unfixable false alarm an earlier round of this fix removed. The caller
+// uses it to caveat the Overview's own healthy-state line, once, rather than
+// per output.
+//
+// Fix 2, round 2 (whole-branch review): outputQuickSkipped used to map to
+// ui.StateFresh below. That was accurate the day it was written -- at the
+// time, classifyOutput reached this case only after ruling out absent,
+// foreign and hand-edited, so the one thing an output selecting a secret
+// could still be hiding was the secret's OWN value rotating, and reporting
+// "fresh" for everything else observable was an honest simplification. A
+// later task then let a membership (glob) edit change what an output
+// selects, and neither that task nor the one after it revisited this
+// mapping. But the deeper problem predates that change: guard.Inspect's
+// wantSum is hardcoded "" in the quick branch specifically so it can never
+// equal a real recorded sum, which is what makes outputQuickSkipped
+// reachable at all -- and that same trick means quick mode was NEVER able to
+// tell "nothing changed" from "a plain value this output also selects
+// changed" either, because render.Sum hashes every selected value, secret
+// and plain, into one digest. An ordinary `trenvy set` of a plain value, or
+// a glob edit staged in this very tab, both land in this exact case and both
+// got the same false "fresh" claim. StateFresh was wrong the moment anything
+// but "genuinely nothing changed" could reach it -- which, on reflection,
+// was always.
+//
+// The fix is not to swap StateFresh for the flagged ui.StateUnknown either:
+// classifyOutput reaches outputQuickSkipped for EVERY secret-bearing output
+// that is not absent, foreign or hand-edited, on EVERY launch, because ui
+// never stops being quick -- flagging it would be exactly the permanent,
+// unfixable-from-inside alarm the original "fresh" choice existed to avoid,
+// just re-earned from the opposite direction. ui.StateUnverified is the
+// third option this tension actually calls for: it renders as literally
+// "unknown (--quick)", the same honest words `trenvy status --quick` already
+// prints for this exact case (so a user sees no new vocabulary switching
+// between the two), and ui.Problems treats it as no problem, the same as
+// StateFresh and StateAbsent, so the Overview stays clean. What changed is
+// only that the Outputs tab's own STATE column, and this bool's caveat, no
+// longer claim verified freshness for a case that was never actually
+// verified.
 func outputStates(opts *Options, app *appContext, mx *ui.Matrix) (map[string]string, bool) {
 	missing := false
 	for _, name := range mx.Names {
@@ -728,22 +764,16 @@ func outputStates(opts *Options, app *appContext, mx *ui.Matrix) (map[string]str
 		case outputForeign:
 			states[name] = ui.StateForeign
 		case outputQuickSkipped:
-			// Deliberately NOT ui.StateUnknown here, unlike outputSecretsMissing
-			// and outputErrored below. classifyOutput only reaches this case
-			// once it has already ruled out absent, foreign and hand-edited
-			// (Fix 2) -- the one thing left unresolved is a secret's value
-			// changing since the last render with the file otherwise
-			// untouched, and that is invisible to any check that does not
-			// read it. ui always classifies with quick=true; it is never the
-			// user's own deliberate tradeoff the way `status --quick` is, so
-			// flagging this here would be exactly the "permanent, unfixable
-			// false problem" Fix 2 exists to remove -- nothing pressable
-			// inside `trenvy ui` could ever clear it, because ui never stops
-			// being quick. `trenvy status` (no --quick) remains the command
-			// that actually reads the value and can tell fresh from stale.
-			// The caller is told via the bool return instead, so the
-			// Overview can say so once rather than not at all.
-			states[name] = ui.StateFresh
+			// ui.StateUnverified, deliberately neither StateFresh (see this
+			// function's own doc above for why that claim was never actually
+			// earned) nor ui.StateUnknown (which ui.Problems flags -- see
+			// StateUnverified's own doc in internal/ui for why flagging this
+			// case would be a permanent, unfixable-from-inside alarm). `trenvy
+			// status` (no --quick) remains the command that actually reads
+			// the value and can tell fresh from STALE for real. The caller is
+			// also told via the bool return, so the Overview's healthy line
+			// can caveat this once rather than not at all.
+			states[name] = ui.StateUnverified
 			unverified = true
 		case outputSecretsMissing, outputErrored:
 			// Both mean "not resolved to an answer", for different reasons --

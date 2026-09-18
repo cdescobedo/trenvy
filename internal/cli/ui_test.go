@@ -321,17 +321,21 @@ func TestUiOverviewHasNoProblemForASecretBearingOutputNeverRendered(t *testing.T
 	}
 }
 
-// Fix 2's harder case, and the one the live verification is built around: a
-// secret-bearing output that HAS been rendered and IS fresh must also read
-// as no problem, not just an absent one. classifyOutput's quick branch now
-// inspects the file first: once it is neither absent, foreign, nor hand
-// -edited, the one thing left unresolved -- a secret's value changing since
-// the render, with the file otherwise untouched -- is invisible to any check
-// that does not read it, so ui treats it as fine rather than as a permanent
-// "unknown" nothing the user can do inside `trenvy ui` would ever clear.
-// `trenvy status` (no --quick) remains the command that actually reads the
-// value and can tell fresh from stale for real; see the final-fix-report for
-// a live run of both side by side.
+// Fix 2 (CRITICAL, whole-branch review round 2): this test USED TO pin the
+// Outputs tab showing "fresh" for a secret-bearing output that could not
+// actually be verified -- an honest tab must not make that claim, because it
+// is exactly as true for a genuinely fresh render as for a genuinely STALE
+// one (TestUiOutputsTabShowsUnverifiedNeverFreshForAGenuinelyStaleOutput,
+// below, is the same batch with one plain value changed after the render;
+// classifyOutput's quick branch cannot tell the two apart, since it never
+// reads the secret whose value the combined digest also depends on). The
+// Overview must still read as healthy either way -- see Fix 2's own doc on
+// cli.outputStates for why flagging this case would be a permanent,
+// unfixable-from-inside alarm on every project with a secret, the exact
+// defect an earlier round already removed once by choosing "fresh". Neither
+// "always fresh" nor "always flagged" is honest; StateUnverified is the
+// third option, rendered here as the same words `trenvy status --quick`
+// already uses for this exact case.
 func TestUiOverviewHasNoProblemForARenderedFreshSecretBearingOutput(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")
@@ -350,7 +354,7 @@ func TestUiOverviewHasNoProblemForARenderedFreshSecretBearingOutput(t *testing.T
 		t.Fatalf("ui: %v", err)
 	}
 
-	out := got.View()
+	out := got.View() // default tab is Overview
 	if !strings.Contains(out, "No problems found") {
 		t.Errorf("a rendered, fresh, secret-bearing output produced a problem:\n%s", out)
 	}
@@ -361,6 +365,82 @@ func TestUiOverviewHasNoProblemForARenderedFreshSecretBearingOutput(t *testing.T
 	if !strings.Contains(out, "trenvy status") {
 		t.Errorf("healthy line does not name trenvy status for an unverified output:\n%s", out)
 	}
+
+	// The gap the old version of this test never checked: the OUTPUTS TAB's
+	// own STATE column, which is where "fresh" actually leaked through as a
+	// false claim. It must say what status --quick honestly says instead.
+	mo, _ := got.Update(ui.KeyRune('4'))
+	row := outputRowLine(t, mo.View(), "docker")
+	if strings.Contains(row, ui.StateFresh) {
+		t.Errorf("docker row claims %q, which this view cannot verify: %q", ui.StateFresh, row)
+	}
+	if !strings.Contains(row, "unknown (--quick)") {
+		t.Errorf("docker row = %q, want the honest unknown (--quick) label", row)
+	}
+}
+
+// Fix 2's actual bug, uncovered by anything before this fix wave: a
+// secret-bearing output that IS genuinely STALE -- a plain value it also
+// selects changed since the render, the file on disk is untouched by hand,
+// and the render record still exists -- used to be indistinguishable from
+// the fresh case above and was ALSO reported "fresh". classifyOutput's quick
+// branch cannot tell them apart (the combined digest mixes the secret and
+// the plain value into one hash, and quick mode never reads the secret half
+// of it), so the honest answer for both is "unverified", never "fresh" for
+// either. Nothing before this fix wave exercised this path at all.
+func TestUiOutputsTabShowsUnverifiedNeverFreshForAGenuinelyStaleOutput(t *testing.T) {
+	h := newHarness(t)
+	h.gitInit("src/.env\n")
+	h.register("vpb", fixtureManifest(t)) // docker output includes ALPHA_TOKEN (secret) + APP_URL (plain)
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "s3cretvalue")
+	if err := h.run("render", "docker"); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	// A plain value this output also selects changes -- the file is
+	// untouched by hand and the render record still exists, so this is
+	// genuinely STALE, never absent, FOREIGN or hand-edited.
+	if err := h.run("set", "APP_URL", "http://+:9090"); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+
+	var got *ui.Model
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		got = &mo
+		return mo, nil
+	}
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
+	}
+
+	// No permanent alarm: the Overview must still read as healthy, exactly
+	// like the genuinely-fresh case -- ui cannot tell them apart, so it must
+	// not claim to be able to for either.
+	if !strings.Contains(got.View(), "No problems found") {
+		t.Errorf("a STALE secret-bearing output this view cannot verify produced a problem:\n%s", got.View())
+	}
+
+	mo, _ := got.Update(ui.KeyRune('4'))
+	row := outputRowLine(t, mo.View(), "docker")
+	if strings.Contains(row, ui.StateFresh) {
+		t.Errorf("a genuinely STALE output's row falsely claims %q: %q", ui.StateFresh, row)
+	}
+	if !strings.Contains(row, "unknown (--quick)") {
+		t.Errorf("docker row = %q, want the honest unknown (--quick) label", row)
+	}
+}
+
+// outputRowLine finds the Outputs tab line naming name, failing the test if
+// there is none -- shared by both StateUnverified tests above so a row-not-
+// found mistake reads as a clear failure rather than an empty diff.
+func outputRowLine(t *testing.T, view, name string) string {
+	t.Helper()
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, name) {
+			return line
+		}
+	}
+	t.Fatalf("%q row not found:\n%s", name, view)
+	return ""
 }
 
 // The other half of concern 1: a project whose outputs carry no secrets at
