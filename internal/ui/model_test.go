@@ -765,6 +765,151 @@ func TestRevealedMsgShowsValueOnlyForThatCell(t *testing.T) {
 	}
 }
 
+// promoteModel builds a model with three declared profiles and one variable
+// named PROMOTE_ME, shaped per test by whichever Var the caller supplies.
+// Three profiles, not two: the shared-value case must show one set-secret
+// per DECLARED profile, and two profiles would not distinguish "one per
+// profile with a value" from "one per profile that exists at all".
+func promoteModel(t *testing.T, v manifest.Var) ui.Model {
+	t.Helper()
+	m := &manifest.Manifest{
+		Project: manifest.Project{Profiles: []string{"dev", "staging", "prod"}},
+		Vars:    map[string]manifest.Var{"PROMOTE_ME": v},
+	}
+	mx := ui.NewMatrix(m, nil)
+	ps := ui.Problems(mx, nil)
+	mod := ui.New(testParams(mx, ps))
+	mod, _ = mod.Update(ui.KeyRune('2')) // Variables tab
+	return mod
+}
+
+// s on a variable overridden in two of three profiles must stage a
+// set-secret carrying each override's actual value, and nothing for the
+// third profile, which has no value to move. The exact Value on each
+// set-secret is the load-bearing assertion here (see Task 1's brief): a
+// promotion that stages the right Kind and Profile but an empty Value would
+// still pass a looser test while silently destroying the value at commit,
+// since manifest.Validate forbids a secret carrying one.
+func TestPromoteStagesSetSecretForOverriddenProfilesOnly(t *testing.T) {
+	m := promoteModel(t, manifest.Var{Profiles: map[string]string{"dev": "d-val", "staging": "s-val"}})
+	m, _ = m.Update(ui.KeyRune('s'))
+
+	staged := m.Staged()
+	want := []ui.Change{
+		{Kind: ui.ChangeSetSecret, Name: "PROMOTE_ME", Profile: "dev", Value: "d-val"},
+		{Kind: ui.ChangeSetSecret, Name: "PROMOTE_ME", Profile: "staging", Value: "s-val"},
+		{Kind: ui.ChangePromoteSecret, Name: "PROMOTE_ME"},
+	}
+	if len(staged) != len(want) {
+		t.Fatalf("Staged() = %+v, want %+v", staged, want)
+	}
+	for i := range want {
+		if staged[i] != want[i] {
+			t.Errorf("Staged()[%d] = %+v, want %+v", i, staged[i], want[i])
+		}
+	}
+}
+
+// A variable with only a shared Value has no per-profile override anywhere,
+// so s must stage one set-secret per DECLARED profile (mx.Profiles), all
+// carrying that same shared value -- not one shared keyring item, which
+// cannot exist, and not one per profile that happens to already show a
+// cell. This is the honest translation the spec calls for, not a bug: a
+// shared value promoted to a secret becomes N identical keyring items that
+// can diverge later if only one is changed.
+func TestPromoteSharedValueStagesOnePerDeclaredProfile(t *testing.T) {
+	m := promoteModel(t, manifest.Var{Value: s("shared-val")})
+	m, _ = m.Update(ui.KeyRune('s'))
+
+	staged := m.Staged()
+	gotValues := map[string]string{}
+	for _, c := range staged {
+		if c.Kind == ui.ChangeSetSecret {
+			gotValues[c.Profile] = c.Value
+		}
+	}
+	wantProfiles := []string{"dev", "staging", "prod"}
+	if len(gotValues) != len(wantProfiles) {
+		t.Fatalf("staged set-secret profiles = %+v, want one per declared profile %+v", gotValues, wantProfiles)
+	}
+	for _, profile := range wantProfiles {
+		if gotValues[profile] != "shared-val" {
+			t.Errorf("set-secret for %s carries %q, want the shared value %q", profile, gotValues[profile], "shared-val")
+		}
+	}
+	foundPromote := false
+	for _, c := range staged {
+		if c.Kind == ui.ChangePromoteSecret && c.Name == "PROMOTE_ME" {
+			foundPromote = true
+		}
+	}
+	if !foundPromote {
+		t.Errorf("Staged() = %+v, missing a promote-secret change for the row", staged)
+	}
+}
+
+// A variable with both a per-profile override and a shared Value must have
+// the override win for that profile, per resolve.Value's precedence, which
+// Classify already mirrors. Reading Value before Profiles here would make
+// the promotion disagree with what the matrix cell claims -- the cell says
+// "override" while the keyring would silently get the shared value instead.
+func TestPromoteOverrideWinsOverSharedValue(t *testing.T) {
+	m := promoteModel(t, manifest.Var{Value: s("shared-val"), Profiles: map[string]string{"dev": "override-val"}})
+	m, _ = m.Update(ui.KeyRune('s'))
+
+	got := map[string]string{}
+	for _, c := range m.Staged() {
+		if c.Kind == ui.ChangeSetSecret {
+			got[c.Profile] = c.Value
+		}
+	}
+	want := map[string]string{"dev": "override-val", "staging": "shared-val", "prod": "shared-val"}
+	if len(got) != len(want) {
+		t.Fatalf("staged set-secret profiles = %+v, want %+v", got, want)
+	}
+	for profile, value := range want {
+		if got[profile] != value {
+			t.Errorf("profile %s staged value = %q, want %q", profile, got[profile], value)
+		}
+	}
+}
+
+// s on a variable already secret must stage nothing -- there is no key that
+// demotes a secret back to plain -- and must say why in the view, naming the
+// row. A silent no-op here is the wart this project has removed three times
+// already (e on a secret cell before Ruling 3, s itself promised everywhere
+// and unimplemented until phase 1's Task 13, d over a staged edit in the
+// phase-1 fix wave); this is not a fourth.
+func TestPromoteOnAlreadySecretStagesNothingAndExplainsWhy(t *testing.T) {
+	m := promoteModel(t, manifest.Var{Secret: true})
+	m, _ = m.Update(ui.KeyRune('s'))
+
+	if len(m.Staged()) != 0 {
+		t.Fatalf("Staged() = %+v, want none: s must not touch an already-secret variable", m.Staged())
+	}
+	v := m.View()
+	if !strings.Contains(v, "PROMOTE_ME") {
+		t.Errorf("explanation does not name the row:\n%s", v)
+	}
+	if !strings.Contains(v, "already a secret") {
+		t.Errorf("no explanation for s doing nothing on an already-secret row:\n%s", v)
+	}
+}
+
+// The view must mark the row pending-secret immediately after s, so the
+// user sees the promotion take effect before ever pressing w -- mirroring
+// how a staged set-value already shows up instantly (see
+// TestStagedEditReflectsImmediatelyInView).
+func TestPromoteMarksRowPendingSecretInView(t *testing.T) {
+	m := promoteModel(t, manifest.Var{Value: s("shared-val")})
+	m, _ = m.Update(ui.KeyRune('s'))
+
+	line := lineFor(t, m.View(), "PROMOTE_ME")
+	if strings.Count(line, "secret (pending)") != 3 {
+		t.Errorf("row after promotion = %q, want secret (pending) for every declared profile", line)
+	}
+}
+
 // w is what Task 9's cli-side commit relies on to know whether to write
 // anything at all: Staged() is populated the same way whether or not w was
 // ever pressed, so Saved() has to be the one bit that tells the two apart.

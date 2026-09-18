@@ -109,6 +109,9 @@ func (m Model) viewVariables() string {
 		if reason := m.deleteBlockedReason(); reason != "" {
 			fmt.Fprintf(&b, "\n%s\n", reason)
 		}
+		if reason := m.promoteBlockedReason(); reason != "" {
+			fmt.Fprintf(&b, "\n%s\n", reason)
+		}
 	}
 
 	return b.String()

@@ -106,11 +106,19 @@ func (md Mode) String() string {
 
 // Change kinds. Task 9 switches on Kind to decide where a change lands: the
 // manifest for set-value/add-var/delete-var, the keyring for set-secret.
+//
+// ChangePromoteSecret is `s`'s row-level record: it stands apart from the
+// set-secret changes `s` stages alongside it (see promoteSecret) because a
+// set-secret can also come from editing a cell that was already secret,
+// which must not flip anything in the manifest. Only ChangePromoteSecret
+// tells the phased commit (2a's Task 3) "this variable becomes secret ->
+// flip the manifest entry to secret = true with no Value and no Profiles".
 const (
-	ChangeSetValue  = "set-value"
-	ChangeAddVar    = "add-var"
-	ChangeDeleteVar = "delete-var"
-	ChangeSetSecret = "set-secret"
+	ChangeSetValue      = "set-value"
+	ChangeAddVar        = "add-var"
+	ChangeDeleteVar     = "delete-var"
+	ChangeSetSecret     = "set-secret"
+	ChangePromoteSecret = "promote-secret"
 )
 
 // Change is one uncommitted edit, held in the model until w writes it to the
@@ -799,6 +807,8 @@ func (m Model) updateBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 	case "d":
 		m.toggleDelete()
+	case "s":
+		m.promoteSecret()
 	case "/":
 		if m.tab == TabVariables {
 			m.mode = ModeFilter
@@ -993,6 +1003,90 @@ func (m Model) deleteBlockedReason() string {
 		}
 	}
 	return ""
+}
+
+// promoteSecret stages `s`'s whole job: moving a plain variable's value into
+// the keyring instead of merely flipping a flag. Marking the variable secret
+// without moving the value would silently destroy it at commit --
+// manifest.Validate forbids a secret carrying a Value or a Profiles entry,
+// so commitStaged (Task 3) must strip whatever is left there, and a
+// promotion that stages nothing but the flag has left nothing to strip
+// FROM. That is the failure this design exists to avoid, so every path
+// below stages the actual value, never an empty string standing in for it.
+//
+// Values are read through the same precedence Classify already mirrors --
+// v.Profiles[profile] first, then v.Value -- rather than re-deriving an
+// order here: a second precedence living in this function is exactly the
+// class of bug Classify's own doc warns about, and it would let the
+// promoted keyring entry disagree with what the cell claims a profile is
+// worth (the cell says "override", the keyring silently gets the shared
+// value instead).
+//
+// A shared Value with no per-profile override becomes one set-secret per
+// profile the manifest declares (mx.Profiles), all carrying that same
+// value -- not one shared keyring item, which cannot exist: a keyring item
+// is addressed per profile by construction. That is the honest translation
+// of "make this a secret", not a bug to work around; Task 2 adds the
+// confirmation that says so before it happens.
+//
+// A variable already secret stages nothing at all: there is no key that
+// demotes a secret back to plain, and doing this again would either
+// re-fetch nothing useful or silently no-op. Silence alone is the wart
+// this project has removed three times already, so promoteBlockedReason
+// (rendered by View) says why instead of leaving `s` looking broken.
+func (m *Model) promoteSecret() {
+	if m.tab != TabVariables {
+		return
+	}
+	names := m.visibleNames()
+	if len(names) == 0 {
+		return
+	}
+	name := names[m.row]
+	v := m.mx.Vars[name]
+	if v.Secret {
+		return
+	}
+	for _, profile := range m.mx.Profiles {
+		value, ok := v.Profiles[profile]
+		if !ok {
+			if v.Value == nil {
+				// No override and no shared default: this profile has
+				// nothing to move, so it gets no set-secret. Staging one
+				// with an empty Value would be exactly the silent
+				// value-destruction this function exists to avoid.
+				continue
+			}
+			value = *v.Value
+		}
+		m.stage(Change{Kind: ChangeSetSecret, Name: name, Profile: profile, Value: value})
+	}
+	m.stage(Change{Kind: ChangePromoteSecret, Name: name})
+}
+
+// promoteBlockedReason explains why s would currently do nothing on the row
+// under the cursor, mirroring deleteBlockedReason's derivation from state
+// Update already keeps rather than a new mutable message field. It is
+// non-empty exactly when that row is already a secret: s does not demote,
+// so a user resting on a secret row must be told before pressing s and
+// wondering whether it worked -- the fourth instance of a wart this project
+// has already removed three times (see deleteBlockedReason's doc for the
+// first three).
+func (m Model) promoteBlockedReason() string {
+	if m.tab != TabVariables {
+		return ""
+	}
+	names := m.visibleNames()
+	if len(names) == 0 || m.row >= len(names) {
+		return ""
+	}
+	name := names[m.row]
+	if !m.mx.Vars[name].Secret {
+		return ""
+	}
+	return fmt.Sprintf(
+		"s does nothing here: %s is already a secret -- there is no key that turns a secret back into a plain variable",
+		name)
 }
 
 // updateInput handles typing in whichever of the three text-entry modes is
