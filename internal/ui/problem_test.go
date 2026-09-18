@@ -177,6 +177,39 @@ func TestProblemsFlagsMembershipAtZeroAndSeveralNotOne(t *testing.T) {
 	}
 }
 
+// Fix 6 (Minor, whole-branch review): a healthy default two-output project
+// -- both outputs selecting everything, the shape `trenvy output add` with
+// no --include/--exclude produces -- puts every variable in BOTH outputs by
+// construction, so the old "reaches more than one output" rule flagged
+// EVERY variable, every time, on a project doing nothing wrong. The
+// zero-output case was already suppressed as noise for exactly this
+// reason (see TestProblemsSuppressesMembershipWhenProjectHasNoOutputs); this
+// is its mirror for the several-outputs side. The threshold: suppress
+// "reaches several outputs" when EVERY variable in the project reaches the
+// same number of outputs -- uniform membership carries no information,
+// since there is no variable that stands out from its peers. A project
+// where counts genuinely differ (TestProblemsFlagsMembershipAtZeroAndSeveralNotOne)
+// is untouched: the outlier is exactly what the warning exists to name.
+func TestProblemsSuppressesReachesSeveralWhenEveryVariableHasTheSameCount(t *testing.T) {
+	m := &manifest.Manifest{
+		Project: manifest.Project{Profiles: []string{"dev"}},
+		Outputs: map[string]manifest.Output{
+			"docker": {Format: manifest.FormatDotenv, Path: "docker.env", Include: []string{"*"}},
+			"public": {Format: manifest.FormatJSON, Path: "public.json", Include: []string{"*"}},
+		},
+		Vars: map[string]manifest.Var{
+			"APP_URL": {Value: s("a")}, // selected by both outputs, same as every other var here
+			"TIMEOUT": {Value: s("t")}, // ditto -- uniform membership, nothing stands out
+		},
+	}
+	ps := ui.Problems(ui.NewMatrix(m, nil), nil)
+	for _, p := range ps {
+		if p.Kind == "membership" {
+			t.Errorf("Problems flagged membership on a uniform two-output project: %+v", p)
+		}
+	}
+}
+
 // Neither membership condition is an error -- exec and shell need no output
 // at all, and nothing stops two outputs from carrying the same variable on
 // purpose -- so the wording must read as a fact, not a defect. This pins the

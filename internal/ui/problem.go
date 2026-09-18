@@ -136,6 +136,39 @@ func Problems(mx *Matrix, outputs map[string]string) []Problem {
 	// otherwise healthy Overview in N copies of the same non-problem.
 	if len(mx.Outputs) > 0 {
 		byName := membershipOutputsForMatrix(mx)
+
+		// Fix 6 (Minor, whole-branch review): "reaches several outputs" is
+		// its own mirror of the zero-output suppression just above, for the
+		// identical reason. A healthy default two-output project -- both
+		// outputs selecting everything, the shape a plain `trenvy output
+		// add` with no --include/--exclude produces -- puts every variable
+		// in every output BY CONSTRUCTION, so flagging any count over one
+		// flagged ALL of them, every time, on a project doing nothing wrong.
+		// The threshold: uniform membership carries no information, because
+		// there is no variable that stands out from its peers to name --
+		// this warning exists to surface a variable whose reach differs from
+		// the rest, not to describe the project's general shape. So the
+		// several-outputs case is suppressed only when EVERY variable in the
+		// project reaches the SAME number of outputs (whatever that number
+		// is); the moment counts genuinely differ, the outlier is exactly
+		// what this warning is for, and reporting it (case len(outs) > 1
+		// below) is restored -- same-count is checked once, over the whole
+		// project, rather than per pair, so an outlier still gets named even
+		// while most of its peers agree with each other.
+		uniformCount := -1
+		uniform := true
+		for _, name := range mx.Names {
+			n := len(byName[name])
+			if uniformCount == -1 {
+				uniformCount = n
+				continue
+			}
+			if n != uniformCount {
+				uniform = false
+				break
+			}
+		}
+
 		for _, name := range mx.Names {
 			outs := byName[name]
 			switch {
@@ -148,7 +181,7 @@ func Problems(mx *Matrix, outputs map[string]string) []Problem {
 						"Outputs tab (4): enter on an output, then space to include %s -- if it should reach a file",
 						name),
 				})
-			case len(outs) > 1:
+			case len(outs) > 1 && !uniform:
 				ps = append(ps, Problem{
 					Kind:   "membership",
 					Name:   name,
