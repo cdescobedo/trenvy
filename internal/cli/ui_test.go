@@ -564,11 +564,18 @@ func TestUiOutputsTabRendersEachOutputsFacts(t *testing.T) {
 	if strings.Contains(out, "public *") {
 		t.Errorf("non-default output marked as default:\n%s", out)
 	}
-	// Neither output was ever rendered, so both must read as absent -- the
-	// same word ui.Problems and the Overview already use for it, reused here
-	// rather than a second vocabulary for the same fact.
+	// Neither output was ever rendered. Fix 5 (Minor, whole-branch review):
+	// this tab used to say "absent" here while `trenvy status` says "not
+	// rendered" for the exact same fact -- two words for one thing, the
+	// vocabulary mismatch this pins against regressing. ui.StateAbsent is
+	// now literally "not rendered", so this checks both the symbol (self-
+	// consistency with ui.Problems and the Overview) and the actual word a
+	// user reads (matching status's own wording).
 	if strings.Count(out, ui.StateAbsent) != 2 {
 		t.Errorf("want both never-rendered outputs to show %q once each:\n%s", ui.StateAbsent, out)
+	}
+	if !strings.Contains(out, "not rendered") {
+		t.Errorf("outputs tab does not use trenvy status's own %q wording for a never-rendered output:\n%s", "not rendered", out)
 	}
 }
 

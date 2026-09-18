@@ -24,8 +24,12 @@ type Problem struct {
 // (--quick)" and "not rendered" reached this package as CLI-specific prose
 // that Problems could not recognize.
 const (
-	StateFresh    = "fresh"
-	StateAbsent   = "absent"
+	StateFresh = "fresh"
+	// StateAbsent matches the exact word `trenvy status` already prints for
+	// this fact (describeOutput's own "not rendered", never guard.Status's
+	// generic "absent") -- one vocabulary for one fact, not a second word
+	// invented for the same thing on this tab.
+	StateAbsent   = "not rendered"
 	StateStale    = "STALE"
 	StateModified = "MODIFIED"
 	StateForeign  = "FOREIGN"

@@ -2201,7 +2201,21 @@ func (m Model) View() string {
 // filter mean nothing there, and naming a/r/d as if they still meant
 // add-a-variable/reveal/delete-a-variable would be actively wrong now that
 // Task 5 has given them different meanings on that tab. D exists only here.
+//
+// Fix 5 (Minor, whole-branch review): the membership editor (ModeOutputGlobs)
+// is checked FIRST, before m.tab, because View() appends this line below
+// every tab's own body unconditionally, including while that editor is open
+// -- and m.tab stays TabOutputs the whole time the editor is open, so
+// without this check the line below fell through to the Outputs branch and
+// kept advertising a/r/D/d and "enter edit membership", every one of them
+// inert there: updateOutputGlobs recognizes only space, m, enter and esc (no
+// `?` either -- see its own switch). This mirrors the SAME words
+// viewOutputGlobsEditor already prints inline above it, so the two footers
+// say one thing rather than a right one and a wrong one stacked together.
 func (m Model) keyHints() string {
+	if m.mode == ModeOutputGlobs {
+		return "space toggle · m switch mode · enter save · esc cancel"
+	}
 	if m.tab == TabOutputs {
 		return "a add · r rename · D default · d delete · enter edit membership · ? help"
 	}

@@ -53,8 +53,10 @@ owns everything user-facing. `tui` is the interactive table behind `edit` and
 `internal/cli` drives two interactive views. `tui` is the flat table `edit`
 and `import` open: one profile, one column of values per variable. `ui` is
 the matrix `trenvy ui` opens: every variable against every profile, with an
-Overview tab of detected problems and placeholder Profiles/Outputs tabs
-around it.
+Overview tab of detected problems, an Outputs tab for defining and editing
+which files get written and what each one selects, and a placeholder
+Profiles tab around them -- profile management is still `trenvy profile`'s
+job from the command line.
 
 The two packages share no code and no state. A list of one profile's
 variables and a matrix over every profile are different shapes, so each

@@ -286,3 +286,32 @@ func TestOutputsTableReflectsAStagedMembershipEditBeforeSave(t *testing.T) {
 		t.Errorf("outputs table does not reflect the staged membership edit yet:\n%s", line)
 	}
 }
+
+// Fix 5 (Minor, whole-branch review): View() appends the persistent keyHints
+// footer below every tab's own body regardless of mode, and keyHints only
+// ever checked m.tab (always TabOutputs while this editor is open), so it
+// kept advertising a/r/D/d and "enter edit membership" -- every one of them
+// inert here, since updateOutputGlobs only recognizes space, m, enter and
+// esc. The editor's OWN inline footer already gets this right; the
+// persistent one at the bottom of the screen must say the same thing, not a
+// second, wrong one directly below it.
+func TestKeyHintsInsideMembershipEditorShowOnlyTheKeysThatWork(t *testing.T) {
+	rows := []ui.OutputRow{{Name: "out", Format: "dotenv", Path: ".env"}}
+	m := globsEditModel(t, fiveVarMatrix(), rows)
+	m, _ = m.Update(ui.KeyType(tea.KeyEnter))
+	if m.Mode() != ui.ModeOutputGlobs {
+		t.Fatalf("mode after enter on an output row = %v, want ModeOutputGlobs", m.Mode())
+	}
+
+	v := m.View()
+	for _, inert := range []string{"a add", "r rename", "D default", "d delete", "edit membership"} {
+		if strings.Contains(v, inert) {
+			t.Errorf("membership editor's footer advertises inert key %q:\n%s", inert, v)
+		}
+	}
+	for _, works := range []string{"space toggle", "switch mode", "enter save", "esc cancel"} {
+		if !strings.Contains(v, works) {
+			t.Errorf("membership editor's footer does not name working key %q:\n%s", works, v)
+		}
+	}
+}

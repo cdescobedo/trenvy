@@ -79,7 +79,7 @@ func TestProblemsGivesUnknownItsOwnFixNamingStatus(t *testing.T) {
 // permanent false alarm for every new user.
 func TestProblemsIgnoresAbsentOutput(t *testing.T) {
 	m := &manifest.Manifest{Project: manifest.Project{Profiles: []string{"dev"}}}
-	ps := ui.Problems(ui.NewMatrix(m, nil), map[string]string{"out": "absent"})
+	ps := ui.Problems(ui.NewMatrix(m, nil), map[string]string{"out": ui.StateAbsent})
 	if len(ps) != 0 {
 		t.Errorf("Problems = %+v, want none for an absent output", ps)
 	}
