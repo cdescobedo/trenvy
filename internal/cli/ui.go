@@ -113,8 +113,12 @@ func newUiCmd(opts *Options) *cobra.Command {
 //  2. Keyring writes (set-secret).
 //  3. Keyring deletes (delete-var's secret removal), after every write --
 //     phase 1's own rule, carried forward unchanged.
-//  4. The state file (rename-output's State.RenameOutput), saved before the
-//     manifest for the same reason `trenvy output rename` already
+//  4. The state file: a staged rename repoints that output's render
+//     records (State.RenameOutput), and a staged removal forgets them
+//     outright (State.Forget, across every worktree) -- the staged-model
+//     equivalent of `trenvy output rm --force`, not its refusal, since d
+//     on this tab has already asked for that. Both save before the
+//     manifest, for the same reason `trenvy output rename` already
 //     established (see State.RenameOutput's doc): only this order is
 //     recoverable by re-running the same session's equivalent by hand.
 //  5. Every remaining manifest mutation, including every REMOVAL
@@ -232,7 +236,7 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 		for _, op := range writes {
 			if err := s.Set(op.service, op.value); err != nil {
 				return partialCommitError("store", op.service, err,
-					storedApplied, storedTotal, deletedApplied, deletedTotal, 0, false)
+					storedApplied, storedTotal, deletedApplied, deletedTotal, 0, 0, false)
 			}
 			storedApplied++
 		}
@@ -247,24 +251,57 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 					continue
 				}
 				return partialCommitError("delete", op.service, err,
-					storedApplied, storedTotal, deletedApplied, deletedTotal, 0, false)
+					storedApplied, storedTotal, deletedApplied, deletedTotal, 0, 0, false)
 			}
 			deletedApplied++
 		}
 	}
 
-	// Phase 4: the state file. A staged rename must repoint any render
-	// record under the output's OLD name, and that repointing must be saved
-	// to disk before the manifest ever reflects the new name -- see
-	// State.RenameOutput's own doc and internal/cli/output.go's `output
-	// rename`, which established this order first: only state-before-
-	// manifest is recoverable by re-running the same rename, because the
-	// old name is still defined in the manifest for the retry to find.
-	// Manifest-first would leave the old name undefined and nothing left to
-	// re-rename.
+	// removedOutputNames marks every output this batch removes. Computed
+	// before phase 4, which needs it: forgetting a removed output's render
+	// records is itself state-file work, not phase 5's manifest mutation.
+	// deletedNames (below, by phase 5) is its counterpart for the
+	// Variables tab -- kept where it is, since nothing before phase 5
+	// needs it.
+	removedOutputNames := make(map[string]bool, len(staged))
+	for _, c := range staged {
+		if c.Kind == ui.ChangeRemoveOutput {
+			removedOutputNames[c.Name] = true
+		}
+	}
+
+	// Phase 4: the state file. Two kinds touch it.
 	//
-	// Save runs once, unconditionally, whenever at least one rename was
-	// staged -- never only when a record actually moved -- mirroring
+	// A staged rename must repoint any render record under the output's
+	// OLD name, and that repointing must be saved to disk before the
+	// manifest ever reflects the new name -- see State.RenameOutput's own
+	// doc and internal/cli/output.go's `output rename`, which established
+	// this order first: only state-before-manifest is recoverable by
+	// re-running the same rename, because the old name is still defined in
+	// the manifest for the retry to find. Manifest-first would leave the
+	// old name undefined and nothing left to re-rename.
+	//
+	// A staged removal forgets every render record under the removed name,
+	// in every worktree that ever rendered it -- state/<id>.toml is one
+	// file spanning all of them, the same file `trenvy output rm` reads,
+	// and State.Find is keyed on the output NAME alone. Leaving a record
+	// behind is not harmless: output names are short and meant to be
+	// reused, and the next output created under this same name would have
+	// its first render compared against the OLD output's stale digests --
+	// reported MODIFIED or FOREIGN for a file nothing is wrong with. This
+	// is the staged-model equivalent of `trenvy output rm --force`, not
+	// its refusal without --force: refusing here would mean refusing after
+	// w has already committed the rest of the batch, the wrong moment, and
+	// pressing d on this tab has already asked for exactly this. What
+	// --force does not skip, and neither does this, is naming every file
+	// left on disk -- forgotten, printed once the whole commit succeeds,
+	// in the exact words `output rm --force` already uses: removing the
+	// manifest entry is not removing the file, and a file that may carry
+	// secrets must never be silently forgotten about.
+	//
+	// Both RenameOutput and Forget only ever mutate app.State in memory;
+	// Save runs once, unconditionally, whenever either kind was staged --
+	// never only when a record actually moved or was found -- mirroring
 	// `output rename`'s own unconditional Save after RenameOutput: a
 	// project with no render records yet still deserves a state file that
 	// agrees with the manifest the moment one is ever recorded.
@@ -275,12 +312,28 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 			renamedAny = true
 		}
 	}
-	if renamedAny {
-		if err := app.State.Save(); err != nil {
-			return partialCommitError("save state for output rename", config.StatePath(app.Entry.ID), err,
-				storedApplied, storedTotal, deletedApplied, deletedTotal, 0, false)
+	var forgotten []config.RenderEntry
+	for _, e := range app.State.Renders {
+		if removedOutputNames[e.Output] {
+			forgotten = append(forgotten, e)
 		}
 	}
+	for _, e := range forgotten {
+		app.State.Forget(e.Worktree, e.Output)
+	}
+	if renamedAny || len(forgotten) > 0 {
+		if err := app.State.Save(); err != nil {
+			return partialCommitError("save state for output changes", config.StatePath(app.Entry.ID), err,
+				storedApplied, storedTotal, deletedApplied, deletedTotal, 0, 0, false)
+		}
+	}
+	// stateSaved records whether the Save above actually ran (and, since it
+	// would have already returned on error, actually landed) -- distinct
+	// from renamedRecords/len(forgotten) being nonzero, which are true the
+	// instant the in-memory mutations above run, whether or not Save ever
+	// gets called. Phase 6's failure path below must not credit a save
+	// that never happened.
+	stateSaved := renamedAny || len(forgotten) > 0
 
 	// deletedNames marks every variable this batch also deletes, so the
 	// set-value/set-secret cases below can refuse to read-modify-write a Var
@@ -300,17 +353,6 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 	for _, c := range staged {
 		if c.Kind == ui.ChangeDeleteVar {
 			deletedNames[c.Name] = true
-		}
-	}
-	// removedOutputNames is deletedNames' counterpart for the Outputs tab,
-	// same reasoning: toggleOutputDelete already refuses to stage a rename
-	// or a default alongside a remove for the SAME row (see its own doc),
-	// so this should never fire from a real session, but a []ui.Change is
-	// still a plain exported value nothing here should trust blindly.
-	removedOutputNames := make(map[string]bool, len(staged))
-	for _, c := range staged {
-		if c.Kind == ui.ChangeRemoveOutput {
-			removedOutputNames[c.Name] = true
 		}
 	}
 
@@ -401,7 +443,7 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 		// that are about to be lost right along with it. The bare error
 		// used to reach the caller unwarned on exactly that batch shape --
 		// the one Fix 3 was filed for.
-		if progress := commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal, renamedRecords, renamedAny); progress != "" {
+		if progress := commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal, renamedRecords, len(forgotten), stateSaved); progress != "" {
 			return fmt.Errorf("%w\n  %s; the manifest was not saved\n"+
 				"  everything else staged this session is gone -- open trenvy ui again and redo it",
 				err, progress)
@@ -414,19 +456,27 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 	}
 
 	fmt.Fprintf(opts.Stdout, "saved %d changes\n", len(staged))
+	// Naming the file, not just the removed output: matches `trenvy output
+	// rm --force`'s own "left in place: %s/%s" verbatim, because a user who
+	// has learned that command's wording should not have to learn a second
+	// one here for the same fact.
+	for _, e := range forgotten {
+		fmt.Fprintf(opts.Stdout, "  left in place: %s/%s\n", e.Worktree, e.Path)
+	}
 	return nil
 }
 
 // commitProgress renders how far a commit got as "stored X of Y secrets,
-// deleted A of B keyring items, repointed N render record(s)", omitting
-// whichever clause the batch never touched at all: a batch with no
-// deletions in it reporting "deleted 0 of 0" would be noise at the exact
-// moment a reader needs a message they can trust. The render-record clause
-// only ever appears when stateSaved is true -- a rename's State.Save
-// actually landed -- because that is real, persisted progress a retry would
-// find already done, unlike an in-memory manifest edit that a failed commit
-// leaves nowhere at all. Returns "" when the batch touched none of these.
-func commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal, movedRecords int, stateSaved bool) string {
+// deleted A of B keyring items, repointed N render record(s), forgot M
+// render record(s)", omitting whichever clause the batch never touched at
+// all: a batch with no deletions in it reporting "deleted 0 of 0" would be
+// noise at the exact moment a reader needs a message they can trust. The
+// two render-record clauses only ever appear when stateSaved is true -- the
+// state file's Save actually landed -- because that is real, persisted
+// progress a retry would find already done, unlike an in-memory manifest
+// edit that a failed commit leaves nowhere at all. Returns "" when the
+// batch touched none of these.
+func commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal, movedRecords, forgottenRecords int, stateSaved bool) string {
 	var parts []string
 	if storedTotal > 0 {
 		parts = append(parts, fmt.Sprintf("stored %d of %d secrets", storedApplied, storedTotal))
@@ -434,8 +484,11 @@ func commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal, mo
 	if deletedTotal > 0 {
 		parts = append(parts, fmt.Sprintf("deleted %d of %d keyring items", deletedApplied, deletedTotal))
 	}
-	if stateSaved {
+	if stateSaved && movedRecords > 0 {
 		parts = append(parts, fmt.Sprintf("repointed %d render record(s)", movedRecords))
+	}
+	if stateSaved && forgottenRecords > 0 {
+		parts = append(parts, fmt.Sprintf("forgot %d render record(s)", forgottenRecords))
 	}
 	return strings.Join(parts, ", ")
 }
@@ -449,11 +502,11 @@ func commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal, mo
 // The session that staged these changes has already ended by the time this
 // runs, so "open trenvy ui again" is never a resume -- it is a fresh session
 // that has to redo everything this run did not finish.
-func partialCommitError(verb, service string, err error, storedApplied, storedTotal, deletedApplied, deletedTotal, movedRecords int, stateSaved bool) error {
+func partialCommitError(verb, service string, err error, storedApplied, storedTotal, deletedApplied, deletedTotal, movedRecords, forgottenRecords int, stateSaved bool) error {
 	return fmt.Errorf(
 		"%s %s: %w\n  %s; the manifest was not saved\n"+
 			"  everything else staged this session is gone -- open trenvy ui again and redo it",
-		verb, service, err, commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal, movedRecords, stateSaved))
+		verb, service, err, commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal, movedRecords, forgottenRecords, stateSaved))
 }
 
 // registryIDs lists every registered project id, in registration order --

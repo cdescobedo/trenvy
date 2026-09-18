@@ -1036,6 +1036,53 @@ func TestUiCommitsRemoveOutputAndClearsTheDefaultItHeld(t *testing.T) {
 	}
 }
 
+// remove-output must forget every render record under the removed name,
+// across EVERY worktree that ever rendered it -- state/<id>.toml is one
+// file spanning all of them, and State.Find is keyed on the output NAME
+// alone. Leaving a record behind is not harmless: output names are short
+// and meant to be reused, and the next output created under this same name
+// would have its first render compared against the OLD output's stale
+// digests, reporting MODIFIED or FOREIGN for a file nothing is wrong with.
+// This is the staged-model equivalent of `trenvy output rm --force`
+// (naming each file left on disk, in that command's own words), never its
+// refusal without --force -- refusing at w would mean refusing after the
+// rest of the batch has already committed, and d on this tab has already
+// asked for exactly this.
+func TestUiCommitsRemoveOutputForgetsRenderRecordsInEveryWorktreeAndNamesTheFiles(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t)) // "docker" is the default
+	worktreeA := h.root
+	worktreeB := filepath.Join(t.TempDir(), "other-worktree")
+	h.recordRender(t, "vpb", worktreeA, "docker", "src/.env")
+	h.recordRender(t, "vpb", worktreeB, "docker", "src/.env")
+
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('4'))
+		mo, _ = mo.Update(ui.KeyRune('d'))
+		return markUISaved(mo), nil
+	}
+
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
+	}
+
+	st := h.state(t, "vpb")
+	if _, ok := st.Find(worktreeA, "docker"); ok {
+		t.Error("the render record in worktree A survived the removal")
+	}
+	if _, ok := st.Find(worktreeB, "docker"); ok {
+		t.Error("the render record in worktree B survived the removal")
+	}
+
+	out := h.out.String()
+	if !strings.Contains(out, "left in place: "+worktreeA+"/src/.env") {
+		t.Errorf("stdout does not name worktree A's file left on disk: %q", out)
+	}
+	if !strings.Contains(out, "left in place: "+worktreeB+"/src/.env") {
+		t.Errorf("stdout does not name worktree B's file left on disk: %q", out)
+	}
+}
+
 // default-output must flip project.output to the staged row.
 func TestUiCommitsDefaultOutputFlipsProjectOutput(t *testing.T) {
 	h := newHarness(t)

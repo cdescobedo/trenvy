@@ -189,31 +189,42 @@ the command surface may still move under you.
   six phases, not three: structural additions (a new variable or output)
   land first, since a row this same session both added and later renamed,
   defaulted or removed needs to exist before any of those act on it; keyring
-  writes and then keyring deletes follow, unchanged from before; a staged
-  rename repoints that output's render record and saves the state file next
-  -- before the manifest, the same order `trenvy output rename` already
-  established, so a rendered file never reads `FOREIGN` after a rename that
+  writes and then keyring deletes follow, unchanged from before; the state
+  file comes next, before the manifest, the same order `trenvy output
+  rename` already established -- a staged rename repoints that output's
+  render records, and a staged removal forgets them outright, in every
+  worktree that ever rendered it, since `state/<id>.toml` is one file
+  spanning all of them and a record left behind under a reused output name
+  would compare a future render against a stranger's stale digest and
+  report `MODIFIED` or `FOREIGN` for a file nothing is wrong with. Removing
+  an output through this tab is the staged-model equivalent of `trenvy
+  output rm --force` -- not its refusal while records exist, since refusing
+  at `w` would mean refusing after the rest of the batch already committed,
+  and `d` on this row already asked for exactly this -- and it names every
+  file left on disk the same way that command does, once the whole commit
+  succeeds. A rendered file never reads `FOREIGN` after a rename that
   reaches disk, and a manifest save that fails afterward still leaves the
-  record correctly repointed for a retry to find; every remaining edit and
-  every removal (a deleted variable, a removed output, clearing
-  `project.output` when the removed or renamed row held it) come next, in
-  their own pass, so an output added and removed before `w` was ever
-  pressed nets to "never existed" regardless of which the session did
-  first; validation and the manifest save are last, as before. Adding a
-  kind here (Task 8's globs editor) means adding a case to whichever phase
-  it belongs in, not restructuring the six. An illegal format on a staged
-  output (a typo `a` does not catch while typing, unlike its name) is
-  refused by the same `manifest.Validate` every other command already goes
-  through, naming `dotenv` and `json` by name. A keyring write or delete
-  failing partway still reports stored and deleted counts separately as
-  before; a rename's state save failing partway is reported the same way,
-  naming the state file; and a manifest save refused by validation after
-  that state save already succeeded now says so too -- how many render
-  records were already repointed on disk -- rather than the old, blanket
-  "everything staged this session is gone", which was no longer true the
-  moment the state file landed for real. Never a rollback: a deleted
-  keyring item cannot be un-deleted, and pretending otherwise would be a
-  second lie on top of the first. `p` opens a
+  render records correctly repointed, or correctly forgotten, for a retry
+  to find; every remaining edit and every removal (a deleted variable, a
+  removed output, clearing `project.output` when the removed or renamed row
+  held it) come next, in their own pass, so an output added and removed
+  before `w` was ever pressed nets to "never existed" regardless of which
+  the session did first; validation and the manifest save are last, as
+  before. Adding a kind here (Task 8's globs editor) means adding a case to
+  whichever phase it belongs in, not restructuring the six. An illegal
+  format on a staged output (a typo `a` does not catch while typing, unlike
+  its name) is refused by the same `manifest.Validate` every other command
+  already goes through, naming `dotenv` and `json` by name. A keyring write
+  or delete failing partway still reports stored and deleted counts
+  separately as before; the state file failing to save partway is reported
+  the same way, naming the state file; and a manifest save refused by
+  validation after that state save already succeeded now says so too -- how
+  many render records were already repointed, and how many already
+  forgotten, on disk -- rather than the old, blanket "everything staged
+  this session is gone", which was no longer true the moment the state file
+  landed for real. Never a rollback: a deleted keyring item cannot be
+  un-deleted, and pretending otherwise would be a second lie on top of the
+  first. `p` opens a
   switcher over every registered
   project and, on a different choice, reloads the session against it in
   place -- no quitting and re-running `trenvy ui` from another directory.
