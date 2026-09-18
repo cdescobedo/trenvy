@@ -307,6 +307,42 @@ func TestOutputAddRefusesDuplicateName(t *testing.T) {
 	}
 }
 
+// Fix 4 (Important, whole-branch review): the format step's prompt says
+// "(dotenv or json)" but, before this fix, accepted anything -- an
+// illegal format like "yaml" only surfaced at `w`, where manifest.Validate
+// refuses the WHOLE staged batch and the user is told everything else they
+// staged this session is gone. `trenvy output add --format yaml` refuses
+// instantly at zero cost; the wizard must match it, mirroring how the name
+// step already refuses live via outputNameProblem/manifest.ValidOutputName
+// rather than deferring to Validate at commit time.
+func TestOutputAddRefusesInvalidFormat(t *testing.T) {
+	m := outputsModelOnTab(t, nil)
+	m, _ = m.Update(ui.KeyRune('a'))
+	for _, r := range "public" {
+		m, _ = m.Update(ui.KeyRune(r))
+	}
+	m, _ = m.Update(ui.KeyType(tea.KeyEnter))
+	if m.Mode() != ui.ModeOutputAddFormat {
+		t.Fatalf("mode after name = %v, want ModeOutputAddFormat", m.Mode())
+	}
+
+	for _, r := range "yaml" {
+		m, _ = m.Update(ui.KeyRune(r))
+	}
+	v := m.View()
+	if !strings.Contains(v, "format must be") || !strings.Contains(v, "dotenv") || !strings.Contains(v, "json") {
+		t.Errorf("no live warning naming the legal formats:\n%s", v)
+	}
+
+	m, _ = m.Update(ui.KeyType(tea.KeyEnter))
+	if m.Mode() != ui.ModeOutputAddFormat {
+		t.Errorf("mode after enter on an illegal format = %v, want to stay ModeOutputAddFormat", m.Mode())
+	}
+	if len(m.Staged()) != 0 {
+		t.Errorf("Staged() = %+v, want empty after refusing an illegal format", m.Staged())
+	}
+}
+
 // `r` renames the output under the cursor, staging rename-output rather than
 // touching anything on disk.
 func TestOutputRenameStagesRenameOutput(t *testing.T) {

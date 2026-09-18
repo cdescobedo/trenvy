@@ -1504,7 +1504,20 @@ path = "public/env.json"
 // test exists to confirm the wrapping in commitStaged does not swallow that
 // text behind a bare "invalid manifest" -- and that Fix 3's warning about
 // the rest of the batch still fires alongside it.
-func TestUiAddOutputWithBadFormatNamesTheLegalFormats(t *testing.T) {
+// Fix 4 (Important, whole-branch review): this test used to prove an illegal
+// format sailed all the way to `w` before failing, taking the rest of the
+// staged batch down with it -- exactly the cost `trenvy output add --format
+// yaml` never pays, since it refuses instantly. Now the wizard itself
+// refuses live, the same step ValidOutputName already does for names, so
+// this end-to-end test proves the mistake costs nothing: typing "yaml" does
+// not advance past the format step, and correcting it to a legal format in
+// the SAME session commits normally. Validate's own backstop for a format
+// that reaches commitStaged some OTHER way (not through this wizard) is
+// TestCommitStagedRefusesAnIllegalOutputFormatFromAHandBuiltChange, a
+// white-box test in this package -- black-box coverage of that exact path
+// is no longer reachable through the wizard's own keys now that it refuses
+// first.
+func TestUiAddOutputRefusesAnIllegalFormatLiveThenAcceptsTheCorrection(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
 
@@ -1514,28 +1527,46 @@ func TestUiAddOutputWithBadFormatNamesTheLegalFormats(t *testing.T) {
 		mo, _ = mo.Update(keyRunes("public"))
 		mo, _ = mo.Update(keyEnter())
 		mo, _ = mo.Update(keyRunes("yaml")) // not dotenv, not json
+		v := mo.View()
+		if !strings.Contains(v, "format must be") || !strings.Contains(v, `"dotenv"`) || !strings.Contains(v, `"json"`) {
+			t.Fatalf("no live warning naming the legal formats:\n%s", v)
+		}
 		mo, _ = mo.Update(keyEnter())
-		mo, _ = mo.Update(keyRunes("public/env.yaml"))
+		if mo.Mode() != ui.ModeOutputAddFormat {
+			t.Fatalf("mode after enter on an illegal format = %v, want to stay on the format step", mo.Mode())
+		}
+		// Correcting the mistake costs nothing: clear the illegal buffer and
+		// type a legal format in the same session, the same wizard, no
+		// restart.
+		for range mo.Buffer() {
+			mo, _ = mo.Update(ui.KeyType(tea.KeyBackspace))
+		}
+		mo, _ = mo.Update(keyRunes("json"))
+		mo, _ = mo.Update(keyEnter())
+		if mo.Mode() != ui.ModeOutputAddPath {
+			t.Fatalf("mode after a legal format = %v, want ModeOutputAddPath", mo.Mode())
+		}
+		mo, _ = mo.Update(keyRunes("public/env.json"))
 		mo, _ = mo.Update(keyEnter())
 		return markUISaved(mo), nil
 	}
 
-	err := h.run("ui")
-	if err == nil {
-		t.Fatal("ui succeeded with an illegal output format")
-	}
-	if !strings.Contains(err.Error(), `"dotenv"`) || !strings.Contains(err.Error(), `"json"`) {
-		t.Errorf("error does not name the legal formats: %v", err)
-	}
-	if !strings.Contains(err.Error(), "everything else staged this session is gone") {
-		t.Errorf("error does not warn that the rest of the batch is lost: %v", err)
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
 	}
 	m, err := manifest.Load(config.ManifestPath("vpb"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := m.Outputs["public"]; ok {
-		t.Error("the invalid output was saved anyway")
+	o, ok := m.Outputs["public"]
+	if !ok {
+		t.Fatal("the corrected output was not staged after the refusal")
+	}
+	if o.Format != "json" {
+		t.Errorf("public.Format = %q, want json", o.Format)
+	}
+	if _, ok := m.Outputs["docker"]; !ok {
+		t.Error("the pre-existing output was lost")
 	}
 }
 
@@ -1880,16 +1911,16 @@ func TestUiPartialFailureNamesTheRepointedRecordWhenStateAlreadySavedButValidati
 		mo, _ = mo.Update(ui.KeyRune('a'))
 		mo, _ = mo.Update(keyRunes("bad"))
 		mo, _ = mo.Update(keyEnter())
-		mo, _ = mo.Update(keyRunes("yaml")) // illegal format -> Validate refuses the batch
+		mo, _ = mo.Update(keyRunes("dotenv")) // legal format: Fix 4 refuses an illegal one live, before this ever reaches Validate
 		mo, _ = mo.Update(keyEnter())
-		mo, _ = mo.Update(keyRunes("bad.yaml"))
+		mo, _ = mo.Update(keyRunes("../escape")) // illegal path -> Validate refuses the batch; the wizard does not check paths live
 		mo, _ = mo.Update(keyEnter())
 		return markUISaved(mo), nil
 	}
 
 	err := h.run("ui")
 	if err == nil {
-		t.Fatal("ui succeeded with an illegal output format")
+		t.Fatal("ui succeeded with an illegal output path")
 	}
 	if !strings.Contains(err.Error(), "repointed 1 render record(s)") {
 		t.Errorf("error does not report the render record already repointed on disk: %v", err)

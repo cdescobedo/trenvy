@@ -2,6 +2,7 @@ package cli
 
 import (
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/cdescobedo/trenvy/internal/config"
@@ -107,5 +108,76 @@ value = "http://+:8080"
 
 	if !witness.sawOutputBeforeWrite {
 		t.Error("the keyring write happened before the structural addition landed in the manifest")
+	}
+}
+
+// Fix 4 (Important, whole-branch review) taught internal/ui's own add-output
+// wizard to refuse an illegal format live, at zero cost -- so a real
+// `trenvy ui` session can no longer stage one. But commitStaged must still
+// refuse it too: a []ui.Change is a plain exported value (see this file's
+// own doc above, and deletedNames' doc in ui.go), and nothing stops a
+// caller other than the wizard from building one directly. This is a
+// white-box test (package cli) precisely because black-box coverage of this
+// exact path -- staging an illegal format through the wizard's own keys --
+// is no longer reachable now that the wizard refuses it first; it moved
+// here rather than disappearing.
+func TestCommitStagedRefusesAnIllegalOutputFormatFromAHandBuiltChange(t *testing.T) {
+	t.Setenv("TRENVY_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+
+	m, err := manifest.Parse([]byte(`
+[project]
+id = "vpb"
+profiles = ["dev"]
+default_profile = "dev"
+salt = "abc123"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reg, err := config.LoadRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Add(config.Entry{ID: "vpb", Root: root}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := manifest.Save(config.ManifestPath("vpb"), m); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := Options{
+		Dir:    root,
+		Stdout: io.Discard,
+		NewStore: func(*config.Config, string) (store.Store, error) {
+			return store.NewMem(), nil
+		},
+	}
+	app, err := opts.resolveApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	staged := []ui.Change{
+		{Kind: ui.ChangeAddOutput, Name: "public", Format: "yaml", Path: "public/env.yaml"},
+	}
+	err = commitStaged(&opts, app, staged)
+	if err == nil {
+		t.Fatal("commitStaged succeeded with an illegal output format")
+	}
+	if !strings.Contains(err.Error(), `"dotenv"`) || !strings.Contains(err.Error(), `"json"`) {
+		t.Errorf("error does not name the legal formats: %v", err)
+	}
+
+	got, loadErr := manifest.Load(config.ManifestPath("vpb"))
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	if _, ok := got.Outputs["public"]; ok {
+		t.Error("the invalid output was saved anyway")
 	}
 }

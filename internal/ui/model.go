@@ -1557,22 +1557,62 @@ func (m Model) confirmOutputAddName() (Model, tea.Cmd) {
 }
 
 // confirmOutputAddFormat handles enter on the wizard's format step, mirroring
-// confirmOutputAddName's empty-enter-abandons rule. The format itself is not
-// validated against FormatDotenv/FormatJSON here: manifest.Validate already
-// enforces that at commit time (Task 6), and duplicating the check here
-// would be a second rule that could disagree with the one in
-// internal/manifest, the exact class of defect ValidOutputName's reuse
-// above is already guarding against for names.
+// confirmOutputAddName's empty-enter-abandons rule. An illegal format stays
+// put without clearing the buffer, exactly like an invalid or already-taken
+// name at the previous step: outputAddFormatWarning (View) already explains
+// why, live.
+//
+// Fix 4 (Important, whole-branch review): this used to stage whatever was
+// typed here, on the reasoning that manifest.Validate already enforces
+// FormatDotenv/FormatJSON at commit time (Task 6) and checking it twice
+// would risk two rules disagreeing. That reasoning does not survive contact
+// with what commit-time failure actually costs on this tab: an illegal
+// format here does not fail alone, it fails the WHOLE staged batch at `w`,
+// and the user is told everything else they staged this session is gone
+// (Fix 3). `trenvy output add --format yaml` refuses instantly, at zero
+// cost, for the identical mistake -- this wizard was strictly worse than the
+// CLI for the same input. outputFormatProblem below is the one place that
+// knows the legal formats, called from here and from the live warning, so
+// there is still only one rule -- the same reuse shape ValidOutputName
+// already has for names, not a second one that could disagree.
 func (m Model) confirmOutputAddFormat() (Model, tea.Cmd) {
 	if m.buffer == "" {
 		m.mode = ModeBrowse
 		m.draftOutputName = ""
 		return m, nil
 	}
+	if reason := m.outputFormatProblem(m.buffer); reason != "" {
+		return m, nil
+	}
 	m.draftOutputFormat = m.buffer
 	m.mode = ModeOutputAddPath
 	m.buffer = ""
 	return m, nil
+}
+
+// outputFormatProblem explains why format would be refused as an output's
+// format, or "" when it would not. The one place that knows
+// manifest.FormatDotenv/FormatJSON are the only legal values, so the wizard
+// and manifest.Validate cannot drift into disagreeing about what counts as
+// legal -- mirrors outputNameProblem's role for names. Wording matches
+// manifest.Validate's own "format must be %q or %q" verbatim (see
+// internal/manifest/validate.go), so a user does not learn a second
+// vocabulary for the same refusal between the CLI's commit-time error and
+// this tab's live one.
+func (m Model) outputFormatProblem(format string) string {
+	if format == manifest.FormatDotenv || format == manifest.FormatJSON {
+		return ""
+	}
+	return fmt.Sprintf("output %q: format must be %q or %q", m.draftOutputName, manifest.FormatDotenv, manifest.FormatJSON)
+}
+
+// outputAddFormatWarning surfaces outputFormatProblem live while typing the
+// wizard's format step, mirroring outputAddNameWarning for the name step.
+func (m Model) outputAddFormatWarning() string {
+	if m.mode != ModeOutputAddFormat || m.buffer == "" {
+		return ""
+	}
+	return m.outputFormatProblem(m.buffer)
 }
 
 // confirmOutputAddPath handles enter on the wizard's final step, staging
@@ -2351,7 +2391,11 @@ func (m Model) viewOutputs() string {
 		}
 		b.WriteString("\n")
 	case ModeOutputAddFormat:
-		fmt.Fprintf(&b, "\n format for %s (dotenv or json): %s_\n", m.draftOutputName, m.buffer)
+		fmt.Fprintf(&b, "\n format for %s (dotenv or json): %s_", m.draftOutputName, m.buffer)
+		if reason := m.outputAddFormatWarning(); reason != "" {
+			fmt.Fprintf(&b, "  (%s)", reason)
+		}
+		b.WriteString("\n")
 	case ModeOutputAddPath:
 		fmt.Fprintf(&b, "\n path for %s: %s_\n", m.draftOutputName, m.buffer)
 	case ModeOutputRename:
