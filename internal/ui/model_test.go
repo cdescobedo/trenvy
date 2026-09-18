@@ -765,6 +765,24 @@ func TestRevealedMsgShowsValueOnlyForThatCell(t *testing.T) {
 	}
 }
 
+// sameStaged reports whether got and want hold exactly the same Changes in
+// the same order -- used where a decline must leave Staged() untouched, not
+// merely the same length. `s` stages several Changes per promotion (one
+// set-secret per profile plus the promotion itself, see stagePromotion), so
+// a decline that cleared only some of them would still pass a check that
+// only compared counts while leaving a half-promotion behind.
+func sameStaged(got, want []ui.Change) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // promoteModel builds a model with three declared profiles and one variable
 // named PROMOTE_ME, shaped per test by whichever Var the caller supplies.
 // Three profiles, not two: the shared-value case must show one set-secret
@@ -794,6 +812,14 @@ func TestPromoteStagesSetSecretForOverriddenProfilesOnly(t *testing.T) {
 	m := promoteModel(t, manifest.Var{Profiles: map[string]string{"dev": "d-val", "staging": "s-val"}})
 	m, _ = m.Update(ui.KeyRune('s'))
 
+	// Per-profile overrides only, no shared Value: nothing here is
+	// surprising, so s must stage immediately rather than opening the
+	// confirmation the shared-value case needs (see
+	// TestPromoteSharedValueOpensConfirmationBeforeStaging).
+	if m.Mode() != ui.ModeBrowse {
+		t.Fatalf("mode after s on an override-only variable = %v, want ModeBrowse: nothing to confirm here", m.Mode())
+	}
+
 	staged := m.Staged()
 	want := []ui.Change{
 		{Kind: ui.ChangeSetSecret, Name: "PROMOTE_ME", Profile: "dev", Value: "d-val"},
@@ -820,6 +846,7 @@ func TestPromoteStagesSetSecretForOverriddenProfilesOnly(t *testing.T) {
 func TestPromoteSharedValueStagesOnePerDeclaredProfile(t *testing.T) {
 	m := promoteModel(t, manifest.Var{Value: s("shared-val")})
 	m, _ = m.Update(ui.KeyRune('s'))
+	m, _ = m.Update(ui.KeyRune('y')) // confirm the shared-value promotion
 
 	staged := m.Staged()
 	gotValues := map[string]string{}
@@ -848,6 +875,99 @@ func TestPromoteSharedValueStagesOnePerDeclaredProfile(t *testing.T) {
 	}
 }
 
+// s on a variable whose value is shared across profiles must not stage
+// anything until the promotion is confirmed: staging first and asking after
+// would let the keyring writes and the manifest flip happen before the user
+// ever reads what s is about to do.
+func TestPromoteSharedValueOpensConfirmationBeforeStaging(t *testing.T) {
+	m := promoteModel(t, manifest.Var{Value: s("shared-val")})
+	m, cmd := m.Update(ui.KeyRune('s'))
+
+	if m.Mode() != ui.ModeConfirmPromote {
+		t.Fatalf("mode after s on a shared value = %v, want ModeConfirmPromote", m.Mode())
+	}
+	if len(m.Staged()) != 0 {
+		t.Fatalf("Staged() = %+v after s alone, want none until the confirmation is answered", m.Staged())
+	}
+	if cmd != nil {
+		if _, isQuit := cmd().(tea.QuitMsg); isQuit {
+			t.Error("opening the promote confirmation must not quit")
+		}
+	}
+}
+
+// The confirmation must name what promoting does, not just ask whether the
+// user is sure: a shared value becomes one keyring item per declared
+// profile, and editing one afterward will not touch the others. A prompt
+// that only asked "are you sure?" would teach people to press y without
+// reading it.
+func TestPromoteConfirmationNamesTheConsequence(t *testing.T) {
+	m := promoteModel(t, manifest.Var{Value: s("shared-val")})
+	m, _ = m.Update(ui.KeyRune('s'))
+
+	v := m.View()
+	if !strings.Contains(v, "PROMOTE_ME") {
+		t.Errorf("confirmation does not name the variable:\n%s", v)
+	}
+	if !strings.Contains(v, "3 separate keyring items") {
+		t.Errorf("confirmation does not say how many keyring items result:\n%s", v)
+	}
+	if !strings.Contains(v, "one per declared profile") {
+		t.Errorf("confirmation does not say one item per declared profile:\n%s", v)
+	}
+	if !strings.Contains(v, "changing one afterward will not change the others") {
+		t.Errorf("confirmation does not warn that the items can diverge later:\n%s", v)
+	}
+}
+
+// The load-bearing assertion for decline: Staged() must come back exactly
+// what it was before s was pressed, not merely the same length. s stages
+// several Changes per promotion (one set-secret per profile plus the
+// promotion itself), so a decline that cleared only some of them would leave
+// a half-promotion -- values stored as secrets while the manifest still
+// calls the variable plain, or the reverse -- and a length-only check would
+// not catch it.
+func TestPromoteSharedValueDeclineStagesNothing(t *testing.T) {
+	mf := &manifest.Manifest{
+		Project: manifest.Project{Profiles: []string{"dev", "staging", "prod"}},
+		Vars: map[string]manifest.Var{
+			"OTHER":      {Profiles: map[string]string{"dev": "x", "staging": "x", "prod": "x"}},
+			"PROMOTE_ME": {Value: s("shared-val")},
+		},
+	}
+	mx := ui.NewMatrix(mf, nil)
+	ps := ui.Problems(mx, nil)
+	m := ui.New(testParams(mx, ps))
+	m, _ = m.Update(ui.KeyRune('2')) // Variables tab
+
+	// Stage an unrelated edit first, so declining the promotion must leave
+	// this untouched rather than merely leaving Staged() empty.
+	m = editCell(m, "changed") // OTHER, row 0, col 0 (alphabetically before PROMOTE_ME)
+	before := m.Staged()
+
+	m, _ = m.Update(ui.KeyRune('j')) // move to PROMOTE_ME
+	m, _ = m.Update(ui.KeyRune('s'))
+	if m.Mode() != ui.ModeConfirmPromote {
+		t.Fatalf("mode after s on a shared value = %v, want ModeConfirmPromote (test setup)", m.Mode())
+	}
+
+	// Every key but y answers no -- exercise one that is not esc or n, to
+	// prove the rule is "not y", mirroring TestQConfirmationDecliningLeavesStagedAndCursorUntouched.
+	m, cmd := m.Update(ui.KeyRune('x'))
+
+	if m.Mode() != ui.ModeBrowse {
+		t.Errorf("mode after declining = %v, want ModeBrowse", m.Mode())
+	}
+	if cmd != nil {
+		if _, isQuit := cmd().(tea.QuitMsg); isQuit {
+			t.Error("declining a promotion must not end the session")
+		}
+	}
+	if got := m.Staged(); !sameStaged(got, before) {
+		t.Errorf("Staged() = %+v after declining, want untouched %+v", got, before)
+	}
+}
+
 // A variable with both a per-profile override and a shared Value must have
 // the override win for that profile, per resolve.Value's precedence, which
 // Classify already mirrors. Reading Value before Profiles here would make
@@ -856,6 +976,7 @@ func TestPromoteSharedValueStagesOnePerDeclaredProfile(t *testing.T) {
 func TestPromoteOverrideWinsOverSharedValue(t *testing.T) {
 	m := promoteModel(t, manifest.Var{Value: s("shared-val"), Profiles: map[string]string{"dev": "override-val"}})
 	m, _ = m.Update(ui.KeyRune('s'))
+	m, _ = m.Update(ui.KeyRune('y')) // confirm: staging/prod still fall back to the shared value
 
 	got := map[string]string{}
 	for _, c := range m.Staged() {
@@ -903,6 +1024,7 @@ func TestPromoteOnAlreadySecretStagesNothingAndExplainsWhy(t *testing.T) {
 func TestPromoteMarksRowPendingSecretInView(t *testing.T) {
 	m := promoteModel(t, manifest.Var{Value: s("shared-val")})
 	m, _ = m.Update(ui.KeyRune('s'))
+	m, _ = m.Update(ui.KeyRune('y')) // confirm the shared-value promotion
 
 	line := lineFor(t, m.View(), "PROMOTE_ME")
 	if strings.Count(line, "secret (pending)") != 3 {
@@ -983,24 +1105,25 @@ func TestFilterWithNoMatches(t *testing.T) {
 // Fix 4: the UI must document its own keys rather than relying entirely on
 // the README. The hint line is persistent -- shown on every tab, regardless
 // of staged count -- unlike statusLine, which only names w/q and only once
-// something is staged. `s` must never appear: Ruling 8 descoped the
-// secret-toggle key, and a hint naming a dead key is worse than no hint.
+// something is staged. `s` promotes a variable to a secret (Task 1) and must
+// appear here now, alongside the other keys that act on the row or cell
+// under the cursor.
 func TestKeyHintLineIsAlwaysVisible(t *testing.T) {
 	m := newTestModel(t) // opens on Overview, nothing staged
 	v := m.View()
-	for _, want := range []string{"e edit", "a add", "d delete", "filter", "? help"} {
+	for _, want := range []string{"e edit", "a add", "d delete", "s promote", "filter", "? help"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("hint line missing %q:\n%s", want, v)
 		}
-	}
-	if strings.Contains(v, "s secret") {
-		t.Errorf("hint line names the descoped s key:\n%s", v)
 	}
 }
 
 // ? opens the full key list from any tab, mirroring p. It must name every
 // key this package actually implements, including ones the short hint line
-// leaves out (r, w, q, ctrl+c), and must never name s.
+// leaves out (r, w, q, ctrl+c), and s's entry must say its promotion is
+// one-way -- a bare "toggle secret" would be a lie in the direction that
+// matters, since there is no key that turns a secret back into a plain
+// variable.
 func TestHelpKeyShowsTheFullKeyList(t *testing.T) {
 	m := newTestModel(t)
 	m, _ = m.Update(ui.KeyRune('?'))
@@ -1008,13 +1131,16 @@ func TestHelpKeyShowsTheFullKeyList(t *testing.T) {
 		t.Fatalf("mode after ? = %v, want ModeHelp", m.Mode())
 	}
 	v := m.View()
-	for _, want := range []string{"e", "r", "a", "d", "/", "p", "w", "q", "ctrl+c", "?"} {
+	for _, want := range []string{"e", "r", "a", "d", "s", "/", "p", "w", "q", "ctrl+c", "?"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("help panel missing key %q:\n%s", want, v)
 		}
 	}
-	if strings.Contains(v, "\ts\t") || strings.Contains(v, " s ") {
-		t.Errorf("help panel names the descoped s key:\n%s", v)
+	if !strings.Contains(v, "promote") {
+		t.Errorf("help panel does not describe what s does:\n%s", v)
+	}
+	if !strings.Contains(v, "one-way") {
+		t.Errorf("help panel does not say s's promotion is one-way:\n%s", v)
 	}
 }
 

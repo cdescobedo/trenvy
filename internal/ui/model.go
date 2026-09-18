@@ -71,6 +71,14 @@ const (
 	// Update). Unlike ModeConfirmSwitch, there is nothing to remember about
 	// which target was asked for -- quitting has exactly one destination.
 	ModeConfirmQuit
+	// ModeConfirmPromote is the question asked when s is pressed on a
+	// variable whose value is shared across profiles (see promoteSecret): the
+	// promotion is about to turn that one value into several keyring items,
+	// which a per-profile override never does since it already has one value
+	// per profile. Mirrors ModeConfirmSwitch and ModeConfirmQuit's
+	// y/anything-else shape; declining must leave staged untouched, the same
+	// rule those two already hold to (see updateConfirmPromote).
+	ModeConfirmPromote
 	// ModeHelp is the panel `?` opens: the full key list, available from any
 	// tab like the switcher. It exists because the short, persistent hint
 	// line (see keyHints) is deliberately incomplete -- naming every key,
@@ -98,6 +106,8 @@ func (md Mode) String() string {
 		return "confirm-switch"
 	case ModeConfirmQuit:
 		return "confirm-quit"
+	case ModeConfirmPromote:
+		return "confirm-promote"
 	case ModeHelp:
 		return "help"
 	}
@@ -190,6 +200,10 @@ type Model struct {
 	// decline can restore ModeBrowse without losing which project "y" would
 	// have meant.
 	pendingSwitch string
+	// pendingPromote holds the variable name ModeConfirmPromote is asking
+	// about, mirroring pendingSwitch for the same reason: a decline must
+	// restore ModeBrowse without losing which row "y" would have promoted.
+	pendingPromote string
 
 	// overviewRow is the Overview tab's own cursor, scoped to problems. It is
 	// a separate field from row/col rather than reusing them: those are
@@ -684,6 +698,26 @@ func (m Model) updateConfirmQuit(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 }
 
+// updateConfirmPromote answers "promote anyway?" (see promoteConfirmText),
+// mirroring updateConfirmSwitch and updateConfirmQuit's y/anything-else
+// shape. Declining must leave staged exactly as it was, not merely shorter:
+// promoteSecret's confirmed path (stagePromotion) stages several Changes at
+// once -- one set-secret per profile plus the promotion itself -- and a
+// decline that cleared only some of them would leave a half-promotion,
+// values stored as secrets while the manifest still calls the variable
+// plain, or the reverse. Resetting mode and pendingPromote unconditionally
+// before the switch, and only ever calling stagePromotion on "y", is what
+// keeps every other key a true no-op here.
+func (m Model) updateConfirmPromote(msg tea.KeyMsg) (Model, tea.Cmd) {
+	name := m.pendingPromote
+	m.pendingPromote = ""
+	m.mode = ModeBrowse
+	if msg.String() == "y" {
+		m.stagePromotion(name)
+	}
+	return m, nil
+}
+
 // updateHelp handles keys while the help panel is open: esc backs out,
 // mirroring the switcher's own esc-cancels convention. Any other key is
 // ignored rather than falling through to whatever it would have meant in
@@ -738,6 +772,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return m.updateConfirmSwitch(msg)
 		case ModeConfirmQuit:
 			return m.updateConfirmQuit(msg)
+		case ModeConfirmPromote:
+			return m.updateConfirmPromote(msg)
 		case ModeHelp:
 			return m.updateHelp(msg)
 		default:
@@ -1005,8 +1041,45 @@ func (m Model) deleteBlockedReason() string {
 	return ""
 }
 
-// promoteSecret stages `s`'s whole job: moving a plain variable's value into
-// the keyring instead of merely flipping a flag. Marking the variable secret
+// promoteSecret is `s`'s entry point in ModeBrowse. A variable already secret
+// stages nothing at all: there is no key that demotes a secret back to
+// plain, and doing this again would either re-fetch nothing useful or
+// silently no-op. Silence alone is the wart this project has removed three
+// times already, so promoteBlockedReason (rendered by View) says why instead
+// of leaving `s` looking broken.
+//
+// A variable whose value is shared across profiles (v.Value != nil) does not
+// stage immediately: stagePromotion reads that same Value for every profile
+// with no override of its own, so promoting it turns one manifest field into
+// several keyring items that can drift apart the moment only one of them is
+// edited later -- surprising enough that ModeConfirmPromote asks first (see
+// promoteConfirmText). A variable with only per-profile overrides has no
+// such surprise: it already has one value per profile, so promoting it only
+// changes where each value lives, and it stages immediately below, exactly
+// as it did before this task.
+func (m *Model) promoteSecret() {
+	if m.tab != TabVariables {
+		return
+	}
+	names := m.visibleNames()
+	if len(names) == 0 {
+		return
+	}
+	name := names[m.row]
+	v := m.mx.Vars[name]
+	if v.Secret {
+		return
+	}
+	if v.Value != nil {
+		m.pendingPromote = name
+		m.mode = ModeConfirmPromote
+		return
+	}
+	m.stagePromotion(name)
+}
+
+// stagePromotion does `s`'s actual work: moving name's value into the
+// keyring instead of merely flipping a flag. Marking the variable secret
 // without moving the value would silently destroy it at commit --
 // manifest.Validate forbids a secret carrying a Value or a Profiles entry,
 // so commitStaged (Task 3) must strip whatever is left there, and a
@@ -1026,27 +1099,15 @@ func (m Model) deleteBlockedReason() string {
 // profile the manifest declares (mx.Profiles), all carrying that same
 // value -- not one shared keyring item, which cannot exist: a keyring item
 // is addressed per profile by construction. That is the honest translation
-// of "make this a secret", not a bug to work around; Task 2 adds the
-// confirmation that says so before it happens.
+// of "make this a secret", not a bug to work around; promoteSecret's
+// ModeConfirmPromote gate is what says so before it happens.
 //
-// A variable already secret stages nothing at all: there is no key that
-// demotes a secret back to plain, and doing this again would either
-// re-fetch nothing useful or silently no-op. Silence alone is the wart
-// this project has removed three times already, so promoteBlockedReason
-// (rendered by View) says why instead of leaving `s` looking broken.
-func (m *Model) promoteSecret() {
-	if m.tab != TabVariables {
-		return
-	}
-	names := m.visibleNames()
-	if len(names) == 0 {
-		return
-	}
-	name := names[m.row]
+// Called from two places: promoteSecret itself, for the unsurprising
+// override-only case that needs no confirmation, and updateConfirmPromote,
+// only on "y" -- so a decline never reaches this function and stages
+// nothing.
+func (m *Model) stagePromotion(name string) {
 	v := m.mx.Vars[name]
-	if v.Secret {
-		return
-	}
 	for _, profile := range m.mx.Profiles {
 		value, ok := v.Profiles[profile]
 		if !ok {
@@ -1062,6 +1123,22 @@ func (m *Model) promoteSecret() {
 		m.stage(Change{Kind: ChangeSetSecret, Name: name, Profile: profile, Value: value})
 	}
 	m.stage(Change{Kind: ChangePromoteSecret, Name: name})
+}
+
+// promoteConfirmText is what ModeConfirmPromote shows: it names the
+// consequence of promoting m.pendingPromote's shared value rather than
+// merely asking permission. A prompt reading "promote X to a secret? [y/N]"
+// would teach people to press y without reading it; this instead says what
+// happens -- the one thing that is surprising here exactly once, a shared
+// value becomes n separate keyring items, one per declared profile, and
+// changing one afterward will not change the others -- so declining is a
+// choice made because of what the prompt says, not a guess at what "sure"
+// means.
+func (m Model) promoteConfirmText() string {
+	return fmt.Sprintf(
+		"promoting %s turns its one shared value into %d separate keyring items, one per declared profile -- "+
+			"changing one afterward will not change the others. promote anyway? [y/N]",
+		m.pendingPromote, len(m.mx.Profiles))
 }
 
 // promoteBlockedReason explains why s would currently do nothing on the row
@@ -1203,6 +1280,9 @@ func (m Model) View() string {
 	if m.mode == ModeConfirmQuit {
 		b.WriteString("quit anyway and discard them? [y/N]\n")
 	}
+	if m.mode == ModeConfirmPromote {
+		b.WriteString(m.promoteConfirmText() + "\n")
+	}
 
 	return b.String()
 }
@@ -1211,17 +1291,23 @@ func (m Model) View() string {
 // every tab regardless of staged count, unlike statusLine's own w/q mention.
 // It is deliberately incomplete (no movement keys, no tab switching, no w/q,
 // already covered by statusLine): naming everything here would defeat the
-// point of a one-line reminder, so `?` opens viewHelp for the rest. `s` is
-// never listed -- Ruling 8 descoped the secret-toggle key, and it does
-// nothing today, so naming it here would be worse than no hint at all.
+// point of a one-line reminder, so `?` opens viewHelp for the rest.
+//
+// `p switch` is the one dropped to make room for `s promote`: every other
+// key here acts on the row or cell under the cursor, while p acts on the
+// whole session -- picking a different registered project -- and is the
+// rarest of the seven to reach for while actually editing variables. `?`
+// still names it.
 func (m Model) keyHints() string {
-	return "e edit · r reveal · a add · d delete · / filter · p switch · ? help"
+	return "e edit · r reveal · a add · d delete · s promote · / filter · ? help"
 }
 
 // viewHelp renders the full key list `?` opens, replacing the tab bar and
 // body the same way viewSwitcher does. Every key named here is one this
 // package actually implements -- checked by running each in a built binary,
-// not transcribed from the spec -- and `s` is never among them.
+// not transcribed from the spec. `s`'s entry says its promotion is one-way:
+// a bare "toggle secret" would be a lie in the direction that matters, since
+// there is no key that turns a secret back into a plain variable.
 func (m Model) viewHelp() string {
 	var b strings.Builder
 	b.WriteString("Keys\n\n")
@@ -1232,6 +1318,7 @@ func (m Model) viewHelp() string {
 		{"r", "reveal the cell under the cursor's real value (one keyring read)"},
 		{"a", "add a variable"},
 		{"d", "mark the selected variable deleted (press again to un-mark it)"},
+		{"s", "promote the selected variable to a secret -- one-way, there is no key that turns it back"},
 		{"/", "filter rows by name substring"},
 		{"p", "switch to a different registered project"},
 		{"w", "commit everything staged"},
