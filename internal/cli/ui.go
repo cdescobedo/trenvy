@@ -239,7 +239,16 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 			}
 		case ui.ChangeDeleteVar:
 			delete(app.Manifest.Vars, c.Name)
-		case ui.ChangeSetSecret:
+		case ui.ChangePromoteSecret:
+			// The row-level record from s (see stagePromotion's doc), never
+			// ChangeSetSecret: a set-secret also arrives here from editing an
+			// ALREADY-secret cell's value, which must not flip anything --
+			// the var is secret already, and re-deriving that from the wrong
+			// signal is exactly what would make a promotion that moves zero
+			// values (every profile already secret with none to move, or a
+			// freshly added var promoted before it is ever given a value)
+			// silently fail to flip at all, because no set-secret is staged
+			// to ride along with it in that case.
 			if deletedNames[c.Name] {
 				continue
 			}

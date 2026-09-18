@@ -134,11 +134,22 @@ the command surface may still move under you.
   then the manifest, once it passes the same validation `edit` and `set`
   already require -- so a rejected batch never leaves a manifest entry
   pointing at a secret that was never stored. Quitting any other way writes
-  nothing at all. A keyring failure partway through a batch cannot be undone,
-  so the error reports secrets stored and keyring items deleted as two
-  separate counts, never folded into one number that could not say which
-  kind stalled. The session that staged the batch has already ended by
-  then, so the fix is not a resume: it names `trenvy ui` as a fresh session
+  nothing at all. `s` on a plain variable's row promotes it to a secret:
+  every profile with a value -- an override or the shared default -- has
+  that value moved into its own keyring item on `w`, written before the
+  manifest is flipped to `secret = true` with no plain value or
+  per-profile overrides left on it, the same value-first ordering every
+  other staged change already follows, so a manifest save that fails
+  afterward still leaves the values safely stored rather than lost. A
+  value shared across profiles confirms first, naming that it becomes one
+  keyring item per declared profile that can drift apart once any one of
+  them is edited later; declining stages nothing. There is no key that
+  demotes a secret back to a plain variable. A keyring failure partway
+  through a batch cannot be undone, so the error reports secrets stored
+  and keyring items deleted as two separate counts, never folded into one
+  number that could not say which kind stalled. The session that staged
+  the batch has already ended by then, so the fix is not a resume: it
+  names `trenvy ui` as a fresh session
   to redo whatever the failed run did not finish, the same honesty `edit`'s
   own partial-failure handling practices. The Overview tab is the landing
   screen: it repeats `status`'s own project, profile (and where it came

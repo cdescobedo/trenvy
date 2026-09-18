@@ -2,6 +2,8 @@ package cli_test
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -564,6 +566,195 @@ func TestUiCommitsStagedSetSecretToKeyring(t *testing.T) {
 	}
 	if body := mustReadFile(t, config.ManifestPath("vpb")); strings.Contains(body, "brand-new-secret") {
 		t.Error("a secret value reached the manifest")
+	}
+}
+
+// s's promotion is only staged intent until w commits it (Tasks 1-2); this is
+// the test that makes it real. APP_URL carries a shared Value with no
+// per-profile override, so s opens the confirmation and y answers it, staging
+// one set-secret per declared profile plus the row's promote-secret (see
+// stagePromotion). Every profile's keyring item must hold the manifest's
+// value, and the manifest entry must come out with secret = true and BOTH
+// Value and Profiles cleared -- Validate (validate.go:94, :98) refuses a
+// secret carrying either, so asserting only Secret would pass against a
+// manifest that fails to load back. get is the cheapest way to catch a
+// promotion that validates but silently resolves to nothing: it re-resolves
+// APP_URL exactly as a secret created directly would.
+func TestUiCommitsPromotionMovesTheSharedValueIntoTheKeyringAndFlipsTheManifest(t *testing.T) {
+	h := newHarness(t)
+	m := fixtureManifest(t)
+	m.Project.Profiles = []string{"dev", "staging", "prod"}
+	h.register("vpb", m)
+
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('2')) // Variables tab
+		mo, _ = mo.Update(ui.KeyRune('j')) // row 1: APP_URL (row 0 is the secret)
+		mo, _ = mo.Update(ui.KeyRune('s')) // shared value -> confirm first
+		mo, _ = mo.Update(ui.KeyRune('y')) // confirm the promotion
+		return markUISaved(mo), nil
+	}
+
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
+	}
+
+	for _, p := range []string{"dev", "staging", "prod"} {
+		svc := "trenvy/vpb/" + p + "/APP_URL"
+		got, err := h.mem.Get(svc)
+		if err != nil {
+			t.Fatalf("store Get(%s): %v", svc, err)
+		}
+		if got != "http://+:8080" {
+			t.Errorf("%s = %q, want the manifest's shared value", svc, got)
+		}
+	}
+
+	m2, err := manifest.Load(config.ManifestPath("vpb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := m2.Vars["APP_URL"]
+	if !v.Secret {
+		t.Error("APP_URL was not flipped to a secret")
+	}
+	if v.Value != nil {
+		t.Errorf("APP_URL still carries a plain Value %q after promotion", *v.Value)
+	}
+	if len(v.Profiles) != 0 {
+		t.Errorf("APP_URL still carries Profiles %v after promotion", v.Profiles)
+	}
+	if err := m2.Validate(); err != nil {
+		t.Errorf("the promoted manifest fails Validate: %v", err)
+	}
+
+	if err := h.run("get", "APP_URL"); err != nil {
+		t.Fatalf("get APP_URL after promotion: %v", err)
+	}
+	if got := strings.TrimSpace(h.out.String()); got != "http://+:8080" {
+		t.Errorf("get APP_URL = %q, want the promoted value resolved back out of the keyring", got)
+	}
+}
+
+// The ordering is the safety property: commitStaged writes the keyring
+// before it saves the manifest, so a manifest save that fails afterward
+// leaves the values already stored and the manifest still declaring the
+// variable plain -- recoverable. A read-only manifest directory (phase 1's
+// output-rename/rm tests use the same technique) forces exactly that save to
+// fail without touching the keyring at all.
+func TestUiPromotionStoresEveryProfileBeforeTheManifestSaveEvenWhenItFails(t *testing.T) {
+	skipIfNotRestrictable(t)
+	h := newHarness(t)
+	m := fixtureManifest(t)
+	m.Project.Profiles = []string{"dev", "staging", "prod"}
+	h.register("vpb", m)
+
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('2'))
+		mo, _ = mo.Update(ui.KeyRune('j')) // row 1: APP_URL
+		mo, _ = mo.Update(ui.KeyRune('s'))
+		mo, _ = mo.Update(ui.KeyRune('y'))
+		return markUISaved(mo), nil
+	}
+
+	dir := filepath.Join(config.Dir(), "projects")
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	restored := false
+	restore := func() {
+		if restored {
+			return
+		}
+		restored = true
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	defer restore()
+
+	err := h.run("ui")
+	if err == nil {
+		t.Fatal("ui succeeded despite a read-only manifest directory")
+	}
+
+	for _, p := range []string{"dev", "staging", "prod"} {
+		svc := "trenvy/vpb/" + p + "/APP_URL"
+		got, getErr := h.mem.Get(svc)
+		if getErr != nil {
+			t.Fatalf("store Get(%s): %v -- the keyring write must land before the failed manifest save", svc, getErr)
+		}
+		if got != "http://+:8080" {
+			t.Errorf("%s = %q, want the value already stored despite the manifest save failing", svc, got)
+		}
+	}
+
+	restore()
+
+	m2, err2 := manifest.Load(config.ManifestPath("vpb"))
+	if err2 != nil {
+		t.Fatal(err2)
+	}
+	v := m2.Vars["APP_URL"]
+	if v.Secret {
+		t.Error("the on-disk manifest was flipped to secret despite the manifest save failing -- the value is now stranded, declared nowhere")
+	}
+	if v.Value == nil || *v.Value != "http://+:8080" {
+		t.Errorf("APP_URL's plain value = %v, want it intact -- that is the state a user can retry the promotion from", v.Value)
+	}
+}
+
+// promote-secret must flip the manifest on its own -- it cannot ride along
+// on a set-secret that happened to be staged in the same batch. A variable
+// added and promoted before it is ever given a value (v.Value and
+// v.Profiles both nil under every profile) stages zero set-secret changes
+// (see stagePromotion) alongside its one promote-secret, so this is the case
+// that only passes once commitStaged switches on ChangePromoteSecret itself.
+func TestUiCommitsPromotionOfAFreshVariableWithNoValueAnywhere(t *testing.T) {
+	h := newHarness(t)
+	m, err := manifest.Parse([]byte(`
+[project]
+id = "vpb"
+profiles = ["dev", "staging", "prod"]
+default_profile = "dev"
+salt = "abc123"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.register("vpb", m)
+
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('2')) // Variables tab
+		mo, _ = mo.Update(ui.KeyRune('a'))
+		mo, _ = mo.Update(keyRunes("FRESH_SECRET"))
+		mo, _ = mo.Update(keyEnter())      // stage add-var, the only row
+		mo, _ = mo.Update(ui.KeyRune('s')) // promote before it has a value: no set-secret rides along
+		return markUISaved(mo), nil
+	}
+
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
+	}
+
+	m2, err := manifest.Load(config.ManifestPath("vpb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, ok := m2.Vars["FRESH_SECRET"]
+	if !ok {
+		t.Fatal("FRESH_SECRET is missing from the manifest")
+	}
+	if !v.Secret {
+		t.Error("FRESH_SECRET was not flipped to a secret: the flip must come from promote-secret itself, not from a set-secret that was never staged")
+	}
+	if v.Value != nil {
+		t.Errorf("FRESH_SECRET carries a plain Value %q", *v.Value)
+	}
+	if len(v.Profiles) != 0 {
+		t.Errorf("FRESH_SECRET carries Profiles %v", v.Profiles)
+	}
+	if err := m2.Validate(); err != nil {
+		t.Errorf("the promoted manifest fails Validate: %v", err)
 	}
 }
 
