@@ -100,6 +100,15 @@ const (
 	// ModeOutputRename is typing the new name for the Outputs tab row under
 	// the cursor (`r`).
 	ModeOutputRename
+	// ModeEverythingExcept and ModeOnlyThese are not FSM states the way the
+	// modes above are; they answer a different question -- for one output's
+	// membership editor (Task 8), which of two futures a variable that does
+	// not exist yet falls into. WriteGlobs (globs.go) takes one of these two
+	// as input and is the only place that reads them. They live on this
+	// type, rather than a type of their own, because Task 8's editor holds
+	// the current choice as ordinary Model state alongside every other mode.
+	ModeEverythingExcept
+	ModeOnlyThese
 )
 
 // String names the mode for test failure messages.
@@ -133,6 +142,10 @@ func (md Mode) String() string {
 		return "output-add-path"
 	case ModeOutputRename:
 		return "output-rename"
+	case ModeEverythingExcept:
+		return "everything-except"
+	case ModeOnlyThese:
+		return "only-these"
 	}
 	return "unknown"
 }
