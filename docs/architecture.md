@@ -220,6 +220,49 @@ of them calls `Cfg.Keyring.ServiceName(project, p, name)` with its own `p`;
 `service(name)` there would delete one profile's item N times and leave the
 rest untouched.
 
+## The staged commit
+
+`trenvy ui` holds every edit — a cell value, a secret promotion, an added or
+removed variable, an added, renamed, defaulted, deleted or re-membered
+output — as a `ui.Change` in memory, and applies none of them until `w`.
+`commitStaged` (`internal/cli/ui.go`) then applies the whole staged slice in
+six phases, in a fixed order that does not depend on the order the changes
+were staged in:
+
+1. **Structural additions.** A staged `add-var` or `add-output` inserts the
+   new entry before anything else runs, so a row this same session also
+   renames, sets a value on or removes has an entry to act on from the start.
+2. **Keyring writes.** Every staged secret value lands in the keyring —
+   `set-secret`'s own value, and the value or values an `s` promotion moves
+   out of the manifest.
+3. **Keyring deletes.** A deleted variable's secret is removed under every
+   declared profile, not only the one active in this session, built through
+   `Cfg.Keyring.ServiceName(project, p, name)` for each profile `p` in turn.
+4. **The state file.** A staged output rename repoints its render records to
+   the new name; a staged output removal forgets its render records in every
+   worktree that ever rendered it, and the commit later names each file the
+   removal leaves on disk. Both are saved to `state/<id>.toml` here, ahead of
+   the manifest edit in phase 5 — the same state-before-manifest order
+   `trenvy output rename` already uses on its own.
+5. **Every remaining manifest edit and removal.** Cell values, secret
+   promotions (flipping `Secret` and clearing `Value`/`Profiles`), output
+   renames, output defaults, output removals and glob changes are applied to
+   the in-memory manifest. An output staged as both added and removed in the
+   same session has no entry left after this phase, regardless of which the
+   session did first, because phase 1 already created it and this phase
+   deletes it.
+6. **Validate, then save.** `Manifest.Validate` runs before the manifest
+   reaches disk; only a manifest that passes is written.
+
+Phases 2 through 4 commit real state — keyring items and the state file —
+ahead of the manifest, extending the keyring-first, state-before-manifest
+ordering above to the whole batch rather than one command's own write. A
+commit that fails partway through reports progress in the units of the phase
+it was in: secrets stored versus secrets deleted, or render records
+repointed versus forgotten, never folded into one count that could not say
+which kind stalled. Once a keyring write, a keyring delete or the state
+file's save has landed, it stays; there is no rollback across phases.
+
 ## The render guards
 
 `render` writes secrets into a working repository. Two things can go wrong that

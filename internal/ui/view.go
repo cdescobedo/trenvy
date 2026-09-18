@@ -17,7 +17,7 @@ const nameColumnWidth = 40
 // line and the Outputs tab need this exact fact in this exact wording -- two
 // copies of it could drift the way two implementations of the state itself
 // already did once (see outputStates' doc in internal/cli).
-const outputFreshnessCaveat = "Freshness of outputs with secrets is not checked here -- trenvy status checks it.\n"
+const outputFreshnessCaveat = "A secret's value changing since the last render, with the file otherwise untouched, is not checked here -- trenvy status checks it.\n"
 
 // viewVariables renders the profile matrix: one row per variable, one column
 // per profile, using the exact Cell words from cell.go (shared, override,

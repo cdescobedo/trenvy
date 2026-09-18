@@ -409,30 +409,114 @@ or `optional`. The `secret` column marks which rows are secrets. Presence is
 loaded with `Has`, never `Get`, so opening the view never raises a keyring
 authorization prompt — a cell's real value is only fetched when you reveal it.
 
-The four tabs: **Overview** repeats `status`'s own project/profile/backend
-facts and lists every detected problem with the exact command that fixes it,
-or says the project is healthy; enter on a problem jumps straight to the cell
-that explains it. **Variables** is the matrix above. **Profiles** and
-**Outputs** are placeholders in this release — they name `trenvy profile` and
-`trenvy output` as the commands that do that job today.
+`s` on a plain variable's row promotes it to a secret, one way: there is no
+key that turns a secret back into a plain variable. On `w`, the value —
+the shared default, or each profile's own override — moves into the keyring,
+one item per profile that had a value, and the manifest is left with
+`secret = true` and no plain value on it. A variable carrying a shared value
+confirms first, naming that it becomes one keyring item per declared profile
+that can drift apart once any one of them is edited later; declining stages
+nothing. A variable with only per-profile overrides and no shared value
+stages immediately, with no such prompt. `s` on a row that is already a
+secret says why it did nothing.
+
+The four tabs: **Overview** repeats `status`'s own project, profile, manifest,
+worktree and backend facts, lists every detected problem with the exact
+command that fixes it (or says the project is healthy), and flags a variable
+that reaches no output or reaches several — a plain fact, not an error, since
+`exec` and `shell` read a whole profile with no output at all and nothing
+stops two outputs from carrying the same variable on purpose. Enter on a
+problem jumps to the cell, or the tab, that explains it.
+
+**Variables** is the matrix above. **Outputs** lists every declared
+output — name, format, path, what it selects, and its render state — and
+opens a membership editor on `enter`:
+
+```console
+$ trenvy ui
+ 1:Overview   2:Variables   3:Profiles  >4:Outputs
+
+   NAME     FORMAT  PATH      SELECTS   STATE
+>  local *  dotenv  .env      all       absent
+   web      json    web.json  PUBLIC_*  absent
+
+D does nothing here: local is already the default -- there is no key that clears the default without setting a new one
+
+no staged changes
+a add · r rename · D default · d delete · enter edit membership · ? help
+```
+
+`*` marks the output `render` and `show` use with no argument, the same mark
+`trenvy output list` uses. `a` prompts for a name, then a format, then a
+path, staging all three as one addition; `r` renames the row in place; `D`
+(capital — `d` already means delete everywhere else in this UI) stages
+making the row the default; `d` marks the row deleted. Each of these shows in
+the table the instant it is staged, before `w` is ever pressed. A `fresh`
+STATE can still miss one thing: a secret's value changing since the last
+render while the file itself went untouched — `trenvy status` is the command
+that reads secrets and can tell that apart from a real match.
+
+`enter` opens the membership editor: one checkbox per variable, for exactly
+which of them this output writes — a hand edit of the manifest's
+`include`/`exclude` globs until now.
+
+```console
+Editing membership for local
+
+> [x] API_TOKEN
+  [x] APP_MODE
+  [x] DATABASE_URL
+  [x] PUBLIC_URL
+
+everything except: a variable added later WILL appear in this file
+
+space toggle · m switch mode · enter save · esc cancel
+```
+
+`space` toggles the variable under the cursor. `m` switches which of two
+futures a variable that does not exist yet falls into — *everything except*,
+shown above, where it lands in the file automatically, or *only these*,
+where it does not — and the sentence on screen changes with it; switching
+modes never moves any of today's checked boxes, only what a future addition
+does. `enter` saves the result as a staged glob change; `esc` abandons the
+whole edit. A row with a staged delete refuses to open the editor, and the
+reverse holds too: marking a row deleted while its membership edit is open is
+also refused, since editing and removing the same output in one batch has no
+single right answer.
+
+**Profiles** remains a placeholder in this release — it names `trenvy
+profile` as the command that does that job today.
 
 Keys: `1`-`4` or `tab`/`shift+tab` switch tabs; `j`/`k`/`h`/`l` and the arrow
 keys move the cursor (clamped at the edges, not wrapping); `e` edits the
-selected cell, masked while typing if it is a secret; `r` fetches and reveals
-one cell's real value; `a` adds a new variable; `d` marks the selected
-variable deleted; `/` filters the rows by substring; `p` opens a switcher over
-every registered project and reloads the session against your choice, asking
-first if you have staged changes; `w` writes everything staged; `q` quits,
-asking first if anything is staged; `ctrl+c` quits immediately from anywhere,
-without asking, and without writing anything; `?` shows the full key list.
-A short reminder of the same keys stays on screen on every tab, so none of
-this has to be memorized up front.
+selected cell, masked while typing if it is a secret; `r` reveals a cell's
+real value on the Variables tab, or renames the selected row on the Outputs
+tab; `a` adds a variable or an output; `d` marks the selected variable or
+output deleted; `D` makes the selected output the default; `s` promotes the
+selected variable to a secret; `enter` jumps to a problem's cell on the
+Overview tab, or opens the membership editor on the Outputs tab; `/` filters
+rows by substring; `p` opens a switcher over every registered project and
+reloads the session against your choice, asking first if you have staged
+changes; `w` commits everything staged; `q` quits, asking first if anything
+is staged; `ctrl+c` quits immediately from anywhere, without asking, and
+without writing anything; `?` shows the full key list. A short reminder of
+the relevant keys stays on screen on every tab, so none of this has to be
+memorized up front.
 
-Nothing reaches disk until `w`. It then writes keyring changes first — new
-secret values, then deletions of a removed variable's secret under every
-profile — and only afterwards saves the manifest, so a run that fails partway
-through never leaves the manifest pointing at a secret that was never stored.
-Quitting any other way — `q` confirmed, or `ctrl+c` — writes nothing at all.
+Nothing reaches disk until `w`. It commits in phases: a new variable or
+output is added first, so a row this same session also renames, defaults or
+removes has something to act on; keyring writes follow, then keyring
+deletes — a deleted variable's secret is removed under every profile, not
+just the active one; the render-state file comes next, so a renamed output's
+already-rendered file keeps reading as fresh, and a removed output's render
+records are forgotten in every worktree that ever rendered it, naming any
+file the removal leaves on disk; every remaining edit and removal follows in
+its own pass; and only then is the whole manifest validated and saved. A
+commit that fails partway reports exactly how far it got — secrets stored,
+secrets deleted, render records repointed or forgotten — rather than one
+number that cannot say which kind stalled, and there is no rollback: a
+deleted keyring item cannot be undeleted. Quitting any other way — `q`
+confirmed, or `ctrl+c` — writes nothing at all.
 
 ## Configuration
 
