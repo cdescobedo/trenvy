@@ -64,8 +64,11 @@ func TestTabWrapsAround(t *testing.T) {
 	}
 }
 
-// Profiles and Outputs are in the bar but inert in phase 1. They must say so
-// and name the CLI that does the job, rather than showing an empty panel.
+// Profiles is still inert (2b's job) and must say so, naming the CLI that
+// does the job today rather than showing an empty panel. The Outputs tab is
+// no longer fully inert -- Task 5 wires a/r/d/D -- but an empty project has
+// nothing for those keys to act on yet, so its own empty state still names
+// the CLI as a fallback (see output_test.go's own coverage of the key).
 func TestInertTabsNameTheirCLI(t *testing.T) {
 	m := newTestModel(t)
 	m, _ = m.Update(ui.KeyRune('3'))
@@ -1131,7 +1134,7 @@ func TestHelpKeyShowsTheFullKeyList(t *testing.T) {
 		t.Fatalf("mode after ? = %v, want ModeHelp", m.Mode())
 	}
 	v := m.View()
-	for _, want := range []string{"e", "r", "a", "d", "s", "/", "p", "w", "q", "ctrl+c", "?"} {
+	for _, want := range []string{"e", "r", "a", "d", "D", "s", "/", "p", "w", "q", "ctrl+c", "?"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("help panel missing key %q:\n%s", want, v)
 		}
@@ -1141,6 +1144,20 @@ func TestHelpKeyShowsTheFullKeyList(t *testing.T) {
 	}
 	if !strings.Contains(v, "one-way") {
 		t.Errorf("help panel does not say s's promotion is one-way:\n%s", v)
+	}
+}
+
+// a, r and d mean different things depending on the tab; the full key list
+// must say so rather than describing only their Variables-tab meaning, and
+// must name D, which exists only on the Outputs tab.
+func TestHelpKeyDescribesOutputsTabKeys(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = m.Update(ui.KeyRune('?'))
+	v := m.View()
+	for _, want := range []string{"rename", "default", "output"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("help panel does not describe the Outputs tab's keys (missing %q):\n%s", want, v)
+		}
 	}
 }
 

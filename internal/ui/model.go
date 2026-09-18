@@ -7,6 +7,8 @@ import (
 	"text/tabwriter"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/cdescobedo/trenvy/internal/manifest"
 )
 
 // Tab is one of the panels in the management interface's tab bar.
@@ -85,6 +87,19 @@ const (
 	// including movement and tab-switching, would defeat the point of a
 	// one-line reminder -- so `?` is where the rest is discoverable.
 	ModeHelp
+	// ModeOutputAddName is typing the name for a new output -- step 1 of 3
+	// in the Outputs tab's `a`. Nothing stages until all three steps
+	// complete (see confirmOutputAddPath): there is no output worth having
+	// with only a name, or only a name and a format.
+	ModeOutputAddName
+	// ModeOutputAddFormat is step 2 of 3: typing the new output's format.
+	ModeOutputAddFormat
+	// ModeOutputAddPath is step 3 of 3: typing the new output's path.
+	// Enter here stages add-output with all three facts at once.
+	ModeOutputAddPath
+	// ModeOutputRename is typing the new name for the Outputs tab row under
+	// the cursor (`r`).
+	ModeOutputRename
 )
 
 // String names the mode for test failure messages.
@@ -110,6 +125,14 @@ func (md Mode) String() string {
 		return "confirm-promote"
 	case ModeHelp:
 		return "help"
+	case ModeOutputAddName:
+		return "output-add-name"
+	case ModeOutputAddFormat:
+		return "output-add-format"
+	case ModeOutputAddPath:
+		return "output-add-path"
+	case ModeOutputRename:
+		return "output-rename"
 	}
 	return "unknown"
 }
@@ -123,21 +146,41 @@ func (md Mode) String() string {
 // which must not flip anything in the manifest. Only ChangePromoteSecret
 // tells the phased commit (2a's Task 3) "this variable becomes secret ->
 // flip the manifest entry to secret = true with no Value and no Profiles".
+//
+// The four Change*Output kinds are the Outputs tab's own staged edits (Task
+// 5). They key by the output's identity at the start of the session (or the
+// name it was added under this session), never by a pending rename's
+// target -- see outputIdentityNames -- so a row that is both renamed and,
+// say, made default in the same session stages two Changes that agree about
+// which row they mean.
 const (
 	ChangeSetValue      = "set-value"
 	ChangeAddVar        = "add-var"
 	ChangeDeleteVar     = "delete-var"
 	ChangeSetSecret     = "set-secret"
 	ChangePromoteSecret = "promote-secret"
+	ChangeAddOutput     = "add-output"
+	ChangeRenameOutput  = "rename-output"
+	ChangeRemoveOutput  = "remove-output"
+	ChangeDefaultOutput = "default-output"
 )
 
 // Change is one uncommitted edit, held in the model until w writes it to the
-// manifest or the keyring (Task 9). Profile says which column a set-value or
-// set-secret belongs to; a value written to the wrong profile would be
-// silent data corruption, so the field is never left to be inferred from
-// cursor position at commit time.
+// manifest, the state file or the keyring (Task 6). Profile says which
+// column a set-value or set-secret belongs to; a value written to the wrong
+// profile would be silent data corruption, so the field is never left to be
+// inferred from cursor position at commit time.
+//
+// Value also carries rename-output's target name: the name the output
+// becomes, reusing the "what this change establishes" meaning it already
+// has for set-value and set-secret rather than growing a field that would
+// mean the same thing under a different name for one kind.
+//
+// Format and Path carry add-output's definition; every other kind leaves
+// them empty.
 type Change struct {
 	Kind, Name, Profile, Value string
+	Format, Path               string
 }
 
 // RevealRequestMsg asks the host to fetch one secret's value for one
@@ -217,6 +260,19 @@ type Model struct {
 	// problem, or later pressing e, could land on a cell the user never
 	// selected. Flagged during Task 5's review and recorded for this task.
 	overviewRow int
+
+	// outputRow is the Outputs tab's own cursor, scoped to outputIdentityNames
+	// the same way overviewRow is scoped to problems and switchRow to
+	// projects: a separate field so moving it never disturbs row/col, which
+	// stay scoped to the Variables matrix.
+	outputRow int
+	// draftOutputName and draftOutputFormat hold the first two steps of the
+	// Outputs tab's `a` wizard while the third is being typed -- buffer only
+	// ever holds the CURRENT step, so the earlier steps need somewhere to
+	// live until confirmOutputAddPath stages all three together. Both are
+	// cleared the instant the flow ends, staged or abandoned, so a later `a`
+	// never starts from a stale draft.
+	draftOutputName, draftOutputFormat string
 
 	mode   Mode
 	buffer string
@@ -427,6 +483,156 @@ func (m Model) isDeleted(name string) bool {
 	return false
 }
 
+// outputIdentityNames lists the identity every Outputs tab row is keyed by:
+// one per Params-provided output, plus one per staged add-output not yet on
+// disk -- mirrors allNames()'s inclusion of a freshly staged variable.
+// Sorted for the same reason allNames() sorts: a freshly added output takes
+// its place in the list rather than always trailing at the end.
+//
+// This is the identity every other Change* Output kind's Name field keys
+// against, including a row with a staged rename -- see the Change kinds'
+// own doc for why a rename never changes what later Changes about that row
+// key by.
+func (m Model) outputIdentityNames() []string {
+	names := make([]string, 0, len(m.outputs)+len(m.staged))
+	for _, o := range m.outputs {
+		names = append(names, o.Name)
+	}
+	for _, c := range m.staged {
+		if c.Kind == ChangeAddOutput {
+			names = append(names, c.Name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// outputByName finds the Params-provided facts for identity, if it names an
+// existing output rather than one only staged this session.
+func (m Model) outputByName(identity string) (OutputRow, bool) {
+	for _, o := range m.outputs {
+		if o.Name == identity {
+			return o, true
+		}
+	}
+	return OutputRow{}, false
+}
+
+// outputDisplayName is what the Outputs tab's NAME column shows for
+// identity: the pending rename target if `r` staged one, in "old -> new"
+// form so the wording matches `trenvy output rename`'s own "renamed output
+// %s to %s" -- a reader who knows that command recognizes this immediately
+// -- otherwise just identity.
+func (m Model) outputDisplayName(identity string) string {
+	for _, c := range m.staged {
+		if c.Kind == ChangeRenameOutput && c.Name == identity {
+			return identity + " -> " + c.Value
+		}
+	}
+	return identity
+}
+
+// outputIsDefault reports whether identity currently resolves as
+// project.output: a staged default-output always wins over the on-disk fact
+// for every row, since stageOutputDefault keeps at most one such Change
+// staged at a time (see its own doc) -- so once ANY row has a staged
+// default, every other row's on-disk "*" is stale and must stop showing.
+func (m Model) outputIsDefault(identity string) bool {
+	for _, c := range m.staged {
+		if c.Kind == ChangeDefaultOutput {
+			return c.Name == identity
+		}
+	}
+	if o, ok := m.outputByName(identity); ok {
+		return o.IsDefault
+	}
+	return false
+}
+
+// isOutputDeleted reports whether identity has a staged remove-output
+// change, mirroring isDeleted for the Variables tab.
+func (m Model) isOutputDeleted(identity string) bool {
+	for _, c := range m.staged {
+		if c.Kind == ChangeRemoveOutput && c.Name == identity {
+			return true
+		}
+	}
+	return false
+}
+
+// outputFacts resolves what the FORMAT/PATH/SELECTS/STATE columns show for
+// identity: the Params-provided facts for an existing output, or the
+// in-progress add-output draft's Format and Path for one this session added
+// but has not saved. Such a row shows "all" (add-output carries no globs of
+// its own -- Task 8's editor is how those are set) and "pending" for STATE,
+// deliberately not one of the State* constants: there is no rendered file
+// yet to have a freshness state, and borrowing a State* word would claim a
+// check ran that did not.
+func (m Model) outputFacts(identity string) (format, path, selects, state string) {
+	if o, ok := m.outputByName(identity); ok {
+		return o.Format, o.Path, o.Selects, o.State
+	}
+	for _, c := range m.staged {
+		if c.Kind == ChangeAddOutput && c.Name == identity {
+			return c.Format, c.Path, "all", "pending"
+		}
+	}
+	return "", "", "", ""
+}
+
+// outputNameProblem explains why name would be refused as an output's name
+// or new name, or "" when it would not. Shared by add-output's name step and
+// rename-output so the two paths into the same manifest key space enforce
+// exactly one rule (manifest.ValidOutputName) rather than two that could
+// disagree -- the class of defect this task's brief calls out by name.
+// Wording matches requireValidOutputName and newOutputAddCmd's own messages
+// in internal/cli/output.go verbatim, so a user does not learn a second
+// vocabulary for the same refusal between the CLI and this tab.
+//
+// ignore excludes one identity from the "already taken" scan: rename-output
+// passes the row's own current identity, so renaming a row to the name it
+// already has is not flagged as a collision with itself.
+func (m Model) outputNameProblem(name, ignore string) string {
+	if !manifest.ValidOutputName(name) {
+		return fmt.Sprintf("%q: output names may use letters, digits, - and _ only, "+
+			"and may not begin with -", name)
+	}
+	for _, existing := range m.outputIdentityNames() {
+		if existing == ignore {
+			continue
+		}
+		if existing == name {
+			return fmt.Sprintf("output %q is already defined", name)
+		}
+	}
+	return ""
+}
+
+// outputAddNameWarning surfaces outputNameProblem live while typing the name
+// step of `a`, mirroring internal/tui's addNameWarning and this package's
+// own deleteBlockedReason: a refusal must be visible before enter is
+// pressed, not discovered by pressing it and watching nothing happen.
+func (m Model) outputAddNameWarning() string {
+	if m.mode != ModeOutputAddName || m.buffer == "" {
+		return ""
+	}
+	return m.outputNameProblem(m.buffer, "")
+}
+
+// outputRenameWarning is outputAddNameWarning's counterpart for `r`,
+// excluding the row's own current identity from the collision scan (see
+// outputNameProblem's ignore parameter).
+func (m Model) outputRenameWarning() string {
+	if m.mode != ModeOutputRename || m.buffer == "" {
+		return ""
+	}
+	names := m.outputIdentityNames()
+	if m.outputRow >= len(names) {
+		return ""
+	}
+	return m.outputNameProblem(m.buffer, names[m.outputRow])
+}
+
 // cellText is what a cell renders: a staged set-value's literal text takes
 // precedence over the matrix's on-disk classification, so an edit is visible
 // the instant it is staged rather than only after w writes it out.
@@ -500,23 +706,29 @@ func (m *Model) reclampRow() {
 
 // moveCursorDown and moveCursorUp route j/k and the down/up arrows to
 // whichever cursor the active tab owns: the Overview tab's own overviewRow,
-// or the Variables matrix's row. Routing by tab here, rather than in every
-// caller, is what keeps the two cursors from ever being moved by the wrong
-// tab's keypress.
+// the Outputs tab's own outputRow, or the Variables matrix's row. Routing by
+// tab here, rather than in every caller, is what keeps the three cursors
+// from ever being moved by the wrong tab's keypress.
 func (m *Model) moveCursorDown() {
-	if m.tab == TabOverview {
+	switch m.tab {
+	case TabOverview:
 		m.moveOverviewRow(1)
-		return
+	case TabOutputs:
+		m.moveOutputRow(1)
+	default:
+		m.moveRow(1)
 	}
-	m.moveRow(1)
 }
 
 func (m *Model) moveCursorUp() {
-	if m.tab == TabOverview {
+	switch m.tab {
+	case TabOverview:
 		m.moveOverviewRow(-1)
-		return
+	case TabOutputs:
+		m.moveOutputRow(-1)
+	default:
+		m.moveRow(-1)
 	}
-	m.moveRow(-1)
 }
 
 // moveRow shifts the row cursor by delta, clamping at both edges rather than
@@ -553,6 +765,19 @@ func (m *Model) moveOverviewRow(delta int) {
 	m.overviewRow = clamp(m.overviewRow+delta, 0, len(m.problems)-1)
 }
 
+// moveOutputRow shifts the Outputs tab's own cursor by delta, clamping
+// rather than wrapping for the same reason moveRow does. It never touches
+// row/col: see outputRow's field comment. The list it clamps against
+// includes staged add-output rows (see outputIdentityNames), so a freshly
+// added output is a row j/k can already reach before w ever runs.
+func (m *Model) moveOutputRow(delta int) {
+	n := len(m.outputIdentityNames())
+	if n == 0 {
+		return
+	}
+	m.outputRow = clamp(m.outputRow+delta, 0, n-1)
+}
+
 // jumpToProblem moves the cursor to the cell the problem under the Overview
 // cursor names. A "missing" problem always has a Profile and a matrix cell:
 // enter switches to Variables with row/col on exactly that (name, profile).
@@ -560,8 +785,12 @@ func (m *Model) moveOverviewRow(delta int) {
 // An "output" problem has no cell -- Profile is empty, since freshness is a
 // property of the whole rendered file, not one variable under one profile.
 // Guessing a cell for it would be a silent wrong answer, so enter instead
-// switches to the Outputs tab: inert in phase 1, but the closest the model
-// can move today without landing somewhere the problem never named.
+// switches to the Outputs tab -- the closest the model can move without
+// landing somewhere the problem never named. It stops there rather than
+// also moving outputRow onto the row the problem is about: jumpToProblem's
+// own contract is "the Outputs tab is where this is answered", not "here is
+// the exact row", and guessing the latter risks the same wrong-cell mistake
+// this function exists to avoid for "missing" problems.
 func (m *Model) jumpToProblem() {
 	if m.overviewRow < 0 || m.overviewRow >= len(m.problems) {
 		return
@@ -778,7 +1007,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		switch m.mode {
-		case ModeEditValue, ModeEditSecret, ModeAddName, ModeFilter:
+		case ModeEditValue, ModeEditSecret, ModeAddName, ModeFilter,
+			ModeOutputAddName, ModeOutputAddFormat, ModeOutputAddPath, ModeOutputRename:
 			return m.updateInput(msg)
 		case ModeSwitchProject:
 			return m.updateSwitch(msg)
@@ -851,12 +1081,26 @@ func (m Model) updateBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "e":
 		m.beginEdit()
 	case "a":
-		if m.tab == TabVariables {
+		switch m.tab {
+		case TabVariables:
 			m.mode = ModeAddName
 			m.buffer = ""
+		case TabOutputs:
+			m.beginOutputAdd()
 		}
 	case "d":
-		m.toggleDelete()
+		switch m.tab {
+		case TabVariables:
+			m.toggleDelete()
+		case TabOutputs:
+			m.toggleOutputDelete()
+		}
+	case "D":
+		// Capital, deliberately: d already means delete everywhere in this
+		// UI, and one key meaning delete on this tab and default on that one
+		// is how someone removes an output they meant to promote instead.
+		// Outputs-only -- there is nothing else in this UI for it to mean.
+		m.stageOutputDefault()
 	case "s":
 		m.promoteSecret()
 	case "/":
@@ -865,6 +1109,10 @@ func (m Model) updateBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.buffer = ""
 		}
 	case "r":
+		if m.tab == TabOutputs {
+			m.beginOutputRename()
+			return m, nil
+		}
 		if req, ok := m.revealRequest(); ok {
 			return m, func() tea.Msg { return req }
 		}
@@ -1180,9 +1428,278 @@ func (m Model) promoteBlockedReason() string {
 		name)
 }
 
-// updateInput handles typing in whichever of the three text-entry modes is
-// active, mirroring internal/tui's updateInput: backspace, printable runes
-// and space edit the buffer; esc abandons it; enter commits it per mode.
+// beginOutputAdd opens the Outputs tab's `a` wizard: name, then format, then
+// path (see confirmOutputAddPath), staged together as one add-output only
+// once all three are known.
+func (m *Model) beginOutputAdd() {
+	if m.tab != TabOutputs {
+		return
+	}
+	m.mode = ModeOutputAddName
+	m.buffer = ""
+	m.draftOutputName = ""
+	m.draftOutputFormat = ""
+}
+
+// confirmOutputAddName handles enter on the wizard's name step. An empty
+// buffer abandons the whole flow, mirroring ModeAddName's own
+// empty-enter-abandons convention on the Variables tab -- there is no "back
+// one step" key, so backing out of an add already in progress starts over
+// with a, rather than losing only the current field. An invalid or already-
+// taken name stays put without clearing the buffer: outputAddNameWarning
+// (View) already explains why, live, and closing the prompt here would
+// silently discard a name the user is still correcting.
+func (m Model) confirmOutputAddName() (Model, tea.Cmd) {
+	name := m.buffer
+	if name == "" {
+		m.mode = ModeBrowse
+		return m, nil
+	}
+	if reason := m.outputNameProblem(name, ""); reason != "" {
+		return m, nil
+	}
+	m.draftOutputName = name
+	m.mode = ModeOutputAddFormat
+	m.buffer = ""
+	return m, nil
+}
+
+// confirmOutputAddFormat handles enter on the wizard's format step, mirroring
+// confirmOutputAddName's empty-enter-abandons rule. The format itself is not
+// validated against FormatDotenv/FormatJSON here: manifest.Validate already
+// enforces that at commit time (Task 6), and duplicating the check here
+// would be a second rule that could disagree with the one in
+// internal/manifest, the exact class of defect ValidOutputName's reuse
+// above is already guarding against for names.
+func (m Model) confirmOutputAddFormat() (Model, tea.Cmd) {
+	if m.buffer == "" {
+		m.mode = ModeBrowse
+		m.draftOutputName = ""
+		return m, nil
+	}
+	m.draftOutputFormat = m.buffer
+	m.mode = ModeOutputAddPath
+	m.buffer = ""
+	return m, nil
+}
+
+// confirmOutputAddPath handles enter on the wizard's final step, staging
+// add-output with all three facts at once -- there is no output worth
+// having with only some of them, so nothing stages until this point.
+func (m Model) confirmOutputAddPath() (Model, tea.Cmd) {
+	if m.buffer == "" {
+		m.mode = ModeBrowse
+		m.draftOutputName = ""
+		m.draftOutputFormat = ""
+		return m, nil
+	}
+	m.stage(Change{
+		Kind:   ChangeAddOutput,
+		Name:   m.draftOutputName,
+		Format: m.draftOutputFormat,
+		Path:   m.buffer,
+	})
+	m.mode = ModeBrowse
+	m.buffer = ""
+	m.draftOutputName = ""
+	m.draftOutputFormat = ""
+	return m, nil
+}
+
+// beginOutputRename opens the Outputs tab's `r` prompt: the new name for the
+// row under the cursor. A staged delete for this row is cancelled first,
+// unconditionally -- mirrors beginEdit's own cancel-on-edit (see its doc):
+// renaming a row the user marked deleted is a clear, visible decision to
+// keep it, not a silent resurrection.
+func (m *Model) beginOutputRename() {
+	if m.tab != TabOutputs {
+		return
+	}
+	names := m.outputIdentityNames()
+	if len(names) == 0 || m.outputRow >= len(names) {
+		return
+	}
+	m.removeOutputDelete(names[m.outputRow])
+	m.mode = ModeOutputRename
+	m.buffer = ""
+}
+
+// confirmOutputRename handles enter on the rename prompt. An empty buffer
+// abandons the rename, mirroring the add wizard's own convention. An
+// invalid or already-taken name stays put, exactly like
+// confirmOutputAddName: outputRenameWarning already explains why, live.
+//
+// The row cannot have moved since beginOutputRename opened this mode --
+// updateInput never touches outputRow -- so re-deriving identity from
+// outputRow here, rather than remembering it in a field, cannot land on the
+// wrong row.
+func (m Model) confirmOutputRename() (Model, tea.Cmd) {
+	names := m.outputIdentityNames()
+	if m.outputRow >= len(names) {
+		m.mode = ModeBrowse
+		m.buffer = ""
+		return m, nil
+	}
+	identity := names[m.outputRow]
+	newName := m.buffer
+	if newName == "" {
+		m.mode = ModeBrowse
+		return m, nil
+	}
+	if reason := m.outputNameProblem(newName, identity); reason != "" {
+		return m, nil
+	}
+	m.stage(Change{Kind: ChangeRenameOutput, Name: identity, Value: newName})
+	m.mode = ModeBrowse
+	m.buffer = ""
+	return m, nil
+}
+
+// stageOutputDefault stages default-output for the row under the cursor
+// (`D` -- capital, since `d` already means delete everywhere else in this
+// UI; see the task brief). Any earlier default-output staged for a
+// DIFFERENT row is replaced: only one output can be project.output, so
+// leaving both staged would leave Task 6's commit to guess which one w
+// actually applies. A staged delete for this row is cancelled first,
+// mirroring beginOutputRename's own cancel-on-edit: making a row the
+// default is a decision to keep it.
+//
+// A row that already resolves as the default -- on disk, or because this
+// session already staged it -- stages nothing: defaultBlockedReason (View)
+// says why, mirroring promoteBlockedReason's refusal on an already-secret
+// row.
+func (m *Model) stageOutputDefault() {
+	if m.tab != TabOutputs {
+		return
+	}
+	names := m.outputIdentityNames()
+	if len(names) == 0 || m.outputRow >= len(names) {
+		return
+	}
+	identity := names[m.outputRow]
+	if m.outputIsDefault(identity) {
+		return
+	}
+	m.removeOutputDelete(identity)
+	kept := m.staged[:0]
+	for _, c := range m.staged {
+		if c.Kind == ChangeDefaultOutput {
+			continue
+		}
+		kept = append(kept, c)
+	}
+	m.staged = kept
+	m.staged = append(m.staged, Change{Kind: ChangeDefaultOutput, Name: identity})
+}
+
+// defaultBlockedReason explains why D would currently do nothing on the row
+// under the cursor, mirroring promoteBlockedReason's derivation from state
+// Update already keeps rather than a stored message. Non-empty exactly when
+// outputIsDefault already holds for that row -- D only sets the default, it
+// never clears one, so there is no narrower fix than "pick a different row"
+// to offer here.
+func (m Model) defaultBlockedReason() string {
+	if m.tab != TabOutputs {
+		return ""
+	}
+	names := m.outputIdentityNames()
+	if len(names) == 0 || m.outputRow >= len(names) {
+		return ""
+	}
+	identity := names[m.outputRow]
+	if !m.outputIsDefault(identity) {
+		return ""
+	}
+	return fmt.Sprintf(
+		"D does nothing here: %s is already the default -- there is no key that clears the default without setting a new one",
+		identity)
+}
+
+// toggleOutputDelete stages remove-output for the row under the cursor, or
+// un-stages it if already staged -- mirrors toggleDelete's own toggle: the
+// user has not saved anything yet and can still change their mind.
+//
+// Refuses over a staged rename-output or default-output for the same row,
+// the Outputs-tab counterpart of toggleDelete's own refusal over a staged
+// set-value/set-secret (see its doc): committing a rename or a new default
+// for a row the same batch also removes is contradictory, not merely
+// redundant, and letting both stage would leave Task 6's commit to guess
+// which one the user actually meant.
+func (m *Model) toggleOutputDelete() {
+	if m.tab != TabOutputs {
+		return
+	}
+	names := m.outputIdentityNames()
+	if len(names) == 0 || m.outputRow >= len(names) {
+		return
+	}
+	identity := names[m.outputRow]
+	if m.isOutputDeleted(identity) {
+		m.removeOutputDelete(identity)
+		return
+	}
+	for _, c := range m.staged {
+		if (c.Kind == ChangeRenameOutput || c.Kind == ChangeDefaultOutput) && c.Name == identity {
+			return
+		}
+	}
+	m.staged = append(m.staged, Change{Kind: ChangeRemoveOutput, Name: identity})
+}
+
+// removeOutputDelete un-stages a remove-output change for identity, if one
+// is staged. Shared by toggleOutputDelete's own toggle-off and
+// beginOutputRename/stageOutputDefault's cancel-on-edit, mirroring
+// removeDelete's own role for the Variables tab.
+func (m *Model) removeOutputDelete(identity string) {
+	for i, c := range m.staged {
+		if c.Kind == ChangeRemoveOutput && c.Name == identity {
+			m.staged = append(m.staged[:i], m.staged[i+1:]...)
+			return
+		}
+	}
+}
+
+// outputDeleteBlockedReason mirrors deleteBlockedReason for the Outputs tab:
+// derived at view time from state Update already keeps, so a row with a
+// staged rename or a staged default explains why d does nothing there
+// before the key is ever pressed, not only after.
+func (m Model) outputDeleteBlockedReason() string {
+	if m.tab != TabOutputs {
+		return ""
+	}
+	names := m.outputIdentityNames()
+	if len(names) == 0 || m.outputRow >= len(names) {
+		return ""
+	}
+	identity := names[m.outputRow]
+	if m.isOutputDeleted(identity) {
+		return ""
+	}
+	for _, c := range m.staged {
+		word := ""
+		switch {
+		case c.Kind == ChangeRenameOutput && c.Name == identity:
+			word = "rename"
+		case c.Kind == ChangeDefaultOutput && c.Name == identity:
+			word = "default"
+		}
+		if word != "" {
+			return fmt.Sprintf(
+				"d is disabled here: %s has a staged %s -- q discards everything staged; there is no key that reverts just this one",
+				identity, word)
+		}
+	}
+	return ""
+}
+
+// updateInput handles typing in whichever text-entry mode is active,
+// mirroring internal/tui's updateInput: backspace, printable runes and space
+// edit the buffer; esc abandons it; enter commits it per mode. The four
+// Output* modes route here too, but each confirms through its own method
+// (confirmOutputAddName and friends) rather than inline in the switch below,
+// since advancing to the wizard's next step -- or staying put on a refused
+// name -- needs to skip this function's own trailing "mode = ModeBrowse"
+// reset that every other mode falls through to.
 func (m Model) updateInput(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEsc:
@@ -1228,6 +1745,14 @@ func (m Model) updateInput(msg tea.KeyMsg) (Model, tea.Cmd) {
 		case ModeFilter:
 			m.filter = m.buffer
 			m.reclampRow()
+		case ModeOutputAddName:
+			return m.confirmOutputAddName()
+		case ModeOutputAddFormat:
+			return m.confirmOutputAddFormat()
+		case ModeOutputAddPath:
+			return m.confirmOutputAddPath()
+		case ModeOutputRename:
+			return m.confirmOutputRename()
 		}
 		m.mode = ModeBrowse
 		m.buffer = ""
@@ -1312,7 +1837,15 @@ func (m Model) View() string {
 // whole session -- picking a different registered project -- and is the
 // rarest of the seven to reach for while actually editing variables. `?`
 // still names it.
+//
+// The Outputs tab gets its own line rather than this one: e/reveal/promote/
+// filter mean nothing there, and naming a/r/d as if they still meant
+// add-a-variable/reveal/delete-a-variable would be actively wrong now that
+// Task 5 has given them different meanings on that tab. D exists only here.
 func (m Model) keyHints() string {
+	if m.tab == TabOutputs {
+		return "a add · r rename · D default · d delete · ? help"
+	}
 	return "e edit · r reveal · a add · d delete · s promote · / filter · ? help"
 }
 
@@ -1322,6 +1855,12 @@ func (m Model) keyHints() string {
 // not transcribed from the spec. `s`'s entry says its promotion is one-way:
 // a bare "toggle secret" would be a lie in the direction that matters, since
 // there is no key that turns a secret back into a plain variable.
+//
+// a, r and d each mean something different depending on the tab (Task 5),
+// so their rows say both meanings rather than describing only the one on
+// the Variables tab -- and D, which exists only on the Outputs tab, gets its
+// own row rather than being folded into d's, since the two are deliberately
+// distinct keys with distinct consequences (see the task brief).
 func (m Model) viewHelp() string {
 	var b strings.Builder
 	b.WriteString("Keys\n\n")
@@ -1329,9 +1868,10 @@ func (m Model) viewHelp() string {
 		{"1-4, tab, shift+tab", "switch tabs"},
 		{"j/k, h/l, up/down/left/right", "move the cursor"},
 		{"e", "edit the cell under the cursor (masked while typing if it is a secret)"},
-		{"r", "reveal the cell under the cursor's real value (one keyring read)"},
-		{"a", "add a variable"},
-		{"d", "mark the selected variable deleted (press again to un-mark it)"},
+		{"r", "reveal the cell under the cursor's real value (Variables tab); rename the selected output (Outputs tab)"},
+		{"a", "add a variable (Variables tab); add an output -- name, then format, then path (Outputs tab)"},
+		{"d", "mark the selected variable or output deleted (press again to un-mark it)"},
+		{"D", "make the selected output the default (Outputs tab only)"},
 		{"s", "promote the selected variable to a secret -- one-way, there is no key that turns it back"},
 		{"/", "filter rows by name substring"},
 		{"p", "switch to a different registered project"},
@@ -1400,12 +1940,12 @@ func (m Model) viewProfiles() string {
 		"Use `trenvy profile` (add, default, list, rm, use) from the command line.\n"
 }
 
-// viewOutputs renders one row per manifest output -- NAME, FORMAT, PATH,
-// SELECTS and STATE, the last of these reusing the exact ui.State* value
-// internal/cli's outputStates already computed for the Overview's Problems
-// (see Model.outputs' own doc). It never reclassifies freshness itself: doing
-// so here, even by accident, is how two places computing one fact about
-// outputs went out of sync into a phase-1 Critical.
+// viewOutputs renders one row per output -- a cursor column, NAME, FORMAT,
+// PATH, SELECTS and STATE, the last of these reusing the exact ui.State*
+// value internal/cli's outputStates already computed for the Overview's
+// Problems (see Model.outputs' own doc). It never reclassifies freshness
+// itself: doing so here, even by accident, is how two places computing one
+// fact about outputs went out of sync into a phase-1 Critical.
 //
 // A state such as StateFresh renders exactly as "fresh" whether or not
 // outputStates could actually verify it without reading a secret -- the
@@ -1414,33 +1954,85 @@ func (m Model) viewProfiles() string {
 // place this fact surfaces is the same caveat sentence the Overview's
 // healthy line uses, appended once below, never per row.
 //
-// A project with no outputs at all is normal, not broken: exec and shell
-// need none. This says so in the same words `trenvy output list` already
-// uses, including how to add one, rather than rendering a panel that looks
-// like something failed to load.
+// Rows come from outputIdentityNames, not m.outputs directly: a staged
+// add-output must appear before w ever runs (mirrors the Variables tab
+// showing a staged add-var), a staged rename shows as "old -> new" in the
+// NAME column (outputDisplayName), a staged default moves "*" onto its row
+// and off the previous one (outputIsDefault), and a staged delete marks the
+// row "(deleted)" without removing it -- the user is staging an intention
+// they can still abandon with q, and a row that vanished would give them
+// nothing to change their mind about, and shift every row below it under a
+// stationary cursor.
+//
+// A project with no outputs at all -- none on disk, and none staged this
+// session -- is normal, not broken: exec and shell need none. This says so
+// in the same words `trenvy output list` already uses for the CLI
+// equivalent, but names `a` first: that key is now wired (Task 5), and it
+// is the more direct fix for whoever is looking at this exact screen. That
+// placeholder only shows in ModeBrowse: mid-wizard (see beginOutputAdd),
+// there IS something to render -- the prompt for whichever step is active
+// -- even before the first output exists to put a row on screen for.
 func (m Model) viewOutputs() string {
-	if len(m.outputs) == 0 {
+	names := m.outputIdentityNames()
+	if len(names) == 0 && m.mode == ModeBrowse {
 		return "no outputs; exec and shell need none.\n" +
-			"  add one with: trenvy output add <name> --format dotenv --path <path>\n"
+			"  press a to add one -- name, then format, then path -- or from the command line: " +
+			"trenvy output add <name> --format dotenv --path <path>\n"
 	}
 
 	var b strings.Builder
-	w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tFORMAT\tPATH\tSELECTS\tSTATE")
-	for _, o := range m.outputs {
-		name := o.Name
-		if o.IsDefault {
-			// Mirrors `trenvy output list`'s own marker for project.Output,
-			// so a user does not learn a second convention for the same
-			// fact between the CLI and this tab.
-			name += " *"
+	if len(names) > 0 {
+		w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(w, "\tNAME\tFORMAT\tPATH\tSELECTS\tSTATE")
+		for i, identity := range names {
+			cursor := " "
+			if i == m.outputRow {
+				cursor = ">"
+			}
+			format, path, selects, state := m.outputFacts(identity)
+			name := m.outputDisplayName(identity)
+			if m.outputIsDefault(identity) {
+				// Mirrors `trenvy output list`'s own marker for
+				// project.Output, so a user does not learn a second
+				// convention for the same fact between the CLI and this tab.
+				name += " *"
+			}
+			if m.isOutputDeleted(identity) {
+				name += " (deleted)"
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", cursor, name, format, path, selects, state)
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", name, o.Format, o.Path, o.Selects, o.State)
+		_ = w.Flush()
 	}
-	_ = w.Flush()
 
 	if m.outputFreshnessUnverified {
 		b.WriteString("\n" + outputFreshnessCaveat)
+	}
+
+	switch m.mode {
+	case ModeOutputAddName:
+		fmt.Fprintf(&b, "\n new output name: %s_", m.buffer)
+		if reason := m.outputAddNameWarning(); reason != "" {
+			fmt.Fprintf(&b, "  (%s)", reason)
+		}
+		b.WriteString("\n")
+	case ModeOutputAddFormat:
+		fmt.Fprintf(&b, "\n format for %s (dotenv or json): %s_\n", m.draftOutputName, m.buffer)
+	case ModeOutputAddPath:
+		fmt.Fprintf(&b, "\n path for %s: %s_\n", m.draftOutputName, m.buffer)
+	case ModeOutputRename:
+		fmt.Fprintf(&b, "\n new name: %s_", m.buffer)
+		if reason := m.outputRenameWarning(); reason != "" {
+			fmt.Fprintf(&b, "  (%s)", reason)
+		}
+		b.WriteString("\n")
+	case ModeBrowse:
+		if reason := m.outputDeleteBlockedReason(); reason != "" {
+			fmt.Fprintf(&b, "\n%s\n", reason)
+		}
+		if reason := m.defaultBlockedReason(); reason != "" {
+			fmt.Fprintf(&b, "\n%s\n", reason)
+		}
 	}
 
 	return b.String()

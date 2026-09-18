@@ -162,7 +162,33 @@ the command surface may still move under you.
   straight to the Variables cell it names -- the right row and the right
   profile column --
   or, for a problem about an output's freshness, to the Outputs tab, since
-  no single cell answers it. `p` opens a switcher over every registered
+  no single cell answers it. The Outputs tab itself lists every output the
+  same way `trenvy output list` does -- name, format, path, and the globs
+  summarized as prose through the one `SelectsSummary` implementation both
+  now share -- plus a STATE column reusing the exact freshness classification
+  the Overview's problem list already computed, so the two surfaces cannot
+  disagree about it. `a` there prompts for a name, then a format, then a
+  path, staging all three together as one addition only once the path is
+  entered; the name is checked against the same `ValidOutputName` rule and
+  the same "already defined" refusal `trenvy output add` enforces, shown
+  live while typing rather than discovered only by pressing enter and
+  watching nothing happen. `r` renames the output under the cursor, showing
+  the pending "old -> new" name in place, and refuses the same way for a
+  name that is invalid or already taken. `D` -- capital, since `d` already
+  means delete everywhere else in this UI -- stages making the row under the
+  cursor `project.output`, replacing any earlier `D` staged elsewhere, since
+  only one output can hold that slot; it does nothing, and says so, on a row
+  that is already the default. `d` marks an output deleted without removing
+  it from view, the same staged-not-applied convention the Variables tab
+  already uses, and refuses over a row with a staged rename or a staged
+  default rather than leaving a later `w` to guess which one was meant --
+  renaming or defaulting a deleted row cancels the delete first, the same
+  cancel-on-edit rule `e` already follows there. A project with no outputs
+  now names `a` first, ahead of the CLI equivalent it named alone before this
+  key was wired. Nothing here reaches disk until `w`; the four new Change
+  kinds -- add-output, rename-output, remove-output, default-output -- join
+  the ones already staged in memory for that one commit. `p` opens a
+  switcher over every registered
   project and, on a different choice, reloads the session against it in
   place -- no quitting and re-running `trenvy ui` from another directory.
   Register and remove stay off the panel; those remain `trenvy project`'s
