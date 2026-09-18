@@ -1779,6 +1779,85 @@ func TestUiPartialFailureWhenStateSaveFailsReportsProgressAndLeavesManifestAlone
 	}
 }
 
+// Fix 3 (Important, whole-branch review): commitStaged's manifest.Save call
+// used to be a bare `return err`, the one exit in this function that did not
+// wrap with partialCommitError/commitProgress -- including the Validate
+// branch immediately above it, which already does. With a batch that landed
+// real progress before reaching Save (a keyring write here), a read-only
+// manifest directory told the user only "permission denied", losing every
+// fact about what had already landed for real. Every prior partial-failure
+// test in this file chmods the STATE directory and so exercises Validate's
+// own error path (state save fails first); this is the first to chmod the
+// MANIFEST directory specifically, so Validate succeeds and manifest.Save
+// itself is what fails.
+func TestUiPartialFailureWhenManifestSaveFailsReportsProgress(t *testing.T) {
+	skipIfNotRestrictable(t)
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('2'))
+		mo, _ = mo.Update(ui.KeyRune('e')) // ALPHA_TOKEN, secret
+		mo, _ = mo.Update(keyRunes("new-secret-value"))
+		mo, _ = mo.Update(keyEnter()) // stage set-secret: lands for real before Save
+
+		mo, _ = mo.Update(ui.KeyRune('4'))
+		mo, _ = mo.Update(ui.KeyRune('r'))
+		mo, _ = mo.Update(keyRunes("prod-env"))
+		mo, _ = mo.Update(keyEnter()) // stage rename-output: a legal batch, Validate passes
+		return markUISaved(mo), nil
+	}
+
+	dir := filepath.Join(config.Dir(), "projects")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	restored := false
+	restore := func() {
+		if restored {
+			return
+		}
+		restored = true
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	defer restore()
+
+	err := h.run("ui")
+	if err == nil {
+		t.Fatal("ui succeeded despite a read-only manifest directory")
+	}
+	if !strings.Contains(err.Error(), "stored 1 of 1 secrets") {
+		t.Errorf("error does not report the keyring write that already landed: %v", err)
+	}
+	if !strings.Contains(err.Error(), "manifest was not saved") {
+		t.Errorf("error does not say the manifest is unsaved: %v", err)
+	}
+	if !strings.Contains(err.Error(), "trenvy ui") {
+		t.Errorf("error does not name the way back: %v", err)
+	}
+
+	restore()
+	got, getErr := h.mem.Get("trenvy/vpb/dev/ALPHA_TOKEN")
+	if getErr != nil {
+		t.Fatalf("the keyring write should have already landed: %v", getErr)
+	}
+	if got != "new-secret-value" {
+		t.Errorf("stored secret = %q, want the write that already landed", got)
+	}
+	m, loadErr := manifest.Load(config.ManifestPath("vpb"))
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	if _, ok := m.Outputs["docker"]; !ok {
+		t.Error("the manifest was changed despite the save failing")
+	}
+}
+
 // Five Things #5's honesty requirement goes one step further than a state
 // save that fails outright: if the state save SUCCEEDS -- a rename's render
 // record really is repointed on disk -- and the manifest is then refused by

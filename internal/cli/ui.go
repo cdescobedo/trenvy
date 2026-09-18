@@ -520,7 +520,18 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 	}
 
 	if err := manifest.Save(config.ManifestPath(app.Entry.ID), app.Manifest); err != nil {
-		return err
+		// Fix 3 (Important, whole-branch review): this used to be a bare
+		// `return err`, the one exit in this function that did not wrap with
+		// partialCommitError -- including the Validate branch immediately
+		// above, which already does. A manifest directory that cannot be
+		// written to (0500, say) can fail here AFTER every keyring write,
+		// keyring delete and state save above has already landed for real,
+		// and the bare error told the user only "permission denied",
+		// dropping every fact about what had already happened -- exactly
+		// the loss commitProgress and partialCommitError exist to prevent
+		// everywhere else in this function.
+		return partialCommitError("save manifest", config.ManifestPath(app.Entry.ID), err,
+			storedApplied, storedTotal, deletedApplied, deletedTotal, renamedRecords, len(forgotten), stateSaved)
 	}
 
 	fmt.Fprintf(opts.Stdout, "saved %d changes\n", len(staged))
