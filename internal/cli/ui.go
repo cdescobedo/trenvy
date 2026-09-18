@@ -110,9 +110,12 @@ func newUiCmd(opts *Options) *cobra.Command {
 //     added (outputIdentityNames includes a staged add-output's name, so
 //     selecting and acting on it before w is a normal session), and that
 //     phase's mutation needs the key to already exist in the map.
+//
 //  2. Keyring writes (set-secret).
+//
 //  3. Keyring deletes (delete-var's secret removal), after every write --
 //     phase 1's own rule, carried forward unchanged.
+//
 //  4. The state file: a staged rename repoints that output's render
 //     records (State.RenameOutput), and a staged removal forgets them
 //     outright (State.Forget, across every worktree) -- the staged-model
@@ -121,14 +124,35 @@ func newUiCmd(opts *Options) *cobra.Command {
 //     manifest, for the same reason `trenvy output rename` already
 //     established (see State.RenameOutput's doc): only this order is
 //     recoverable by re-running the same session's equivalent by hand.
+//
 //  5. Every remaining manifest mutation, including every REMOVAL
 //     (delete-var, remove-output) and the rest (set-value, promote-secret,
-//     rename-output's manifest half, default-output). Removals live here,
-//     never in phase 1's loop, so an add-output and a remove-output for the
-//     SAME row in one batch always nets to "never existed" regardless of
-//     which the caller listed first in staged -- getting this backwards is
-//     the Fix-1-shaped bug: an addition applied AFTER its own removal
-//     resurrects exactly what the user staged getting rid of.
+//     default-output, set-globs). Removals live here, never in phase 1's
+//     loop, so an add-output and a remove-output for the SAME row in one
+//     batch always nets to "never existed" regardless of which the caller
+//     listed first in staged -- getting this backwards is the Fix-1-shaped
+//     bug: an addition applied AFTER its own removal resurrects exactly what
+//     the user staged getting rid of.
+//
+//     rename-output's manifest half runs in its OWN pass, 5b, strictly after
+//     every case above -- never interleaved with them in staged order. This
+//     is the fix for the second, closely related Fix-1-shaped bug a
+//     whole-branch review found: identity.Name never changes when a row is
+//     renamed (every other Change keys by the row's ORIGINAL identity, see
+//     internal/ui's outputIdentityNames), but the rename itself moves that
+//     key in app.Manifest.Outputs. Applying rename-output in the same
+//     single-pass loop as set-globs or default-output meant whichever the
+//     user happened to press FIRST decided whether the other's edit landed:
+//     rename-then-edit-membership deleted the old key before set-globs ever
+//     looked it up, silently discarding the edit, while edit-then-rename
+//     worked -- two staged edits, opposite results, by keypress order alone.
+//     Running every other output-keyed mutation to completion in 5a before
+//     any rename in 5b removes the ordering dependency entirely: set-globs
+//     and default-output always see the row under its pre-rename identity,
+//     and 5b's own rename then carries forward whatever those mutations just
+//     wrote, exactly the way removedOutputNames (computed before phase 4)
+//     already makes removal order-independent.
+//
 //  6. Validate, then save the manifest.
 //
 // The manifest is the only inventory of which keyring items exist, so a
@@ -356,10 +380,14 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 		}
 	}
 
-	// Phase 5: every remaining manifest mutation, including every removal.
-	// Only now does the manifest change, and only in memory -- Validate
-	// runs before anything reaches disk, so a rejected manifest cannot
-	// leave a half-applied shape behind.
+	// Phase 5a: every remaining manifest mutation EXCEPT rename-output,
+	// including every removal. Only now does the manifest change, and only
+	// in memory -- Validate runs before anything reaches disk, so a rejected
+	// manifest cannot leave a half-applied shape behind.
+	//
+	// rename-output is deliberately NOT a case here -- see phase 5b below,
+	// and commitStaged's own doc, for why a rename must never share this
+	// loop with set-globs or default-output.
 	for _, c := range staged {
 		switch c.Kind {
 		case ui.ChangeSetValue:
@@ -396,27 +424,6 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 			v.Value = nil
 			v.Profiles = nil
 			app.Manifest.Vars[c.Name] = v
-		case ui.ChangeRenameOutput:
-			if removedOutputNames[c.Name] {
-				continue
-			}
-			o, ok := app.Manifest.Outputs[c.Name]
-			if !ok {
-				// Phase 1 already ran, so the only way this row is
-				// missing is a hand-built Change naming an identity that
-				// never existed -- nothing to rename.
-				continue
-			}
-			delete(app.Manifest.Outputs, c.Name)
-			app.Manifest.Outputs[c.Value] = o
-			// Mirrors `trenvy output rename`'s own coupling
-			// (internal/cli/output.go): a rename of the row holding
-			// project.output must repoint it, or Validate refuses every
-			// commit after this one for naming an output that no longer
-			// exists.
-			if app.Manifest.Project.Output == c.Name {
-				app.Manifest.Project.Output = c.Value
-			}
 		case ui.ChangeRemoveOutput:
 			delete(app.Manifest.Outputs, c.Name)
 			// Mirrors `trenvy output rm`'s own clearedDefault: removing the
@@ -441,15 +448,57 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 			}
 			o, ok := app.Manifest.Outputs[c.Name]
 			if !ok {
-				// Phase 1 already ran, so the only way this row is
-				// missing is a hand-built Change naming an identity that
-				// never existed -- nothing to set globs on, mirroring
-				// ChangeRenameOutput's own guard just above.
+				// Phase 1 already ran, and any staged rename for this
+				// identity runs strictly AFTER this whole loop, in phase
+				// 5b below -- never before it -- so a same-batch rename can
+				// never be why this row is missing here. The only way it
+				// is missing is a hand-built Change naming an identity
+				// that never existed -- nothing to set globs on.
 				continue
 			}
 			o.Include = c.Include
 			o.Exclude = c.Exclude
 			app.Manifest.Outputs[c.Name] = o
+		}
+	}
+
+	// Phase 5b: rename-output's manifest half, strictly after every case in
+	// phase 5a above has already run for every identity -- see commitStaged's
+	// own doc for the whole-branch-review bug this ordering fixes. Running
+	// renames last, in their own pass, means set-globs and default-output
+	// above always looked up the row under its PRE-rename identity (the one
+	// every Change keys by; see internal/ui's outputIdentityNames), so
+	// whichever the user staged first no longer decides whether the other's
+	// edit survives.
+	for _, c := range staged {
+		if c.Kind != ui.ChangeRenameOutput {
+			continue
+		}
+		if removedOutputNames[c.Name] {
+			continue
+		}
+		o, ok := app.Manifest.Outputs[c.Name]
+		if !ok {
+			// Phase 1 already ran, and phase 5a above never deletes a key
+			// under its OWN identity (only a rename or a removal does, and
+			// removal is already ruled out just above) -- so the only way
+			// this row is missing here is a hand-built Change naming an
+			// identity that never existed. Nothing to rename.
+			continue
+		}
+		delete(app.Manifest.Outputs, c.Name)
+		app.Manifest.Outputs[c.Value] = o
+		// Mirrors `trenvy output rename`'s own coupling
+		// (internal/cli/output.go): a rename of the row holding
+		// project.output must repoint it, or Validate refuses every
+		// commit after this one for naming an output that no longer
+		// exists. Reading Project.Output here, after phase 5a's own
+		// default-output case has already run for every row, is what
+		// makes THIS order-independent too: a same-batch default-output
+		// staged for this identity in either keypress order already set
+		// Project.Output to c.Name by the time this runs.
+		if app.Manifest.Project.Output == c.Name {
+			app.Manifest.Project.Output = c.Value
 		}
 	}
 

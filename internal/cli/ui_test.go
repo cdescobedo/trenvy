@@ -1046,6 +1046,212 @@ func TestUiCommitsSetGlobsForAFreshlyAddedOutputInTheSameSession(t *testing.T) {
 	}
 }
 
+// Fix 1 (CRITICAL, whole-branch review): a rename and a membership edit
+// staged for the SAME row in the SAME batch used to net to only one of the
+// two landing, decided entirely by which key the user pressed first.
+// commitStaged's old single pass over phase 5 processed staged changes in
+// staged order, and a rename deletes the row's manifest key under its OLD
+// name -- so rename-then-edit-membership deleted "docker" before set-globs
+// (keyed by the row's ORIGINAL identity, per internal/ui's
+// outputIdentityNames -- a rename never changes what a Change is keyed by)
+// ever looked it up, silently discarding the membership edit via the guard's
+// `!ok { continue }`. edit-then-rename happened to work, purely because
+// set-globs ran first while "docker" still existed. Two keypresses on one
+// row, two silently different outcomes depending on their order, is exactly
+// phase 1's own Critical shape. Both orders below must land identically:
+// commitStaged now runs every rename in its own pass (5b), strictly after
+// every other output mutation (5a) has already applied to the pre-rename
+// identity, so staged order can no longer decide the outcome.
+func TestUiRenameThenMembershipEditBothLand(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t)) // "docker": Include ["*"], vars ALPHA_TOKEN + APP_URL
+
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('4')) // Outputs tab, cursor on "docker"
+		mo, _ = mo.Update(ui.KeyRune('r'))
+		mo, _ = mo.Update(keyRunes("prod-env"))
+		mo, _ = mo.Update(keyEnter()) // stage rename-output FIRST
+
+		mo, _ = mo.Update(keyEnter())               // open the membership editor (still "docker")
+		mo, _ = mo.Update(ui.KeyRune('j'))          // move to APP_URL (sorted: ALPHA_TOKEN, APP_URL)
+		mo, _ = mo.Update(ui.KeyType(tea.KeySpace)) // uncheck it
+		mo, _ = mo.Update(keyEnter())               // stage set-globs SECOND
+		return markUISaved(mo), nil
+	}
+
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
+	}
+	assertRenameAndMembershipEditBothLanded(t)
+}
+
+// The other order: edit-then-rename, which the pre-fix code already got
+// right (see the doc above). Pinned here so a future change to commitStaged
+// cannot silently flip which order is the one that works.
+func TestUiMembershipEditThenRenameBothLand(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('4'))
+		mo, _ = mo.Update(keyEnter()) // open the membership editor FIRST
+		mo, _ = mo.Update(ui.KeyRune('j'))
+		mo, _ = mo.Update(ui.KeyType(tea.KeySpace))
+		mo, _ = mo.Update(keyEnter()) // stage set-globs
+
+		mo, _ = mo.Update(ui.KeyRune('r'))
+		mo, _ = mo.Update(keyRunes("prod-env"))
+		mo, _ = mo.Update(keyEnter()) // stage rename-output SECOND
+		return markUISaved(mo), nil
+	}
+
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
+	}
+	assertRenameAndMembershipEditBothLanded(t)
+}
+
+func assertRenameAndMembershipEditBothLanded(t *testing.T) {
+	t.Helper()
+	m, err := manifest.Load(config.ManifestPath("vpb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, gone := m.Outputs["docker"]; gone {
+		t.Error("the old name is still defined")
+	}
+	o, ok := m.Outputs["prod-env"]
+	if !ok {
+		t.Fatal("the rename did not land")
+	}
+	if o.Format != "dotenv" || o.Path != "src/.env" {
+		t.Errorf("renamed output lost its facts: %+v", o)
+	}
+	if len(o.Exclude) != 1 || o.Exclude[0] != "APP_URL" {
+		t.Errorf("prod-env.Exclude = %#v, want exactly [\"APP_URL\"] -- the membership edit did not land", o.Exclude)
+	}
+	if len(o.Include) != 0 {
+		t.Errorf("prod-env.Include = %#v, want empty (everything-except mode)", o.Include)
+	}
+}
+
+// The same mechanism generalizes beyond rename+membership: default-output
+// also reads and writes project.Output by the row's pre-rename identity
+// (ui.Change.Name never changes on a rename), so staging D and r for one row
+// in either order risked the identical bug -- D applied after an
+// already-moved rename would repoint project.output at a name that no
+// longer exists in the manifest, and Validate would refuse the whole batch,
+// discarding everything staged. "public" starts as the default so renaming
+// the OTHER row, "docker", and making it the new default in the same batch
+// is a real, order-sensitive combination, not a no-op.
+func TestUiDefaultThenRenameOnTheSameRowBothLand(t *testing.T) {
+	h := newHarness(t)
+	m, err := manifest.Parse([]byte(`
+[project]
+id = "vpb"
+profiles = ["dev"]
+default_profile = "dev"
+output = "public"
+salt = "abc123"
+
+[outputs.docker]
+format = "dotenv"
+path = "src/.env"
+include = ["*"]
+
+[outputs.public]
+format = "json"
+path = "public/env.json"
+include = ["*"]
+
+[vars.APP_URL]
+value = "http://+:8080"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.register("vpb", m)
+
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('4')) // Outputs tab, cursor on "docker" (sorts before "public")
+		mo, _ = mo.Update(ui.KeyRune('D')) // stage default-output(docker) FIRST
+		mo, _ = mo.Update(ui.KeyRune('r'))
+		mo, _ = mo.Update(keyRunes("prod-env"))
+		mo, _ = mo.Update(keyEnter()) // stage rename-output(docker->prod-env) SECOND
+		return markUISaved(mo), nil
+	}
+
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
+	}
+	assertDockerRenamedAndDefault(t)
+}
+
+// The reverse order, which already worked before the fix -- pinned so a
+// future change cannot flip which order is the one that works.
+func TestUiRenameThenDefaultOnTheSameRowBothLand(t *testing.T) {
+	h := newHarness(t)
+	m, err := manifest.Parse([]byte(`
+[project]
+id = "vpb"
+profiles = ["dev"]
+default_profile = "dev"
+output = "public"
+salt = "abc123"
+
+[outputs.docker]
+format = "dotenv"
+path = "src/.env"
+include = ["*"]
+
+[outputs.public]
+format = "json"
+path = "public/env.json"
+include = ["*"]
+
+[vars.APP_URL]
+value = "http://+:8080"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.register("vpb", m)
+
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('4'))
+		mo, _ = mo.Update(ui.KeyRune('r'))
+		mo, _ = mo.Update(keyRunes("prod-env"))
+		mo, _ = mo.Update(keyEnter())      // stage rename-output(docker->prod-env) FIRST
+		mo, _ = mo.Update(ui.KeyRune('D')) // stage default-output(docker) SECOND
+		return markUISaved(mo), nil
+	}
+
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
+	}
+	assertDockerRenamedAndDefault(t)
+}
+
+func assertDockerRenamedAndDefault(t *testing.T) {
+	t.Helper()
+	m, err := manifest.Load(config.ManifestPath("vpb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, gone := m.Outputs["docker"]; gone {
+		t.Error("the old name is still defined")
+	}
+	if _, ok := m.Outputs["prod-env"]; !ok {
+		t.Fatal("the rename did not land")
+	}
+	if m.Project.Output != "prod-env" {
+		t.Errorf("project.output = %q, want prod-env -- the default did not follow the rename", m.Project.Output)
+	}
+	if err := m.Validate(); err != nil {
+		t.Errorf("the committed manifest fails Validate: %v", err)
+	}
+}
+
 // rename-output must move the manifest key AND repoint project.output when
 // the renamed row held it -- mirroring trenvy output rename's own
 // `if app.Manifest.Project.Output == old { ... = name }` (internal/cli/output.go),

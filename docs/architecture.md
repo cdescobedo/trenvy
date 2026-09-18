@@ -246,11 +246,20 @@ were staged in:
    `trenvy output rename` already uses on its own.
 5. **Every remaining manifest edit and removal.** Cell values, secret
    promotions (flipping `Secret` and clearing `Value`/`Profiles`), output
-   renames, output defaults, output removals and glob changes are applied to
-   the in-memory manifest. An output staged as both added and removed in the
-   same session has no entry left after this phase, regardless of which the
-   session did first, because phase 1 already created it and this phase
-   deletes it.
+   defaults, output removals and glob changes are applied to the in-memory
+   manifest. An output staged as both added and removed in the same session
+   has no entry left after this phase, regardless of which the session did
+   first, because phase 1 already created it and this phase deletes it.
+
+   Output renames are the one exception: they run in their own pass, strictly
+   after every case above, never interleaved with them in staged order. Every
+   staged `Change` about an output keys by that row's ORIGINAL identity, but a
+   rename is the one operation that moves the manifest key itself -- applying
+   it in the same pass as a glob change or a new default meant whichever the
+   user staged FIRST decided whether the other's edit landed, since a rename
+   processed early deletes the key a later lookup needs. Running renames last
+   means every other output mutation always sees the row under its pre-rename
+   identity, so staged order can no longer change the outcome.
 6. **Validate, then save.** `Manifest.Validate` runs before the manifest
    reaches disk; only a manifest that passes is written.
 
