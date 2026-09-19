@@ -137,37 +137,51 @@ func Problems(mx *Matrix, outputs map[string]string) []Problem {
 	if len(mx.Outputs) > 0 {
 		byName := membershipOutputsForMatrix(mx)
 
-		// Fix 6 (Minor, whole-branch review): "reaches several outputs" is
-		// its own mirror of the zero-output suppression just above, for the
-		// identical reason. A healthy default two-output project -- both
-		// outputs selecting everything, the shape a plain `trenvy output
-		// add` with no --include/--exclude produces -- puts every variable
-		// in every output BY CONSTRUCTION, so flagging any count over one
-		// flagged ALL of them, every time, on a project doing nothing wrong.
-		// The threshold: uniform membership carries no information, because
-		// there is no variable that stands out from its peers to name --
-		// this warning exists to surface a variable whose reach differs from
-		// the rest, not to describe the project's general shape. So the
-		// several-outputs case is suppressed only when EVERY variable in the
-		// project reaches the SAME number of outputs (whatever that number
-		// is); the moment counts genuinely differ, the outlier is exactly
-		// what this warning is for, and reporting it (case len(outs) > 1
-		// below) is restored -- same-count is checked once, over the whole
-		// project, rather than per pair, so an outlier still gets named even
-		// while most of its peers agree with each other.
-		uniformCount := -1
-		uniform := true
+		// Fix 6, round 2 (Minor, whole-branch review): "reaches several
+		// outputs" exists to surface a variable whose reach differs from the
+		// rest, not to describe the project's general shape -- but the first
+		// version of this fix evaluated that over the WHOLE project: it
+		// suppressed only when EVERY variable's count matched every other
+		// variable's, so a single outlier switched every one of its peers
+		// back on. That is not a rare shape; it is what the membership
+		// editor produces the first time anyone uses it. A default project
+		// starts uniform (every variable in every output), then someone
+		// opens the editor to carve an exception into ONE variable -- the
+		// entire purpose of the feature Task 8 built -- and the old rule
+		// answered with a warning on every other variable too, burying the
+		// one that actually carries information under ten that do not.
+		//
+		// The fix is per-variable: flag a count only when it differs from
+		// the MODAL count -- the number of outputs most variables reach.
+		// modeCount below is computed once over every variable's count
+		// (zero included; a variable that reaches none is judged separately
+		// by the case below and can never reach this branch, so including
+		// it here cannot cause it to be double-flagged, and excluding it
+		// would only complicate this loop for no behavioural difference).
+		// ok is false when there is no single most-common count -- a tie
+		// for the mode, e.g. half the variables at two outputs and half at
+		// three -- and the honest answer there is silence: "differs from
+		// the rest" presumes a rest to differ from, and a population split
+		// evenly in two has no majority to be the exception to.
+		counts := make(map[string]int, len(mx.Names))
+		freq := map[int]int{}
 		for _, name := range mx.Names {
 			n := len(byName[name])
-			if uniformCount == -1 {
-				uniformCount = n
-				continue
-			}
-			if n != uniformCount {
-				uniform = false
-				break
+			counts[name] = n
+			freq[n]++
+		}
+		var modeCount, maxFreq int
+		var tied bool
+		for n, f := range freq {
+			switch {
+			case f > maxFreq:
+				maxFreq, modeCount = f, n
+				tied = false
+			case f == maxFreq:
+				tied = true
 			}
 		}
+		modeOK := maxFreq > 0 && !tied
 
 		for _, name := range mx.Names {
 			outs := byName[name]
@@ -181,7 +195,7 @@ func Problems(mx *Matrix, outputs map[string]string) []Problem {
 						"Outputs tab (4): enter on an output, then space to include %s -- if it should reach a file",
 						name),
 				})
-			case len(outs) > 1 && !uniform:
+			case len(outs) > 1 && modeOK && counts[name] != modeCount:
 				ps = append(ps, Problem{
 					Kind:   "membership",
 					Name:   name,
