@@ -170,11 +170,17 @@ $ trenvy -p prod status | grep API_TOKEN
 Same variable, same project, same command — a different profile, so a
 different item, which happens not to be filled in yet.
 
-The active profile comes from, in order: the `--profile`/`-p` flag, then the
-`TRENVY_PROFILE` environment variable, then this machine's active selection
-(set with `profile use`), then `default_profile` in the manifest. Because a
-stale exported `TRENVY_PROFILE` is invisible until something names it,
-`trenvy profile` tells you both which one is active and why:
+Four sources can name the active profile. The first one set wins:
+
+| source | for |
+|---|---|
+| `--profile`/`-p` flag | one command |
+| `TRENVY_PROFILE` environment variable | one shell, and everything it runs |
+| active selection (`trenvy profile use <name>`) | this machine, until changed again |
+| `default_profile` in the manifest | the project, for anyone with no override of their own |
+
+Because a stale exported `TRENVY_PROFILE` is invisible until something names
+it, `trenvy profile` tells you both which one is active and why:
 
 ```console
 $ trenvy profile

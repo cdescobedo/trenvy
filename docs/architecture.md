@@ -131,11 +131,8 @@ stored yet.
 
 `resolve.Value` does **not** check that `profile` is declared.
 Every CLI command resolves and validates the active profile before its body
-runs, so a name arriving here has already been checked. The active profile
-itself comes from `resolve.Profile`: `--profile`, then `TRENVY_PROFILE`, then
-`default_profile`. It returns the name *and its source*, because "which profile
-am I on" and "why" are one question — a stale exported `TRENVY_PROFILE` is
-invisible until something names it.
+runs (see [The active profile](#the-active-profile)), so a name arriving here
+has already been checked.
 
 Selection is separate and happens **before** any value is fetched:
 `resolve.Values` applies the output's include/exclude globs first, so a secret
@@ -144,6 +141,33 @@ an output excludes never costs an authorization prompt.
 Both resolvers iterate `sortedVarNames`. Go randomises map iteration, so
 without that sort a rendered file's byte order — and therefore its recorded
 digest — would differ run to run, and every file would look modified.
+
+## The active profile
+
+Four sources can name the active profile, checked in this order, and each
+lives in a different place:
+
+1. **the `--profile`/`-p` flag** — an argument to one invocation; never
+   persisted anywhere.
+2. **`TRENVY_PROFILE`** — the process environment; in force for one shell,
+   and any command it runs, until unset.
+3. **`State.Active`** — `state/<id>.toml`, beside the manifest. Set by
+   `trenvy profile use <name>`, cleared by `trenvy profile use --clear`; this
+   machine's own selection, until changed again.
+4. **`default_profile`** — the manifest itself, `projects/<id>.toml`. The
+   project's baseline, in force wherever nothing more specific names a
+   profile.
+
+`resolve.Profile(m, flag, env, active)` is where the four meet: a pure
+function over the manifest and three strings, with no filesystem access of
+its own — the caller reads the environment variable and `State.Active` and
+passes both in, the same way it already does for the flag. That is what lets
+the whole chain be tested as a table of inputs and expected outputs. It
+returns an `ActiveProfile{Name, Source}`, where `Source` is one of the four
+words above: `--profile`, `TRENVY_PROFILE`, `active` or `default`. Keeping
+the source alongside the name lets an error or a status line explain itself:
+a stale exported `TRENVY_PROFILE` is invisible until something names it as
+the reason.
 
 ## `Store`: presence and value are separate operations
 
