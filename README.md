@@ -19,7 +19,7 @@ injected into a single process.
 ```console
 $ trenvy status
 project   myapp
-profile   dev  (default_profile in the manifest)
+profile   dev  (default)
 manifest  /Users/you/.config/trenvy/projects/myapp.toml
 worktree  /Users/you/code/myapp
 backend   keychain (darwin)
@@ -96,7 +96,7 @@ trenvy status
 ```console
 $ trenvy status
 project   myapp
-profile   dev  (default_profile in the manifest)
+profile   dev  (default)
 manifest  /Users/you/.config/trenvy/projects/myapp.toml
 worktree  /Users/you/code/myapp
 backend   keychain (darwin)
@@ -284,7 +284,7 @@ Every description below is the command's own `Short` text. Run
 
 | flag | meaning |
 |---|---|
-| `-p, --profile <name>` | profile to use: overrides `TRENVY_PROFILE` and the manifest default |
+| `-p, --profile <name>` | profile to use: overrides `TRENVY_PROFILE`, the active selection and the manifest default |
 | `--backend <name>` | secret backend: `keychain`, `system`, `file`, `mem` |
 
 ### Projects
@@ -548,7 +548,7 @@ Directories are created `0700`; every file is written atomically at `0600`.
 | variable | effect |
 |---|---|
 | `TRENVY_CONFIG_DIR` | overrides the config directory entirely; ahead of `XDG_CONFIG_HOME` |
-| `TRENVY_PROFILE` | the active profile, unless `--profile` is passed |
+| `TRENVY_PROFILE` | names the profile, unless `--profile` is passed; outranks the active selection and the manifest default |
 | `TRENVY_BACKEND` | the secret backend, unless `--backend` is passed |
 | `TRENVY_PASSPHRASE` | unlocks the `file` backend (**stripped from `exec`'s child environment**) |
 | `TRENVY_PROJECT` | *set by* `trenvy shell` in the subshell, so your prompt can mark it |
@@ -711,6 +711,12 @@ A pre-existing file at the output's path. Seed the manifest from it with
 A stale export. Every command validates the variable before running, including
 the one that would fix it, so the error names the escape hatch:
 `unset TRENVY_PROFILE`.
+
+**`unknown profile "nope" (from active)`**
+This machine's active selection names a profile the manifest no longer
+declares — usually because it was removed by an older build, or the state
+file was hand-edited. Every command validates the active selection before
+running, so the error names the escape hatch: `trenvy profile use --clear`.
 
 **`no output given and project.output is not set`**
 The first output any `import` creates claims the default, so this usually

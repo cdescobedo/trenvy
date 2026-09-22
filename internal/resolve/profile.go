@@ -8,8 +8,8 @@ import (
 	"github.com/cdescobedo/trenvy/internal/manifest"
 )
 
-// ProfileEnvVar names the profile for one shell session. `trenvy profile use`
-// emits an export of it.
+// ProfileEnvVar names the profile for one shell session, and everything that
+// shell runs.
 const ProfileEnvVar = "TRENVY_PROFILE"
 
 // ErrUnknownProfile is returned when a named profile is not declared.
@@ -59,11 +59,12 @@ func Profile(m *manifest.Manifest, flag, env, active string) (ActiveProfile, err
 		// export is a dead end unless the error itself names the escape.
 		err = fmt.Errorf("%w; escape it with: unset %s", err, ProfileEnvVar)
 	case "active":
-		// `profile rm` does not clear the active selection, so removing the
-		// profile you're on leaves the state file naming something the
-		// manifest no longer declares. Every command reads that file before
-		// its body runs, so without a named escape here this is a dead end
-		// the same way a stale TRENVY_PROFILE is.
+		// `profile rm` clears the active selection when it removes the
+		// profile that selection names, but it can only do that for a state
+		// file it reads: a hand-edited state file, or one left behind by an
+		// older build, can still name an undeclared profile. Every command
+		// reads that file before its body runs, so without a named escape
+		// here this is a dead end the same way a stale TRENVY_PROFILE is.
 		err = fmt.Errorf("%w; escape it with: trenvy profile use --clear", err)
 	}
 	return ActiveProfile{}, err

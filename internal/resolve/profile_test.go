@@ -196,9 +196,10 @@ func TestProfilePrecedenceOrder(t *testing.T) {
 }
 
 // A profile named in the state file and later removed from the manifest is
-// reachable today: `profile rm` does not clear the active selection. Without
-// a named escape here, that leaves every command failing until someone
-// hand-edits the state file.
+// still reachable: `profile rm` only clears the active selection for a state
+// file it reads, and a hand edit or an older build can leave one behind.
+// Without a named escape here, that leaves every command failing until
+// someone hand-edits the state file.
 func TestProfileErrorFromActiveNamesTheEscape(t *testing.T) {
 	m := mustParse(t, profileManifestTOML)
 

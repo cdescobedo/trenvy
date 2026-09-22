@@ -374,10 +374,10 @@ the command surface may still move under you.
   them. Optional variables are shown as `optional`, because they are omitted
   from the rendered file and nothing said so.
 - **The active profile's source reads `default` rather than
-  `default_profile in the manifest`.** The three sources are now `--profile`,
-  `TRENVY_PROFILE` and `default` — each naming its mechanism, so `trenvy
-  profile` and `trenvy profile list` agree, and an error that blames a source
-  reads the same way wherever it appears.
+  `default_profile in the manifest`.** Each source names its own mechanism —
+  `--profile`, `TRENVY_PROFILE`, `active` or `default` — so `trenvy profile`
+  and `trenvy profile list` agree, and an error that blames a source reads
+  the same way wherever it appears.
 
 - **`trenvy set` warns when a variable name cannot reach a dotenv output.** A
   name that is not a valid shell identifier — `feature.flag`, say — is a legal

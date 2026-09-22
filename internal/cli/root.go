@@ -244,7 +244,7 @@ func Execute(opts Options, args []string) error {
 	root.PersistentFlags().StringVar(&opts.Backend, "backend", "",
 		"secret backend: keychain, system, file, mem")
 	root.PersistentFlags().StringVarP(&opts.Profile, "profile", "p", "",
-		"profile to use: overrides TRENVY_PROFILE and the manifest default")
+		"profile to use: overrides TRENVY_PROFILE, the active selection and the manifest default")
 
 	root.AddCommand(
 		newProjectCmd(&opts),

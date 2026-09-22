@@ -292,7 +292,7 @@ func newProfileRmCmd(opts *Options) *cobra.Command {
 			}
 			if name == app.Profile.Name {
 				return fmt.Errorf(
-					"%s is the active profile (from %s); run this from another profile",
+					"%s is the active profile (from %s); escape it with -p <other>, or: trenvy profile use --clear",
 					name, app.Profile.Source)
 			}
 
