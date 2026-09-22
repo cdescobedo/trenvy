@@ -156,17 +156,158 @@ func TestProfileAddRejectsAnInvalidName(t *testing.T) {
 	}
 }
 
-// The output of `profile use` is eval'd by the shell, so stdout must carry the
-// export and nothing else. A stray character here breaks the user's shell.
-func TestProfileUseEmitsOnlyAnExportOnStdout(t *testing.T) {
+// `profile use` used to emit `export TRENVY_PROFILE=<name>` on stdout for
+// `eval` to consume. It now persists the selection to the state file and
+// emits nothing on stdout at all: a bare stdout, not a replacement export,
+// is what makes `eval "$(trenvy profile use x)"` -- if anyone still has it in
+// a script from before this command persisted anything -- a harmless no-op
+// rather than executing arbitrary confirmation text as shell commands.
+func TestProfileUseWritesTheActiveProfileToStateAndEmitsNothingOnStdout(t *testing.T) {
 	h := profileHarness(t)
 
 	if err := h.run("profile", "use", "prod"); err != nil {
 		t.Fatalf("profile use: %v", err)
 	}
 
-	if got, want := h.out.String(), "export TRENVY_PROFILE=prod\n"; got != want {
-		t.Errorf("stdout = %q, want %q", got, want)
+	if got := h.state(t, "vpb").Active; got != "prod" {
+		t.Errorf("state Active = %q, want prod", got)
+	}
+	if h.out.Len() != 0 {
+		t.Errorf("stdout = %q, want nothing emitted", h.out.String())
+	}
+}
+
+// Confirmation goes to stderr, not stdout -- see the doc comment on
+// newProfileUseCmd for why: stdout has to stay empty for the eval-safety
+// property above, so anything a human needs to see goes to the one stream
+// `$(...)` never captures.
+func TestProfileUseReportsWhatItDidOnStderr(t *testing.T) {
+	h := profileHarness(t)
+
+	if err := h.run("profile", "use", "prod"); err != nil {
+		t.Fatalf("profile use: %v", err)
+	}
+
+	if got := h.errb.String(); !strings.Contains(got, "prod") {
+		t.Errorf("stderr = %q, want it to name the profile now active", got)
+	}
+}
+
+// The migration hazard: TRENVY_PROFILE outranks the active selection `use`
+// just persisted (resolve.Profile's precedence), so a user who still has it
+// exported would otherwise see `use` appear to do nothing. This must survive
+// even `eval "$(trenvy profile use x)"`, which is exactly why it goes to
+// stderr -- `$(...)` never captures that stream, eval or not.
+func TestProfileUseWarnsWhenTRENVY_PROFILEStillOverridesIt(t *testing.T) {
+	h := profileHarness(t)
+	t.Setenv("TRENVY_PROFILE", "dev")
+
+	if err := h.run("profile", "use", "prod"); err != nil {
+		t.Fatalf("profile use: %v", err)
+	}
+
+	if got := h.state(t, "vpb").Active; got != "prod" {
+		t.Errorf("state Active = %q, want prod", got)
+	}
+	errOut := h.errb.String()
+	if !strings.Contains(errOut, "TRENVY_PROFILE") {
+		t.Errorf("stderr = %q, want it to name TRENVY_PROFILE", errOut)
+	}
+	if !strings.Contains(errOut, "unset TRENVY_PROFILE") {
+		t.Errorf("stderr = %q, want it to name the fix: unset TRENVY_PROFILE", errOut)
+	}
+}
+
+// The warning is conditional: printing it unconditionally would train users
+// to ignore it.
+func TestProfileUseSaysNothingAboutTRENVY_PROFILEWhenItIsUnset(t *testing.T) {
+	h := profileHarness(t)
+
+	if err := h.run("profile", "use", "prod"); err != nil {
+		t.Fatalf("profile use: %v", err)
+	}
+
+	if strings.Contains(h.errb.String(), "TRENVY_PROFILE") {
+		t.Errorf("stderr = %q, want no mention of TRENVY_PROFILE when it is not set", h.errb.String())
+	}
+}
+
+func TestProfileUseClearEmptiesTheActiveSelection(t *testing.T) {
+	h := profileHarness(t)
+	if err := h.run("profile", "use", "prod"); err != nil {
+		t.Fatalf("profile use: %v", err)
+	}
+
+	if err := h.run("profile", "use", "--clear"); err != nil {
+		t.Fatalf("profile use --clear: %v", err)
+	}
+
+	if got := h.state(t, "vpb").Active; got != "" {
+		t.Errorf("state Active = %q, want empty after --clear", got)
+	}
+}
+
+func TestProfileUseClearWarnsWhenTRENVY_PROFILEIsSet(t *testing.T) {
+	h := profileHarness(t)
+	if err := h.run("profile", "use", "prod"); err != nil {
+		t.Fatalf("profile use: %v", err)
+	}
+	t.Setenv("TRENVY_PROFILE", "dev")
+
+	if err := h.run("profile", "use", "--clear"); err != nil {
+		t.Fatalf("profile use --clear: %v", err)
+	}
+
+	if !strings.Contains(h.errb.String(), "unset TRENVY_PROFILE") {
+		t.Errorf("stderr = %q, want it to name the fix: unset TRENVY_PROFILE", h.errb.String())
+	}
+}
+
+// This is the whole reason --clear exists: a state file naming a profile the
+// manifest no longer declares makes resolveApp's ordinary profile resolution
+// fail for every command. If --clear routed through resolveApp the way the
+// other profile subcommands do, the escape hatch would be unreachable in
+// exactly the situation it exists for.
+func TestProfileUseClearWorksWhenTheActiveProfileIsNoLongerDeclared(t *testing.T) {
+	h := profileHarness(t)
+	if err := h.run("profile", "use", "prod"); err != nil {
+		t.Fatalf("profile use: %v", err)
+	}
+	// Simulate a state file left behind by a hand edit, or by an older
+	// binary's `profile rm` (fixed below): prod is still recorded active but
+	// no longer declared.
+	m := reloadManifest(t, "vpb")
+	m.Project.Profiles = []string{"dev"}
+	if err := manifest.Save(config.ManifestPath("vpb"), m); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := h.run("profile", "use", "--clear"); err != nil {
+		t.Fatalf("profile use --clear: %v", err)
+	}
+
+	if got := h.state(t, "vpb").Active; got != "" {
+		t.Errorf("state Active = %q, want empty after --clear", got)
+	}
+}
+
+func TestProfileUseClearRejectsAProfileNameArgument(t *testing.T) {
+	h := profileHarness(t)
+
+	err := h.run("profile", "use", "--clear", "prod")
+
+	if err == nil {
+		t.Fatal("profile use --clear accepted a profile name argument")
+	}
+}
+
+func TestProfileUseRequiresANameOrClear(t *testing.T) {
+	h := profileHarness(t)
+
+	err := h.run("profile", "use")
+
+	if err == nil {
+		t.Fatal("profile use with no name and no --clear succeeded")
 	}
 }
 
@@ -204,6 +345,9 @@ func TestProfileUseRejectsAnUndeclaredProfileWithoutEmitting(t *testing.T) {
 	}
 	if h.out.Len() != 0 {
 		t.Errorf("stdout = %q, want nothing emitted", h.out)
+	}
+	if got := h.state(t, "vpb").Active; got != "" {
+		t.Errorf("state Active = %q, want untouched", got)
 	}
 }
 
@@ -343,5 +487,49 @@ func TestProfileRmRefusesTheActiveProfile(t *testing.T) {
 	}
 	if calls := h.mem.Calls(); len(calls) != 0 {
 		t.Errorf("keyring calls = %v, want none", calls)
+	}
+}
+
+// Amendment: `profile rm` used to leave Active untouched, so removing the
+// profile it named left the state file pointing at something the manifest no
+// longer declares -- the exact situation --clear exists to escape, reached
+// with no hand edit at all. The ordinary "you can't remove your own active
+// profile" guard above only catches the resolved profile; overriding it with
+// --profile lets rm proceed on prod while state still names it active, which
+// is exactly the gap this closes.
+func TestProfileRmClearsActiveWhenItRemovesTheActiveProfile(t *testing.T) {
+	h := profileHarness(t)
+	if err := h.run("profile", "use", "prod"); err != nil {
+		t.Fatalf("profile use: %v", err)
+	}
+
+	if err := h.run("--profile", "dev", "profile", "rm", "prod", "--yes"); err != nil {
+		t.Fatalf("profile rm: %v", err)
+	}
+
+	if got := h.state(t, "vpb").Active; got != "" {
+		t.Errorf("state Active = %q, want cleared after removing the profile it named", got)
+	}
+}
+
+// Regression guard: rm must not clear Active when it removes some other
+// profile.
+func TestProfileRmLeavesActiveAloneWhenRemovingADifferentProfile(t *testing.T) {
+	h := profileHarness(t)
+	m := reloadManifest(t, "vpb")
+	m.Project.Profiles = []string{"dev", "prod", "staging"}
+	if err := manifest.Save(config.ManifestPath("vpb"), m); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.run("profile", "use", "prod"); err != nil {
+		t.Fatalf("profile use: %v", err)
+	}
+
+	if err := h.run("--profile", "dev", "profile", "rm", "staging", "--yes"); err != nil {
+		t.Fatalf("profile rm: %v", err)
+	}
+
+	if got := h.state(t, "vpb").Active; got != "prod" {
+		t.Errorf("state Active = %q, want prod untouched", got)
 	}
 }

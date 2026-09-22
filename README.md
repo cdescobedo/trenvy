@@ -171,24 +171,27 @@ Same variable, same project, same command — a different profile, so a
 different item, which happens not to be filled in yet.
 
 The active profile comes from, in order: the `--profile`/`-p` flag, then the
-`TRENVY_PROFILE` environment variable, then `default_profile` in the manifest.
-Because a stale exported `TRENVY_PROFILE` is invisible until something names
-it, `trenvy profile` tells you both which one is active and why:
+`TRENVY_PROFILE` environment variable, then this machine's active selection
+(set with `profile use`), then `default_profile` in the manifest. Because a
+stale exported `TRENVY_PROFILE` is invisible until something names it,
+`trenvy profile` tells you both which one is active and why:
 
 ```console
 $ trenvy profile
-dev  (default_profile in the manifest)
+dev  (default)
 ```
 
 ```bash
 trenvy -p prod render local           # one invocation
-eval "$(trenvy profile use prod)"     # this shell, until it exits
+trenvy profile use prod               # this machine, until changed again
 trenvy profile default prod           # persisted in the manifest
 ```
 
-`profile use` cannot change your shell by itself — no child process can — so it
-prints an export for the shell to evaluate. Its stdout carries that export and
-nothing else, which is what makes the `eval` safe.
+`profile use` persists the selection to the project's state file rather than
+printing anything to run — it takes effect for every later command against
+this project from this machine, not just the shell that ran it. `trenvy
+profile use --clear` forgets the selection. `TRENVY_PROFILE` still outranks
+it if you have that set, and `profile use` says so when it does.
 
 ### An output decides *where they go*
 
@@ -298,10 +301,11 @@ Every description below is the command's own `Short` text. Run
 | `trenvy profile list` | List the project's profiles |
 | `trenvy profile add <name>` | Declare a new profile |
 | `trenvy profile rm <name>` | Remove a profile, its overrides and its secrets |
-| `trenvy profile use <name>` | Emit a shell export switching profile for this session |
+| `trenvy profile use <name>` | Set this machine's active profile for the project |
 | `trenvy profile default <name>` | Set the project's default profile |
 
-`profile rm` takes `--yes`.
+`profile rm` takes `--yes`. `profile use --clear` forgets this machine's
+active selection instead of setting one.
 
 ### Outputs
 

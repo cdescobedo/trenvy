@@ -3,12 +3,12 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 
 	"github.com/cdescobedo/trenvy/internal/config"
 	"github.com/cdescobedo/trenvy/internal/manifest"
@@ -108,22 +108,51 @@ func newProfileAddCmd(opts *Options) *cobra.Command {
 	}
 }
 
-// newProfileUseCmd switches the profile for one shell session.
+// newProfileUseCmd sets this machine's active profile for the project,
+// writing it to the state file (config.State.Active) so every later command
+// against this project on this machine -- a new terminal, a script, a
+// different tab -- picks it up, not just the shell that ran this one.
 //
-// A child process cannot mutate its parent shell's environment, so this emits
-// an export for the shell to evaluate rather than pretending to set anything.
-// Stdout carries the export and nothing else, so `eval "$(...)"` is safe; the
-// hint for someone who ran it bare goes to stderr, where an eval cannot see it.
+// It writes nothing to stdout. Keeping stdout empty is what makes
+// `eval "$(trenvy profile use x)"`, if anyone still has that in a script
+// from before this command persisted anything, a harmless no-op instead of
+// executing arbitrary confirmation text as shell commands. Everything this
+// command reports -- confirmation and warning alike -- goes to stderr
+// instead, which `$(...)` never captures, so it reaches the terminal whether
+// or not the caller still wraps the command in eval.
+//
+// TRENVY_PROFILE outranks the active selection this command just wrote (see
+// resolve.Profile's precedence), so when it is set this says so and names
+// the fix. Without that, someone who still has it exported would see `use`
+// appear to do nothing -- twice over, since their own stale export is both
+// the cause and, on stdout alone, invisible.
 func newProfileUseCmd(opts *Options) *cobra.Command {
-	return &cobra.Command{
+	var clear bool
+
+	cmd := &cobra.Command{
 		Use:   "use <name>",
-		Short: "Emit a shell export switching profile for this session",
-		Long: "Emit a shell export switching profile for this session.\n\n" +
-			"Use it as:  eval \"$(trenvy profile use prod)\"\n\n" +
+		Short: "Set this machine's active profile for the project",
+		Long: "Set this machine's active profile for the project, persisting it to\n" +
+			"the project's state file. It applies to every later command run against\n" +
+			"this project from this machine, not just the current shell.\n\n" +
+			"trenvy profile use --clear forgets the selection, falling back to\n" +
+			"TRENVY_PROFILE or the manifest's default_profile.\n\n" +
 			"To change the project's default instead, use: trenvy profile default <name>",
-		Args:              cobra.ExactArgs(1),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if clear {
+				if len(args) != 0 {
+					return errors.New("--clear takes no profile name")
+				}
+				return nil
+			}
+			return cobra.ExactArgs(1)(cmd, args)
+		},
 		ValidArgsFunction: opts.completeProfileNames(),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if clear {
+				return clearActiveProfile(opts)
+			}
+
 			app, err := opts.resolveApp()
 			if err != nil {
 				return err
@@ -132,16 +161,74 @@ func newProfileUseCmd(opts *Options) *cobra.Command {
 			if err := requireDeclaredProfile(app, name); err != nil {
 				return err
 			}
-			// Unquoted is safe here only because manifest.Validate restricts
-			// profile names to [A-Za-z0-9_-] and resolveApp above already
-			// ran it -- this line's output is eval'd by a shell.
-			fmt.Fprintf(opts.Stdout, "export %s=%s\n", resolve.ProfileEnvVar, name)
-			if isTerminal(opts.Stdout) {
-				fmt.Fprintf(opts.Stderr,
-					"trenvy: nothing changed -- run it as: eval \"$(trenvy profile use %s)\"\n", name)
+
+			app.State.Active = name
+			if err := app.State.Save(); err != nil {
+				return err
 			}
+
+			fmt.Fprintf(opts.Stderr, "trenvy: active profile is now %s\n", name)
+			warnIfProfileEnvVarOverrides(opts)
 			return nil
 		},
+	}
+	cmd.Flags().BoolVar(&clear, "clear", false, "clear this machine's active profile selection")
+	return cmd
+}
+
+// clearActiveProfile empties the state file's Active field.
+//
+// It resolves the project through resolveActiveEntry, not resolveApp: an
+// active profile the manifest no longer declares (a hand edit, or a state
+// file left behind by a version of `profile rm` that did not clear Active)
+// makes resolveApp's resolve.Profile call refuse to load at all -- and
+// repairing exactly that is this command's whole purpose. Routing --clear
+// through resolveApp would make the escape hatch unreachable in precisely
+// the situation it exists for.
+func clearActiveProfile(opts *Options) error {
+	entry, err := resolveActiveEntry(opts)
+	if err != nil {
+		return err
+	}
+	st, err := config.LoadState(entry.ID)
+	if err != nil {
+		return err
+	}
+	st.Active = ""
+	if err := st.Save(); err != nil {
+		return err
+	}
+	fmt.Fprintln(opts.Stderr, "trenvy: active profile selection cleared")
+	warnIfProfileEnvVarOverrides(opts)
+	return nil
+}
+
+// resolveActiveEntry finds the project registered at opts.Dir well enough to
+// read and write its state file, stopping short of resolving the active
+// profile the way resolveApp does. See clearActiveProfile for why that
+// matters.
+func resolveActiveEntry(opts *Options) (config.Entry, error) {
+	reg, err := config.LoadRegistry()
+	if err != nil {
+		return config.Entry{}, err
+	}
+	entry, ok := reg.Lookup(opts.Dir)
+	if !ok {
+		return config.Entry{}, fmt.Errorf(
+			"%s is not inside a registered trenvy project\n  register one with: trenvy project init", opts.Dir)
+	}
+	return entry, nil
+}
+
+// warnIfProfileEnvVarOverrides tells the user when TRENVY_PROFILE is set in
+// the environment: it outranks whatever `use` or `use --clear` just wrote to
+// the state file (see resolve.Profile's precedence), so without this, the
+// change looks like it did nothing until the shell holding that export exits.
+func warnIfProfileEnvVarOverrides(opts *Options) {
+	if v := os.Getenv(resolve.ProfileEnvVar); v != "" {
+		fmt.Fprintf(opts.Stderr,
+			"trenvy: warning: %s=%s is still set in this shell and outranks this change;\n"+
+				"  run: unset %s\n", resolve.ProfileEnvVar, v, resolve.ProfileEnvVar)
 	}
 }
 
@@ -278,7 +365,29 @@ func newProfileRmCmd(opts *Options) *cobra.Command {
 			if err := manifest.Save(config.ManifestPath(app.Entry.ID), app.Manifest); err != nil {
 				return err
 			}
+
+			// The refusal above only catches the profile currently resolved
+			// as active; a --profile or TRENVY_PROFILE override lets rm
+			// proceed while State.Active still names the one just removed.
+			// Left alone, that is precisely the dangling reference `profile
+			// use --clear` exists to escape -- reachable here with no hand
+			// edit at all, so it is closed in the same operation rather than
+			// left for someone to discover the next time every command fails.
+			clearedActive := false
+			if app.State.Active == name {
+				app.State.Active = ""
+				if err := app.State.Save(); err != nil {
+					return fmt.Errorf(
+						"profile %s removed but clearing the active selection failed: %w; run: trenvy profile use --clear",
+						name, err)
+				}
+				clearedActive = true
+			}
+
 			fmt.Fprintf(opts.Stdout, "removed profile %s (%d secrets deleted)\n", name, deleted)
+			if clearedActive {
+				fmt.Fprintln(opts.Stdout, "  it was this machine's active profile; that selection is now cleared")
+			}
 			return nil
 		},
 	}
@@ -307,12 +416,4 @@ func secretNames(m *manifest.Manifest) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// isTerminal reports whether v -- an io.Reader or io.Writer stream -- is a
-// terminal. Used only to decide whether a human is on the other end (to show
-// a hint, or to prompt for a password), never to change what goes to stdout.
-func isTerminal(v any) bool {
-	f, ok := v.(interface{ Fd() uintptr })
-	return ok && term.IsTerminal(int(f.Fd()))
 }

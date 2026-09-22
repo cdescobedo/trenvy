@@ -55,8 +55,9 @@ the command surface may still move under you.
 
 - **Profiles.** A project declares `profiles` and a `default_profile` in its
   manifest. The active profile comes from `--profile`/`-p`, then
-  `TRENVY_PROFILE`, then the manifest default; a name from any source must be
-  declared, and the error says which source supplied a bad one.
+  `TRENVY_PROFILE`, then this machine's active selection (`trenvy profile
+  use`), then the manifest default; a name from any source must be declared,
+  and the error says which source supplied a bad one.
 - **Per-profile values.** `trenvy set` writes a value for the active profile.
   `--shared` writes the default used by every profile that has no value of its
   own.
@@ -66,8 +67,8 @@ the command surface may still move under you.
   `keyring.service` pattern that omits `{profile}` is rejected at load, because
   it would make every profile share one item.
 - **The `profile` command group:** `profile` (which one is active, and why),
-  `profile list`, `profile add`, `profile rm`, `profile use` (emits a shell
-  export for `eval`), and `profile default`.
+  `profile list`, `profile add`, `profile rm`, `profile use` (sets this
+  machine's active profile), and `profile default`.
 - **The `project` command group:** `project init`, `project list`,
   `project move` (repoints a project after its directory moved, and rebases
   the render state so already-rendered files are not misread as FOREIGN), and
@@ -340,6 +341,29 @@ the command surface may still move under you.
   refuses only when a value or a secret flag actually differs, so picking up a
   newly added variable from a sample no longer means re-confirming every
   variable that was already there.
+- **`trenvy profile use <name>` now sets the active profile instead of
+  printing a shell export.** It used to print `export TRENVY_PROFILE=<name>`
+  for `eval "$(trenvy profile use <name>)"` to consume, changing nothing by
+  itself. It now writes the selection to the project's state file, where it
+  applies to every later command run against this project from this
+  machine — a new terminal, a script, a different tab — not just the shell
+  that ran it. **It no longer emits anything on stdout.** If you have `eval
+  "$(trenvy profile use ...)"` in a shell function or script, it is now a
+  harmless no-op: update it to a bare `trenvy profile use <name>` call.
+  Because `TRENVY_PROFILE` still outranks this new active selection (same
+  precedence as before), `profile use` now warns on stderr and names `unset
+  TRENVY_PROFILE` whenever that variable is set in the environment, so a
+  leftover export does not make the command look broken. `trenvy profile use
+  --clear` forgets the selection, falling back to `TRENVY_PROFILE` or the
+  manifest's `default_profile`.
+- **`trenvy profile rm` now clears the active selection when it removes the
+  profile that selection names.** It previously left the state file pointing
+  at a profile the manifest no longer declared whenever `--profile` or
+  `TRENVY_PROFILE` overrode which profile was "active" at the time of the
+  removal, wedging every later command until someone ran `trenvy profile use
+  --clear` by hand. That escape hatch still exists for a state file `rm`
+  never saw (a hand edit, or one left behind by an older version), but the
+  common path is now closed automatically.
 
 ### Fixed
 
