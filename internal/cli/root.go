@@ -156,15 +156,19 @@ func (o Options) appContextFor(cfg *config.Config, entry config.Entry) (*appCont
 		return nil, err
 	}
 
-	prof, err := resolve.Profile(m, o.Profile, os.Getenv(resolve.ProfileEnvVar))
-	if err != nil {
-		return nil, err
-	}
-
 	st, err := config.LoadState(entry.ID)
 	if err != nil {
 		return nil, err
 	}
+
+	// st.Active is this machine's persistent selection -- read here and
+	// passed in, exactly like the env var above, so resolve.Profile stays
+	// pure and never touches the filesystem itself.
+	prof, err := resolve.Profile(m, o.Profile, os.Getenv(resolve.ProfileEnvVar), st.Active)
+	if err != nil {
+		return nil, err
+	}
+
 	wt, err := resolve.WorktreeRoot(o.Dir)
 	if err != nil {
 		return nil, err

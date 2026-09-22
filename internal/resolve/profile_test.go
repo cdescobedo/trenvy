@@ -18,7 +18,7 @@ default_profile = "dev"
 func TestProfileFallsBackToTheManifestDefault(t *testing.T) {
 	m := mustParse(t, profileManifestTOML)
 
-	got, err := resolve.Profile(m, "", "")
+	got, err := resolve.Profile(m, "", "", "")
 
 	if err != nil {
 		t.Fatalf("Profile: %v", err)
@@ -34,7 +34,7 @@ func TestProfileFallsBackToTheManifestDefault(t *testing.T) {
 func TestProfileEnvVarBeatsTheManifestDefault(t *testing.T) {
 	m := mustParse(t, profileManifestTOML)
 
-	got, err := resolve.Profile(m, "", "prod")
+	got, err := resolve.Profile(m, "", "prod", "")
 
 	if err != nil {
 		t.Fatalf("Profile: %v", err)
@@ -50,7 +50,7 @@ func TestProfileEnvVarBeatsTheManifestDefault(t *testing.T) {
 func TestProfileFlagBeatsTheEnvVar(t *testing.T) {
 	m := mustParse(t, profileManifestTOML)
 
-	got, err := resolve.Profile(m, "dev", "prod")
+	got, err := resolve.Profile(m, "dev", "prod", "")
 
 	if err != nil {
 		t.Fatalf("Profile: %v", err)
@@ -66,7 +66,7 @@ func TestProfileFlagBeatsTheEnvVar(t *testing.T) {
 func TestProfileRejectsAnUndeclaredName(t *testing.T) {
 	m := mustParse(t, profileManifestTOML)
 
-	_, err := resolve.Profile(m, "staging", "")
+	_, err := resolve.Profile(m, "staging", "", "")
 
 	if !errors.Is(err, resolve.ErrUnknownProfile) {
 		t.Fatalf("error = %v, want ErrUnknownProfile", err)
@@ -81,7 +81,7 @@ func TestProfileRejectsAnUndeclaredName(t *testing.T) {
 func TestProfileErrorNamesTheSourceOfABadName(t *testing.T) {
 	m := mustParse(t, profileManifestTOML)
 
-	_, err := resolve.Profile(m, "", "staging")
+	_, err := resolve.Profile(m, "", "staging", "")
 
 	if err == nil || !strings.Contains(err.Error(), resolve.ProfileEnvVar) {
 		t.Errorf("error = %v, want it to blame the environment variable", err)
@@ -95,7 +95,7 @@ func TestProfileErrorNamesTheSourceOfABadName(t *testing.T) {
 func TestProfileErrorFromTheEnvVarNamesTheEscape(t *testing.T) {
 	m := mustParse(t, profileManifestTOML)
 
-	_, err := resolve.Profile(m, "", "staging")
+	_, err := resolve.Profile(m, "", "staging", "")
 
 	want := "unset " + resolve.ProfileEnvVar
 	if err == nil || !strings.Contains(err.Error(), want) {
@@ -108,12 +108,110 @@ func TestProfileErrorFromTheEnvVarNamesTheEscape(t *testing.T) {
 func TestProfileErrorFromTheFlagDoesNotNameTheEscape(t *testing.T) {
 	m := mustParse(t, profileManifestTOML)
 
-	_, err := resolve.Profile(m, "staging", "")
+	_, err := resolve.Profile(m, "staging", "", "")
 
 	if err == nil {
 		t.Fatal("Profile accepted an undeclared name")
 	}
 	if strings.Contains(err.Error(), "unset ") {
 		t.Errorf("error = %v, want no escape hint for a --profile source", err)
+	}
+}
+
+// fourSourceManifestTOML declares one profile per precedence source. A table
+// that only checked the top (--profile) and bottom (default) source would
+// pass against an implementation that ignored active entirely; setting all
+// four sources to different, declared names makes every comparison in the
+// chain unambiguous, including the two that define this level: active must
+// lose to TRENVY_PROFILE and must win over default_profile.
+const fourSourceManifestTOML = `
+[project]
+id = "p"
+profiles = ["byflag", "byenv", "byactive", "bydefault"]
+default_profile = "bydefault"
+`
+
+func TestProfilePrecedenceOrder(t *testing.T) {
+	m := mustParse(t, fourSourceManifestTOML)
+
+	tests := []struct {
+		name                     string
+		flag, env, active        string
+		wantName, wantSourceLike string
+	}{
+		{
+			name:           "flag beats env, active and default",
+			flag:           "byflag",
+			env:            "byenv",
+			active:         "byactive",
+			wantName:       "byflag",
+			wantSourceLike: "--profile",
+		},
+		{
+			// The active level is only real if it can lose. An
+			// implementation that skipped the active parameter entirely
+			// would still pick byenv here, so this alone doesn't prove
+			// active was consulted -- but paired with the next case, it
+			// proves active was consulted and ranked correctly.
+			name:           "env beats active and default",
+			flag:           "",
+			env:            "byenv",
+			active:         "byactive",
+			wantName:       "byenv",
+			wantSourceLike: resolve.ProfileEnvVar,
+		},
+		{
+			name:           "active beats the manifest default",
+			flag:           "",
+			env:            "",
+			active:         "byactive",
+			wantName:       "byactive",
+			wantSourceLike: "active",
+		},
+		{
+			name:           "default applies when nothing else is set",
+			flag:           "",
+			env:            "",
+			active:         "",
+			wantName:       "bydefault",
+			wantSourceLike: "default",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolve.Profile(m, tc.flag, tc.env, tc.active)
+
+			if err != nil {
+				t.Fatalf("Profile: %v", err)
+			}
+			if got.Name != tc.wantName {
+				t.Errorf("Name = %q, want %q", got.Name, tc.wantName)
+			}
+			if !strings.Contains(got.Source, tc.wantSourceLike) {
+				t.Errorf("Source = %q, want it to contain %q", got.Source, tc.wantSourceLike)
+			}
+		})
+	}
+}
+
+// A profile named in the state file and later removed from the manifest is
+// reachable today: `profile rm` does not clear the active selection. Without
+// a named escape here, that leaves every command failing until someone
+// hand-edits the state file.
+func TestProfileErrorFromActiveNamesTheEscape(t *testing.T) {
+	m := mustParse(t, profileManifestTOML)
+
+	_, err := resolve.Profile(m, "", "", "staging")
+
+	if err == nil || !errors.Is(err, resolve.ErrUnknownProfile) {
+		t.Fatalf("error = %v, want ErrUnknownProfile", err)
+	}
+	if !strings.Contains(err.Error(), "(from active)") {
+		t.Errorf("error = %v, want it to blame active", err)
+	}
+	want := "trenvy profile use --clear"
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %v, want it to name the escape: %s", err, want)
 	}
 }
