@@ -244,6 +244,28 @@ func TestStatusNamesTheActiveProfileAndItsSource(t *testing.T) {
 	}
 }
 
+// The env var above is transient; `profile use` is the source a user
+// actually leaves behind for their next ordinary command in a fresh shell,
+// and it was untested here -- this locks in that status's header names it
+// the same way `trenvy profile` does, with the same word: "active".
+func TestStatusNamesThePersistedActiveProfileAsItsSource(t *testing.T) {
+	h := newHarness(t)
+	m := fixtureManifest(t)
+	m.Project.Profiles = []string{"dev", "prod"}
+	h.register("vpb", m)
+	if err := h.run("profile", "use", "prod"); err != nil {
+		t.Fatalf("profile use: %v", err)
+	}
+
+	if err := h.run("status"); err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	out := h.out.String()
+	if !strings.Contains(out, "profile   prod  (active)") {
+		t.Errorf("status does not name the persisted active profile and its source:\n%s", out)
+	}
+}
+
 // status exists to report what render would do before it does it. A plain
 // variable with no value under the active profile is a legal manifest that
 // fails at render, so hiding it defeats the command's purpose.

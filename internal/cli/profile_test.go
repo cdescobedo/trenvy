@@ -62,6 +62,27 @@ func TestProfileNamesTheEnvVarAsItsSource(t *testing.T) {
 	}
 }
 
+// The other two sources (--profile, TRENVY_PROFILE) are transient: they only
+// hold for the invocation or the shell that set them. `profile use` is the
+// one source that persists to the state file, so it is the case a user
+// actually hits on their next ordinary command in a fresh shell -- and it is
+// exercised nowhere else in this file, which only drives the env var.
+func TestProfileNamesTheActiveStateAsItsSource(t *testing.T) {
+	h := profileHarness(t)
+	if err := h.run("profile", "use", "prod"); err != nil {
+		t.Fatalf("profile use: %v", err)
+	}
+
+	if err := h.run("profile"); err != nil {
+		t.Fatalf("profile: %v", err)
+	}
+
+	out := h.out.String()
+	if !strings.Contains(out, "prod") || !strings.Contains(out, "(active)") {
+		t.Errorf("output does not name the persisted active profile:\n%s", out)
+	}
+}
+
 // The active profile and the persisted default can differ, and a list that
 // showed only one of them would hide the difference.
 func TestProfileListMarksActiveAndDefaultSeparately(t *testing.T) {
@@ -111,6 +132,26 @@ func TestProfileListRendersNoTrailingWhitespace(t *testing.T) {
 		if strings.TrimRight(line, " \t") != line {
 			t.Errorf("line has trailing whitespace: %q", line)
 		}
+	}
+}
+
+// The env-var test above already checks that active and default get
+// distinct marks; this checks the same split for the source a user actually
+// leaves behind after `profile use` -- the persisted state file, not a
+// variable that vanishes when the shell exits.
+func TestProfileListDistinguishesPersistedActiveFromDefault(t *testing.T) {
+	h := profileHarness(t)
+	if err := h.run("profile", "use", "prod"); err != nil {
+		t.Fatalf("profile use: %v", err)
+	}
+
+	if err := h.run("profile", "list"); err != nil {
+		t.Fatalf("profile list: %v", err)
+	}
+
+	want := "  dev  (default)\n* prod\n"
+	if got := h.out.String(); got != want {
+		t.Errorf("profile list =\n%q\nwant\n%q", got, want)
 	}
 }
 
