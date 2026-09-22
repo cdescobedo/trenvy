@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -104,6 +105,86 @@ func TestLoadStateOnMissingFileIsEmptyNotAnError(t *testing.T) {
 	}
 	if len(s.Renders) != 0 {
 		t.Errorf("Renders = %v, want empty", s.Renders)
+	}
+}
+
+// Active is the machine's current selection for this project, distinct from
+// the manifest's default_profile. It must survive a save/reload cycle like
+// every other field in State.
+func TestStateActiveRoundTripsThroughTOML(t *testing.T) {
+	t.Setenv("TRENVY_CONFIG_DIR", t.TempDir())
+	s, _ := config.LoadState("p")
+	s.Active = "staging"
+	if err := s.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	again, err := config.LoadState("p")
+	if err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+	if again.Active != "staging" {
+		t.Errorf("Active = %q, want %q", again.Active, "staging")
+	}
+}
+
+// Regression guard, not a red-green test: every project on this machine
+// already has a state/<id>.toml written before this field existed, with no
+// active key at all. Go's TOML decoder leaves a missing key at its zero
+// value, so this passes as soon as the field exists -- but a loader that
+// instead rejected an unrecognized-shape file would break every one of those
+// projects at once, which is why this is written and checked before the
+// field is added rather than after.
+func TestLoadStateWithNoActiveKeyLoadsEmpty(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("TRENVY_CONFIG_DIR", tmpDir)
+
+	stateDir := filepath.Join(tmpDir, "state")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	// Shaped exactly like the pre-existing files under
+	// ~/.config/trenvy/state/: a [[render]] table and nothing else.
+	pre := "[[render]]\n" +
+		"worktree = '/w/main'\n" +
+		"output = 'app'\n" +
+		"path = 'a.env'\n" +
+		"sum = 'abc'\n" +
+		"file = 'def'\n" +
+		"at = 2026-09-16T20:38:37.000195Z\n"
+	if err := os.WriteFile(filepath.Join(stateDir, "p.toml"), []byte(pre), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s, err := config.LoadState("p")
+	if err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+	if s.Active != "" {
+		t.Errorf("Active = %q, want empty for a file predating this field", s.Active)
+	}
+	if len(s.Renders) != 1 {
+		t.Errorf("Renders = %v, want the one pre-existing record preserved", s.Renders)
+	}
+}
+
+// The state file is small and hand-readable, and a project that has never
+// run `profile use` should not grow an `active = ”` key that means nothing.
+// omitempty is load-bearing here, not cosmetic.
+func TestStateSaveOmitsActiveKeyWhenUnset(t *testing.T) {
+	t.Setenv("TRENVY_CONFIG_DIR", t.TempDir())
+	s, _ := config.LoadState("p")
+	s.Record(config.RenderEntry{Worktree: "/w", Output: "t", Sum: "abc"})
+	if err := s.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	data, err := os.ReadFile(config.StatePath("p"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if strings.Contains(string(data), "active") {
+		t.Errorf("state file contains an active key though none was set:\n%s", data)
 	}
 }
 

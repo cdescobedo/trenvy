@@ -27,7 +27,8 @@ type RenderEntry struct {
 	At       time.Time `toml:"at"`
 }
 
-// State is one project's render bookkeeping.
+// State is one project's render bookkeeping, plus what this machine is
+// currently working on.
 //
 // It lives beside the manifest rather than inside the rendered file because a
 // json output has no comment syntax, and because public/env.json is served to
@@ -35,6 +36,14 @@ type RenderEntry struct {
 type State struct {
 	id      string
 	Renders []RenderEntry `toml:"render"`
+
+	// Active is the profile this machine is currently working on, set by
+	// `profile use` and cleared by `profile use --clear`. It is distinct
+	// from the manifest's default_profile: default is what the project IS,
+	// active is what has been done to it on this machine. omitempty keeps a
+	// project that has never run `profile use` free of an `active = ''` key
+	// that would mean nothing.
+	Active string `toml:"active,omitempty"`
 }
 
 // LoadState reads a project's state, returning an empty state when absent.
