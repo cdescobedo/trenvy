@@ -234,3 +234,35 @@ func stripANSI(s string) string {
 	}
 	return b.String()
 }
+
+// A revealed secret is DATA, not a token. cellText reports isCell=false for
+// it precisely so a value that happens to spell a Cell word is not routed
+// through that word's colour: revealing a secret whose value is literally
+// "MISSING" must not paint it red and tell the user the variable is unset.
+//
+// Coverage finding, not red-green: the safeguard was already correct, but
+// flipping cellText's `return v, false` to `return v, true` left the whole
+// suite green. This test is green on arrival and was mutation-tested instead.
+func TestRevealedSecretSpellingAWordIsNotColouredAsThatWord(t *testing.T) {
+	st := colourStyler()
+	m := allCellsModelStyled(t, st)
+	m, _ = m.Update(ui.RevealedMsg{Name: "STORED_SECRET", Profile: "dev", Value: "MISSING"})
+	out := m.View()
+
+	revealed := lineFor(t, out, "STORED_SECRET")
+	if !strings.Contains(revealed, "MISSING") {
+		t.Fatalf("revealed value not on screen; the test proves nothing:\n%q", revealed)
+	}
+	if strings.Contains(revealed, st.Missing("MISSING")) {
+		t.Errorf("revealed value %q was painted as the MISSING token:\n%q", "MISSING", revealed)
+	}
+	// The same line still carries a genuine token (prod stays masked), so
+	// "no escape on the revealed cell" is not just "no colour anywhere".
+	if !strings.Contains(revealed, st.Stored("stored")) {
+		t.Fatalf("STORED_SECRET/prod lost its real token; fixture is wrong:\n%q", revealed)
+	}
+	// And a genuine MISSING token elsewhere on the screen is still coloured.
+	if !strings.Contains(lineFor(t, out, "MISSING_VAR"), st.Missing("MISSING")) {
+		t.Errorf("a real MISSING cell is no longer coloured:\n%q", out)
+	}
+}

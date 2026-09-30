@@ -16,12 +16,24 @@ const (
 
 // Styler colours trenvy's vocabulary.
 //
-// The zero value is deliberately usable and renders everything plain: a zero
-// lipgloss.Style has no renderer and returns its input unchanged (verified
-// 2026-09-30). That is what lets every existing test keep building a Params
-// or an Options without a Styler and keep asserting on words -- the 126
-// strings.Contains assertions in internal/ui survive this change because
-// their Styler is the zero one.
+// The zero value is deliberately usable and emits no escapes: every token
+// on it is a zero lipgloss.Style, and a zero Style carries no foreground,
+// background or attribute rule, so there is nothing for a renderer to write.
+// That is what lets every existing test keep building a Params or an Options
+// without a Styler and keep asserting on words -- the 126 strings.Contains
+// assertions in internal/ui depend on it.
+//
+// It is NOT because the zero Style lacks a renderer. Style.Render falls back
+// to lipgloss's package-global renderer when its own is nil (lipgloss v1.1.0
+// style.go:235-237) and asks it for the colour profile, so the zero value
+// does reach the global; it simply has no rules to apply (measured
+// 2026-09-30: no escape even with the global forced to TrueColor). Do not
+// look for a nil-renderer guard to explain this -- the absence of rules is
+// the whole mechanism.
+//
+// Nor is it the identity on its input: Render expands a tab to
+// tabWidthDefault (4) spaces (style.go:473-483), so Styler{}.Missing("x\ty")
+// returns "x    y". Tabs are the one way a zero Styler changes its text.
 //
 // The renderer is injected rather than taken from lipgloss's global, because
 // the global resolves from os.Stdout: under `go test` that is Ascii, so a

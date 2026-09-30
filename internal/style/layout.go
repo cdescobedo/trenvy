@@ -28,6 +28,13 @@ import (
 // holding only whitespace is not empty and is kept as given. (text/tabwriter
 // padded a trailing empty cell to its column width, which callers had to
 // work around by omitting the cell.)
+//
+// Known limit: a tab inside a cell is measured as zero columns
+// (lipgloss.Width("\t") == 0) but a terminal advances it to the next tab
+// stop, so a cell holding a tab misaligns its row and, in a non-last column,
+// every cell after it. Columns does not strip or replace tabs: the cells are
+// data this package does not own, and silently rewriting a value the user set
+// is a worse failure than a misaligned row. See TestColumnsMeasuresATabAsZeroWidth.
 func Columns(rows [][]string, gap int) string {
 	if len(rows) == 0 {
 		return ""

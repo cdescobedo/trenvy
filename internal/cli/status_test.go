@@ -400,6 +400,81 @@ func TestStatusColoursItsStateWords(t *testing.T) {
 			t.Errorf("%q not routed through its token; want %q in:\n%q", c.word, c.want, out)
 		}
 	}
+
+	// The other four output states, each needing its own on-disk situation.
+	// Together with absent/MISSING/present above, all seven CLI state tokens
+	// are pinned: a describeOutput arm that drops its Styler call is caught.
+	for _, c := range []struct {
+		name  string
+		setup func(h *harness)
+		args  []string
+		word  string
+		tok   func(string) string
+	}{
+		{"fresh", func(h *harness) { mustRun(t, h, "render", "docker") }, nil, "fresh", st.Fresh},
+		{"stale", func(h *harness) {
+			mustRun(t, h, "render", "docker")
+			mustRun(t, h, "set", "APP_URL", "http://+:9999")
+		}, nil, "STALE", st.Stale},
+		{"modified", func(h *harness) {
+			mustRun(t, h, "render", "docker")
+			if err := os.WriteFile(filepath.Join(h.root, "src", ".env"), []byte("A=edited by hand\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, nil, "MODIFIED", st.Modified},
+		{"foreign", func(h *harness) {
+			// A file at the output path that trenvy has no record of writing.
+			if err := os.MkdirAll(filepath.Join(h.root, "src"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(h.root, "src", ".env"), []byte("X=1\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "k")
+		}, nil, "FOREIGN", st.Foreign},
+		{"secret missing", func(h *harness) {
+			// File present, ALPHA_TOKEN unset: nothing to hash against.
+			if err := os.MkdirAll(filepath.Join(h.root, "src"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(h.root, "src", ".env"), []byte("X=1\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, nil, "unknown (a secret is missing)", st.Unknown},
+		{"quick", func(h *harness) { mustRun(t, h, "render", "docker") }, []string{"--quick"}, "unknown (--quick)", st.Unknown},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.opts.Styler = st
+			h.gitInit("src/.env\n")
+			h.register("vpb", fixtureManifest(t))
+			if c.name != "secret missing" {
+				h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "k")
+			}
+			c.setup(h)
+			if err := h.run(append([]string{"status"}, c.args...)...); err != nil {
+				t.Fatalf("status: %v", err)
+			}
+			out := h.out.String()
+			if !strings.Contains(out, c.word) {
+				t.Fatalf("fixture has no %q; the case proves nothing:\n%s", c.word, out)
+			}
+			want := c.tok(c.word)
+			if want == c.word {
+				t.Fatalf("token for %q renders plain under TrueColor", c.word)
+			}
+			if !strings.Contains(out, want) {
+				t.Errorf("%q not routed through its token; want %q in:\n%q", c.word, want, out)
+			}
+		})
+	}
+}
+
+func mustRun(t *testing.T, h *harness, args ...string) {
+	t.Helper()
+	if err := h.run(args...); err != nil {
+		t.Fatalf("%v: %v", args, err)
+	}
 }
 
 // Without a Styler, status stays byte-plain: every other assertion in this

@@ -19,15 +19,26 @@ const nameColumnWidth = 40
 // first frame, and is treated as narrow.
 const panelFloor = 72
 
+// Known limit: lipgloss word-wraps a body line wider than width-2, so the
+// border stays straight (TestColouredPanelKeepsItsRightBorderStraight) but
+// the content does not. A long path wraps, and so does a matrix with enough
+// profiles to exceed the panel: its COLUMNS are broken across lines inside
+// the border. The flat layout does no wrapping of its own.
 func (m Model) panelled() bool { return m.width >= panelFloor }
 
 // region is the one path both layouts share: above the floor the body sits in
 // a titled panel, below it the body is returned untouched.
+//
+// Both branches return a body-terminating newline and no extra blank line, so
+// the caller's spacing never depends on which layout was chosen. A panel is drawn without
+// a trailing newline, and a Styler with no renderer hands the body back
+// unchanged (already newline-terminated), so the panelled branch normalises
+// rather than appending blindly.
 func (m Model) region(title, body string) string {
 	if !m.panelled() {
 		return body
 	}
-	return m.st.Panel(title, body, m.width) + "\n"
+	return strings.TrimRight(m.st.Panel(title, body, m.width), "\n") + "\n"
 }
 
 // outputFreshnessCaveat is the one sentence added, never per output, when at

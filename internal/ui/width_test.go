@@ -104,3 +104,27 @@ func TestColouredPanelKeepsItsRightBorderStraight(t *testing.T) {
 		t.Fatalf("only %d panel lines found:\n%s", seen, out)
 	}
 }
+
+// region must hand back the same spacing in both layouts: one blank line
+// between the body and the status line. Dropping the panelled branch's
+// newline glued the status line to the bottom border; appending it blindly
+// gave a zero Styler (whose Panel returns the body untouched) a spurious
+// blank line.
+func TestRegionSpacingIsTheSameInBothLayouts(t *testing.T) {
+	out := panelModel(t, panelStyler(), 80).View()
+	if !strings.Contains(out, "╯\n\n") {
+		t.Errorf("no blank line between the panel's bottom border and the status line:\n%q", out)
+	}
+	if strings.Contains(out, "╯\n\n\n") {
+		t.Errorf("more than one blank line after the panel:\n%q", out)
+	}
+}
+
+// A zero Styler draws no panel at any width, so a wide terminal must render
+// exactly what a narrow one does.
+func TestZeroStylerAtPanelWidthIsByteIdenticalToFlat(t *testing.T) {
+	flat := panelModel(t, style.Styler{}, 0).View()
+	if got := panelModel(t, style.Styler{}, 80).View(); got != flat {
+		t.Errorf("zero Styler at width 80 differs from width 0:\n%q\n---\n%q", got, flat)
+	}
+}

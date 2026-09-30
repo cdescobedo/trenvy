@@ -135,3 +135,15 @@ func TestPanelEdgeAndSidesAgreeOnColour(t *testing.T) {
 		}
 	}
 }
+
+// The zero Styler emits no escapes because it carries no style rules, not
+// because it lacks a renderer (see Styler's doc). Its one departure from the
+// identity is tab expansion, which this pins so the doc's claim is checked.
+func TestZeroStylerExpandsTabsAndNothingElse(t *testing.T) {
+	if got := (style.Styler{}).Missing("x\ty"); got != "x    y" {
+		t.Errorf("zero Styler on a tab = %q, want %q", got, "x    y")
+	}
+	if got := (style.Styler{}).Missing("MISSING"); got != "MISSING" {
+		t.Errorf("zero Styler changed a tab-free string: %q", got)
+	}
+}

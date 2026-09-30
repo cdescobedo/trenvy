@@ -121,3 +121,22 @@ func TestColumnsWidthsComeFromTheRowsAsGiven(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+// Pins a known limit rather than endorsing it: lipgloss.Width measures a tab
+// as zero columns, while a terminal advances to the next tab stop, so a cell
+// holding a tab is padded as if it were empty. Columns deliberately does not
+// strip or replace tabs -- it renders data it does not own, and rewriting a
+// value the user set is worse than a misaligned row. If this test starts
+// failing, the limit changed; update Columns's doc with it.
+func TestColumnsMeasuresATabAsZeroWidth(t *testing.T) {
+	if w := lipgloss.Width("\t"); w != 0 {
+		t.Fatalf("lipgloss.Width(tab) = %d; the premise of this test is gone", w)
+	}
+	got := style.Columns([][]string{{"\t", "x"}, {"ab", "y"}}, 2)
+	// The tab cell counts for 0, so it is padded to the column width (2) plus
+	// the gap (2): four spaces after the tab, and the tab itself is kept.
+	want := "\t    x\nab  y\n"
+	if got != want {
+		t.Errorf("Columns with a tab cell:\n got %q\nwant %q", got, want)
+	}
+}

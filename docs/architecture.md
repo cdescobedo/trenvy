@@ -79,6 +79,12 @@ and makes the colour profile testable. Colour is additive: the Ascii profile
 nothing else. The panel borders carry no colour, so that output still contains
 box-drawing characters.
 
+Known limit: a panel keeps its border straight, but lipgloss word-wraps any
+body line wider than the panel's inner width. A long path wraps, and so does a
+profile matrix with enough profiles to exceed the panel, which breaks its
+*columns* across lines inside the border. Below 72 columns the flat layout
+draws no panel and does no wrapping of its own.
+
 **Beneath:** `store` holds secret values behind one small interface with an
 implementation per platform. `config` owns everything in the config directory —
 global settings, the project registry, and render state. `guard` holds the
