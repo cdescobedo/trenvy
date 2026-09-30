@@ -322,3 +322,41 @@ func TestStatusMarksAnOptionalVariableAsOptional(t *testing.T) {
 		t.Errorf("an optional variable is not missing:\n%s", out)
 	}
 }
+
+// INTENTIONAL CHANGE from the tabwriter layout. tabwriter ended a column's
+// block at the intervening two-cell "present" row and sized the two MISSING
+// rows' name columns independently, so the fix-it arrows landed in different
+// columns depending on what sat between them. style.Columns takes one width
+// for the whole grid: every arrow lands in the same column.
+func TestStatusAlignsEveryHintInOneColumnAcrossInterveningRows(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "p")
+	m := h.manifest(t, "p")
+	m.Project.Profiles = append(m.Project.Profiles, "prod")
+	// A value under prod only: MISSING under the active dev profile.
+	prodOnly := map[string]string{"prod": "v"}
+	m.Vars["A_LONG_MISSING_NAME"] = manifest.Var{Profiles: prodOnly}
+	x := "x"
+	m.Vars["B_PRESENT"] = manifest.Var{Value: &x}
+	m.Vars["C_MISSING"] = manifest.Var{Profiles: prodOnly}
+	if err := manifest.Save(config.ManifestPath("p"), m); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := h.run("status"); err != nil {
+		t.Fatal(err)
+	}
+
+	var cols []int
+	for _, line := range strings.Split(h.out.String(), "\n") {
+		if strings.Contains(line, "MISSING  ") && strings.Contains(line, "->") {
+			cols = append(cols, strings.Index(line, "->"))
+		}
+	}
+	if len(cols) != 2 {
+		t.Fatalf("want two MISSING rows with a hint, got %d:\n%s", len(cols), h.out.String())
+	}
+	if cols[0] != cols[1] {
+		t.Errorf("hint arrows land in different columns %v:\n%s", cols, h.out.String())
+	}
+}

@@ -63,7 +63,15 @@ func newProfileListCmd(opts *Options) *cobra.Command {
 				if n == app.Manifest.Project.DefaultProfile {
 					note = "(default)"
 				}
-				rows = append(rows, []string{marker + " " + n, note})
+				// A row with no note is one cell, not two with an empty second:
+				// a row's last cell as given does not widen its column, which
+				// is what keeps "(default)" where it is. An explicit empty note
+				// would make the name count toward column 0 instead.
+				if note == "" {
+					rows = append(rows, []string{marker + " " + n})
+				} else {
+					rows = append(rows, []string{marker + " " + n, note})
+				}
 			}
 			_, err = io.WriteString(opts.Stdout, style.Columns(rows, 2))
 			return err
