@@ -30,9 +30,9 @@ func (m Model) panelled() bool { return m.width >= panelFloor }
 // a titled panel, below it the body is returned untouched.
 //
 // Both branches return a body-terminating newline and no extra blank line, so
-// the caller's spacing never depends on which layout was chosen. A panel is drawn without
-// a trailing newline, and a Styler with no renderer hands the body back
-// unchanged (already newline-terminated), so the panelled branch normalises
+// the caller's spacing never depends on which layout was chosen. Panel is
+// drawn without a trailing newline. A zero Styler's Panel returns body
+// unchanged—already newline-terminated—so the panelled branch normalises
 // rather than appending blindly.
 func (m Model) region(title, body string) string {
 	if !m.panelled() {
