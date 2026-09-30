@@ -23,7 +23,8 @@ import (
 // lipgloss.Width measures what the terminal draws.
 //
 // A row's last non-empty cell is never padded, and trailing EMPTY cells ("")
-// are ignored, so the gap is never written after a row's last cell. A cell
+// are not printed, so the gap is never written after a row's last cell. A
+// row's last cell as given does not widen its column; see the width pass. A cell
 // holding only whitespace is not empty and is kept as given. (text/tabwriter
 // padded a trailing empty cell to its column width, which callers had to
 // work around by omitting the cell.)
@@ -31,24 +32,15 @@ func Columns(rows [][]string, gap int) string {
 	if len(rows) == 0 {
 		return ""
 	}
-	// A trailing empty cell is dropped before measuring or padding, so the
-	// gap is never written after a row's last visible cell. Empty cells in
-	// the middle of a row are kept: they hold their column open.
-	trimmed := make([][]string, len(rows))
-	for i, row := range rows {
-		end := len(row)
-		for end > 0 && row[end-1] == "" {
-			end--
-		}
-		trimmed[i] = row[:end]
-	}
-	rows = trimmed
-
+	// Widths are decided from the rows exactly as the caller passed them. A
+	// row's last cell, as given, is printed but never measured: it has nothing
+	// after it to align against, so it must not widen its column. A caller
+	// that wants a cell kept out of the width table passes a shorter row. A
+	// trailing "" is a cell like any other here, so the cell before it still
+	// counts -- the same distinction tabwriter drew between "name\n" and
+	// "name\t\n".
 	var widths []int
 	for _, row := range rows {
-		// A row's last cell is printed but never measured: it has nothing
-		// after it to align against, and letting it widen its column would
-		// push every other row's next cell right for no benefit.
 		for i, cell := range row[:max(len(row)-1, 0)] {
 			w := lipgloss.Width(cell)
 			switch {
@@ -59,6 +51,19 @@ func Columns(rows [][]string, gap int) string {
 			}
 		}
 	}
+
+	// Trimming governs printing only: a trailing empty cell is not written,
+	// and so the last cell actually printed is never padded. Empty cells in
+	// the middle of a row are kept: they hold their column open.
+	trimmed := make([][]string, len(rows))
+	for i, row := range rows {
+		end := len(row)
+		for end > 0 && row[end-1] == "" {
+			end--
+		}
+		trimmed[i] = row[:end]
+	}
+	rows = trimmed
 
 	var b strings.Builder
 	for _, row := range rows {

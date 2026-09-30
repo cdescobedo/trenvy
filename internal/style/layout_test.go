@@ -83,23 +83,41 @@ func TestColumnsKeepsMiddleEmptyCellAligned(t *testing.T) {
 	}
 }
 
-// A row's last cell has nothing after it to align against, so it must not
-// widen its column: in the profile list shape below "* prod" (6 wide) is the
-// last cell of its row and must not push "(default)" out to column 8.
-func TestColumnsLastCellDoesNotWidenItsColumn(t *testing.T) {
-	got := style.Columns([][]string{{"  dev", "(default)"}, {"* prod", ""}}, 2)
+// A row's last cell, as the caller passed it, has nothing after it to align
+// against, so it must not widen its column. A caller that wants a cell kept
+// out of the width table passes a shorter row: in the profile list shape
+// below "* prod" is a one-cell row and must not push "(default)" out.
+func TestColumnsLastCellOfAGivenRowDoesNotWidenItsColumn(t *testing.T) {
+	got := style.Columns([][]string{{"  dev", "(default)"}, {"* prod"}}, 2)
 	if want := "  dev  (default)\n* prod\n"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
 
-// Both rules are needed: the exclusion applies to the last cell AFTER
-// trailing empties are trimmed, and the trim applies even when the empty cell
-// is the only thing in a column.
-func TestColumnsLastCellRuleAppliesAfterTrim(t *testing.T) {
+// The same shape with an explicit trailing "" is a DIFFERENT row: the name is
+// not the last cell as given, so it counts toward its column, exactly as a
+// tab-terminated cell did under tabwriter. Trimming governs printing only.
+func TestColumnsTrailingEmptyCellStillHoldsItsColumnOpen(t *testing.T) {
+	got := style.Columns([][]string{{"A_LONG_NAME", ""}, {"B", "bee"}}, 2)
+	if want := "A_LONG_NAME\nB            bee\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestColumnsTrailingEmptyCellLeavesNoTrailingWhitespace(t *testing.T) {
+	got := style.Columns([][]string{{"c", ""}}, 2)
+	if want := "c\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// Ragged rows, widths decided from the rows as given: col 0 from a, longer
+// (its last cell as given is "") and x; col 1 from b and "" (c and yy are
+// last as given). This replaces an expectation that decided from the trimmed
+// row, which is the rule being changed.
+func TestColumnsWidthsComeFromTheRowsAsGiven(t *testing.T) {
 	got := style.Columns([][]string{{"a", "b", "c"}, {"longer", "", ""}, {"x", "yy"}}, 2)
-	// col0 from a, x (longer is last after trim); col1 from b only (yy is last).
-	if want := "a  b  c\nlonger\nx  yy\n"; got != want {
+	if want := "a       b  c\nlonger\nx       yy\n"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
