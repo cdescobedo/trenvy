@@ -91,7 +91,7 @@ func (m Model) viewVariables() string {
 			// Marked, not removed: the user is staging an intention they can
 			// still abandon with q, and a row that vanishes gives them
 			// nothing to change their mind about.
-			nameCell += " (deleted)"
+			nameCell += " " + m.st.Staged("(deleted)")
 		}
 		cells := []string{cursor, nameCell, secretWord}
 

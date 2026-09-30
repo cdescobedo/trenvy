@@ -139,3 +139,98 @@ func TestZeroStylerEmitsNoEscapes(t *testing.T) {
 		t.Errorf("zero Styler emitted an escape:\n%q", out)
 	}
 }
+
+// The staged-delete marker is the staged signal; the name beside it is
+// ordinary text. Only the marker is coloured, its literal word survives, and
+// the row still lines up with an undeleted one -- the first styled string to
+// enter a Columns cell.
+func TestMatrixColoursTheDeletedMarkerAndKeepsColumnsAligned(t *testing.T) {
+	st := colourStyler()
+	m := allCellsModelStyled(t, st)
+	// Cursor starts on the first visible row; move to a row with no other
+	// variable depending on it and mark it deleted.
+	m, _ = m.Update(ui.KeyRune('d'))
+	out := m.View()
+
+	if !strings.Contains(out, "(deleted)") {
+		t.Fatalf("no row was marked deleted; the test proves nothing:\n%s", out)
+	}
+	if want := " " + st.Staged("(deleted)"); !strings.Contains(out, want) {
+		t.Errorf("marker not routed through Staged; want %q in:\n%q", want, out)
+	}
+	if st.Staged("(deleted)") == "(deleted)" {
+		t.Fatal("Staged renders plain under TrueColor; the test proves nothing")
+	}
+	assertProfileColumnAligned(t, out)
+}
+
+func TestOutputsTabColoursTheDeletedMarker(t *testing.T) {
+	st := colourStyler()
+	rows := []ui.OutputRow{
+		{Name: "docker", Format: "dotenv", Path: "p", Selects: "all", State: ui.StateFresh},
+		{Name: "public", Format: "json", Path: "q", Selects: "all", State: ui.StateFresh},
+	}
+	p := outputsParams(rows, false)
+	p.Styler = st
+	m := ui.New(p)
+	m, _ = m.Update(ui.KeyRune('4'))
+	m, _ = m.Update(ui.KeyRune('d'))
+	out := m.View()
+
+	if !strings.Contains(out, "(deleted)") {
+		t.Fatalf("no output was marked deleted; the test proves nothing:\n%s", out)
+	}
+	if want := " " + st.Staged("(deleted)"); !strings.Contains(out, want) {
+		t.Errorf("marker not routed through Staged; want %q in:\n%q", want, out)
+	}
+	assertColumnAligned(t, out, "FORMAT")
+}
+
+// assertProfileColumnAligned checks the dev column starts at the same visible
+// offset on the header and on every data row, once escapes are stripped.
+func assertProfileColumnAligned(t *testing.T, out string) {
+	t.Helper()
+	assertColumnAligned(t, out, "dev")
+}
+
+func assertColumnAligned(t *testing.T, out, header string) {
+	t.Helper()
+	plain := stripANSI(out)
+	var hdr string
+	var rest []string
+	for _, l := range strings.Split(plain, "\n") {
+		if hdr == "" && strings.Contains(l, "NAME") && strings.Contains(l, header) {
+			hdr = l
+			continue
+		}
+		if hdr != "" {
+			if strings.TrimSpace(l) == "" {
+				break // the grid ends at the first blank line
+			}
+			rest = append(rest, l)
+		}
+	}
+	if hdr == "" || len(rest) == 0 {
+		t.Fatalf("no header/rows found in:\n%s", plain)
+	}
+	col := strings.Index(hdr, header)
+	for _, l := range rest {
+		if len(l) <= col || l[col-1] != ' ' || l[col] == ' ' {
+			t.Errorf("column %q misaligned at offset %d in row %q\nheader %q", header, col, l, hdr)
+		}
+	}
+}
+
+func stripANSI(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0x1b {
+			for i < len(s) && s[i] != 'm' {
+				i++
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}

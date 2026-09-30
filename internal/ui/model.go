@@ -2439,7 +2439,7 @@ func (m Model) viewOutputs() string {
 				name += " *"
 			}
 			if m.isOutputDeleted(identity) {
-				name += " (deleted)"
+				name += " " + m.st.Staged("(deleted)")
 			}
 			grid = append(grid, []string{cursor, name, format, path, selects, m.styleState(state)})
 		}
