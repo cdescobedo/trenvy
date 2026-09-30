@@ -3,7 +3,8 @@ package ui
 import (
 	"fmt"
 	"strings"
-	"text/tabwriter"
+
+	"github.com/cdescobedo/trenvy/internal/style"
 )
 
 // nameColumnWidth bounds a variable name before it is truncated with "…".
@@ -35,16 +36,18 @@ const outputFreshnessCaveat = "A secret-bearing output can't be told fresh from 
 // per profile, using the exact Cell words from cell.go (shared, override,
 // stored, MISSING, optional) as the audit surface a user reads to decide
 // what is wrong with their project -- abbreviating or re-casing them would
-// undermine that. text/tabwriter, not hand-computed padding, does the
+// undermine that. style.Columns, not hand-computed padding, does the
 // alignment: a name longer than expected must not misalign a column and put
-// a value under the wrong profile, which is what internal/cli/status.go's
-// use of tabwriter also guards against.
+// a value under the wrong profile. It pads every column to its widest cell
+// measured by visible width.
 //
-// A secret row is marked with the word "secret" in its own tab-separated
-// column, not a glyph. tabwriter sizes columns by rune count, and a
-// double-width symbol (the terminal's opinion, not the rune count's) throws
-// that off in exactly the row it is meant to call out -- on the one view
-// whose whole job is trustworthy alignment. A word also matches the
+// A secret row is marked with the word "secret" in its own column, not a
+// glyph. A double-width symbol (the terminal's opinion, not a byte or rune
+// count's) is the kind of cell whose width is easy to get wrong, and this is
+// the one view whose whole job is trustworthy alignment. style.Columns
+// measures visible width, so it would cope with one today, but a glyph's
+// width still varies by terminal and font, and a misjudged cell throws off
+// exactly the row it is meant to call out. A word also matches the
 // vocabulary already on screen instead of adding a symbol nothing else uses.
 func (m Model) viewVariables() string {
 	if m.mx == nil {
@@ -68,10 +71,8 @@ func (m Model) viewVariables() string {
 		// dedicated key for "clear the filter".
 		fmt.Fprintf(&b, "filter: %q  (press / then enter with nothing typed to clear)\n\n", m.filter)
 	}
-	w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
-
 	header := append([]string{"", "NAME", ""}, m.mx.Profiles...)
-	fmt.Fprintln(w, strings.Join(header, "\t"))
+	rows := [][]string{header}
 
 	for row, name := range names {
 		cursor := " "
@@ -103,13 +104,10 @@ func (m Model) viewVariables() string {
 			}
 			cells = append(cells, cell)
 		}
-		fmt.Fprintln(w, strings.Join(cells, "\t"))
+		rows = append(rows, cells)
 	}
 
-	// Flush into a strings.Builder cannot fail: Write never returns an
-	// error, so there is nothing for a caller to do with one here, and
-	// View must stay a plain string, no error, to stay pure.
-	_ = w.Flush()
+	b.WriteString(style.Columns(rows, 2))
 
 	switch m.mode {
 	case ModeEditValue:

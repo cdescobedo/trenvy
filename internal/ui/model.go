@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"text/tabwriter"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/cdescobedo/trenvy/internal/manifest"
 	"github.com/cdescobedo/trenvy/internal/resolve"
+	"github.com/cdescobedo/trenvy/internal/style"
 )
 
 // Tab is one of the panels in the management interface's tab bar.
@@ -2256,11 +2256,11 @@ func (m Model) viewHelp() string {
 		{"ctrl+c", "quit immediately, without asking, without writing anything"},
 		{"?", "show this list"},
 	}
-	w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+	var grid [][]string
 	for _, r := range rows {
-		fmt.Fprintf(w, "  %s\t%s\n", r.key, r.action)
+		grid = append(grid, []string{"  " + r.key, r.action})
 	}
-	_ = w.Flush()
+	b.WriteString(style.Columns(grid, 2))
 	b.WriteString("\npress esc to go back\n")
 	return b.String()
 }
@@ -2370,8 +2370,7 @@ func (m Model) viewOutputs() string {
 
 	var b strings.Builder
 	if len(names) > 0 {
-		w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "\tNAME\tFORMAT\tPATH\tSELECTS\tSTATE")
+		grid := [][]string{{"", "NAME", "FORMAT", "PATH", "SELECTS", "STATE"}}
 		for i, identity := range names {
 			cursor := " "
 			if i == m.outputRow {
@@ -2388,9 +2387,9 @@ func (m Model) viewOutputs() string {
 			if m.isOutputDeleted(identity) {
 				name += " (deleted)"
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", cursor, name, format, path, selects, state)
+			grid = append(grid, []string{cursor, name, format, path, selects, state})
 		}
-		_ = w.Flush()
+		b.WriteString(style.Columns(grid, 2))
 	}
 
 	if m.outputFreshnessUnverified {
