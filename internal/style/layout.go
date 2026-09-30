@@ -20,8 +20,9 @@ import (
 // the same class of defect as a double-width glyph, which phase 1 of the TUI
 // hit with a lock emoji. lipgloss.Width measures what the terminal draws.
 //
-// A row's last non-empty cell is never padded, and trailing empty cells are
-// ignored, so no line carries trailing whitespace.
+// A row's last non-empty cell is never padded, and trailing EMPTY cells ("")
+// are ignored, so the gap is never written after a row's last cell. A cell
+// holding only whitespace is not empty and is kept as given.
 // tabwriter padded a trailing empty cell to its column width, which callers
 // worked around by hand (see the note this replaces in internal/cli/profile.go).
 func Columns(rows [][]string, gap int) string {
