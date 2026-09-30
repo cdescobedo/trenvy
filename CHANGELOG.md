@@ -367,13 +367,14 @@ the command surface may still move under you.
 - **Colour and a width-aware layout.** `trenvy status` and `trenvy ui` gain
   both. `show` gains the layout but no colour. Tokens that already carried
   meaning are now coloured (for example `MISSING`, `stored`, `STALE`,
-  `FOREIGN`), using the base ANSI colours so they follow your terminal theme. Colour is
-  additive: every word, bracket and marker is still printed, so the text carries the same information
-  without it. Setting `NO_COLOR` (any non-empty value), or piping the output,
-  removes every escape sequence; `CLICOLOR_FORCE=1` turns colour on when
-  piped, and `NO_COLOR` wins if both are set. "No escapes" is the whole
-  promise: the panel borders in `trenvy ui` carry no colour, so `NO_COLOR`
-  output still contains the box-drawing characters.
+  `FOREIGN`), using the base ANSI colours so they follow your terminal theme.
+  Colour is additive: every word, bracket and marker is still printed, so the
+  text carries the same information without it. Setting `NO_COLOR` (any
+  non-empty value), or piping the output, removes every escape sequence;
+  `CLICOLOR_FORCE=1` turns colour on when piped, and `NO_COLOR` wins if both
+  are set. "No escapes" is the whole promise: the panel borders in `trenvy ui`
+  carry no colour, so `NO_COLOR` output still contains the box-drawing
+  characters.
 
   `trenvy ui` draws bordered panels at **72 columns or wider** and falls back
   to the existing flat layout below that. The `?` help and the project
