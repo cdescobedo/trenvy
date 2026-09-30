@@ -65,6 +65,7 @@ func newUiCmd(opts *Options) *cobra.Command {
 					OutputFreshnessUnverified: unverified,
 					Projects:                  projects,
 					Outputs:                   buildOutputRows(app.Manifest, states),
+					Styler:                    opts.Styler,
 				})
 
 				final, err := opts.RunUI(m, func(name, profile string) (string, error) {

@@ -241,6 +241,10 @@ type revealedCell struct{ Name, Profile, Value string }
 // sibling flat-table model. Any data the model needs from outside (the
 // keyring, the registry) arrives as a message; Update never fetches it.
 type Model struct {
+	// st colours cells and states. The zero value renders plain, which is
+	// what every test that builds a Model without one relies on.
+	st style.Styler
+
 	project      string
 	profile      string // active profile name, e.g. "prod"
 	source       string // where profile came from: "--profile", "TRENVY_PROFILE", "default"
@@ -398,6 +402,10 @@ type Params struct {
 	// itself: doing so here would be the second implementation of "what are
 	// this project's outputs" that this task was explicitly warned against.
 	Outputs []OutputRow
+
+	// Styler colours the tokens that already carry meaning. The zero value
+	// renders everything plain, so a caller that does not care leaves it unset.
+	Styler style.Styler
 }
 
 // New builds a model over one project's matrix and its detected problems.
@@ -408,6 +416,7 @@ type Params struct {
 // cannot read them itself.
 func New(p Params) Model {
 	return Model{
+		st:                        p.Styler,
 		project:                   p.Project,
 		profile:                   p.Profile,
 		source:                    p.Source,
@@ -732,7 +741,12 @@ func (m Model) outputRenameWarning() string {
 // cell outright while the write is pending (see revealRequest), rather than
 // fetching the keyring's current value only to show "pending" over it anyway
 // -- so there is no read left that could ever disagree with this text.
-func (m Model) cellText(name, profile string) string {
+//
+// The second result reports whether the text is a matrix Cell word, as
+// opposed to a staged edit or a revealed value. Only a Cell word is a token
+// with a colour: a revealed value that happens to spell "MISSING" is data,
+// and painting it red would claim the variable is missing.
+func (m Model) cellText(name, profile string) (text string, isCell bool) {
 	for i := len(m.staged) - 1; i >= 0; i-- {
 		c := m.staged[i]
 		if c.Name != name || c.Profile != profile {
@@ -740,15 +754,55 @@ func (m Model) cellText(name, profile string) string {
 		}
 		switch c.Kind {
 		case ChangeSetValue:
-			return c.Value
+			return c.Value, false
 		case ChangeSetSecret:
-			return "secret (pending)"
+			return "secret (pending)", false
 		}
 	}
 	if v, ok := m.revealedValue(name, profile); ok {
-		return v
+		return v, false
 	}
-	return string(m.mx.Cell(name, profile))
+	return string(m.mx.Cell(name, profile)), true
+}
+
+// styleCell routes a Cell through the token that owns its colour. It
+// switches on the Cell constants, never on their spelling: cell.go owns the
+// words, and a literal here would be a second definition of one.
+func (m Model) styleCell(c Cell) string {
+	switch c {
+	case CellMissing:
+		return m.st.Missing(string(c))
+	case CellStored:
+		return m.st.Stored(string(c))
+	case CellOverride:
+		return m.st.Override(string(c))
+	case CellShared:
+		return m.st.Shared(string(c))
+	case CellOptional:
+		return m.st.Optional(string(c))
+	}
+	return string(c)
+}
+
+// styleState routes an output's STATE word through the token that owns its
+// colour, switching on problem.go's constants for the same reason styleCell
+// does. A word it does not know ("pending", "", "?") stays plain.
+func (m Model) styleState(state string) string {
+	switch state {
+	case StateFresh:
+		return m.st.Fresh(state)
+	case StateStale:
+		return m.st.Stale(state)
+	case StateModified:
+		return m.st.Modified(state)
+	case StateForeign:
+		return m.st.Foreign(state)
+	case StateAbsent:
+		return m.st.Absent(state)
+	case StateUnknown, StateUnverified:
+		return m.st.Unknown(state)
+	}
+	return state
 }
 
 // currentValue is what e prefills its buffer with: a pending edit if one is
@@ -2387,7 +2441,7 @@ func (m Model) viewOutputs() string {
 			if m.isOutputDeleted(identity) {
 				name += " (deleted)"
 			}
-			grid = append(grid, []string{cursor, name, format, path, selects, state})
+			grid = append(grid, []string{cursor, name, format, path, selects, m.styleState(state)})
 		}
 		b.WriteString(style.Columns(grid, 2))
 	}

@@ -98,7 +98,10 @@ func (m Model) viewVariables() string {
 		for col, profile := range m.mx.Profiles {
 			// cellText, not mx.Cell directly: a staged edit must be visible
 			// the instant it is staged, not only after w writes it to disk.
-			cell := m.cellText(name, profile)
+			cell, isCell := m.cellText(name, profile)
+			if isCell {
+				cell = m.styleCell(Cell(cell))
+			}
 			// The column cursor marks one cell within the row, not the whole
 			// row: ">" already says which row is selected, so this is the
 			// only signal for which profile within it.

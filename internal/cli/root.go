@@ -11,12 +11,14 @@ import (
 	"os/user"
 	"sync"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
 	"github.com/cdescobedo/trenvy/internal/config"
 	"github.com/cdescobedo/trenvy/internal/manifest"
 	"github.com/cdescobedo/trenvy/internal/resolve"
 	"github.com/cdescobedo/trenvy/internal/store"
+	"github.com/cdescobedo/trenvy/internal/style"
 	"github.com/cdescobedo/trenvy/internal/tui"
 	"github.com/cdescobedo/trenvy/internal/ui"
 )
@@ -31,7 +33,12 @@ type Options struct {
 	Backend string
 	// Profile is the --profile flag. Empty means fall back to TRENVY_PROFILE
 	// and then the manifest's default_profile.
-	Profile  string
+	Profile string
+	// Styler colours human-facing output. The zero value renders plain, so
+	// tests that assert on words leave it unset. Default builds one from the
+	// real stdout, which resolves to no colour when piped or under NO_COLOR.
+	// Machine-readable output (get, show, profile use) never consults it.
+	Styler   style.Styler
 	NewStore func(cfg *config.Config, backend string) (store.Store, error)
 
 	// Run executes a prepared child process. Swappable so tests can assert on
@@ -61,6 +68,7 @@ func Default() Options {
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
 		Dir:    dir,
+		Styler: style.New(lipgloss.NewRenderer(os.Stdout)),
 		NewStore: func(cfg *config.Config, backend string) (store.Store, error) {
 			// store.Open falls back to TRENVY_BACKEND and then the platform
 			// default when backend is empty, so the precedence here is

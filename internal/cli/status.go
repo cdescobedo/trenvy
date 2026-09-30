@@ -65,12 +65,12 @@ func newStatusCmd(opts *Options) *cobra.Command {
 				if !v.Secret {
 					switch {
 					case v.Profiles[app.Profile.Name] != "" || v.Value != nil:
-						vrows = append(vrows, []string{"  present", n})
+						vrows = append(vrows, []string{"  " + opts.Styler.Stored("present"), n})
 					case v.Optional:
-						vrows = append(vrows, []string{"  optional", n, "(omitted when unset)"})
+						vrows = append(vrows, []string{"  " + opts.Styler.Optional("optional"), n, "(omitted when unset)"})
 					default:
 						missing++
-						vrows = append(vrows, []string{"  MISSING", n,
+						vrows = append(vrows, []string{"  " + opts.Styler.Missing("MISSING"), n,
 							fmt.Sprintf("-> trenvy -p %s set %s <value>", app.Profile.Name, n)})
 					}
 					continue
@@ -88,12 +88,12 @@ func newStatusCmd(opts *Options) *cobra.Command {
 				}
 				switch {
 				case ok:
-					vrows = append(vrows, []string{"  present", n})
+					vrows = append(vrows, []string{"  " + opts.Styler.Stored("present"), n})
 				case v.Optional:
-					vrows = append(vrows, []string{"  optional", n, "(omitted when unset)"})
+					vrows = append(vrows, []string{"  " + opts.Styler.Optional("optional"), n, "(omitted when unset)"})
 				default:
 					missing++
-					vrows = append(vrows, []string{"  MISSING", n,
+					vrows = append(vrows, []string{"  " + opts.Styler.Missing("MISSING"), n,
 						fmt.Sprintf("-> trenvy -p %s secret set %s", app.Profile.Name, n)})
 				}
 			}
@@ -242,25 +242,27 @@ func classifyOutput(opts *Options, app *appContext, name string, o manifest.Outp
 }
 
 // describeOutput renders classifyOutput's decision as the prose status
-// prints. Its output is pinned to what it was before classifyOutput existed
-// -- this function is a formatter now, not a decision, and status's text
-// must not move by one byte just because the decision moved to its own type.
+// prints, coloured through opts.Styler. Its words are pinned to what they
+// were before classifyOutput existed -- this function is a formatter now, not
+// a decision, and status's text must not move by one byte just because the
+// decision moved to its own type. Colour wraps the words and never replaces
+// them, so a plain Styler reproduces the old output exactly.
 func describeOutput(opts *Options, app *appContext, name string, o manifest.Output, secretsMissing, quick bool) string {
 	switch classifyOutput(opts, app, name, o, secretsMissing, quick) {
 	case outputAbsent:
-		return "not rendered"
+		return opts.Styler.Absent("not rendered")
 	case outputFresh:
-		return guard.StatusFresh.String()
+		return opts.Styler.Fresh(guard.StatusFresh.String())
 	case outputStale:
-		return guard.StatusStale.String()
+		return opts.Styler.Stale(guard.StatusStale.String())
 	case outputModified:
-		return guard.StatusModified.String()
+		return opts.Styler.Modified(guard.StatusModified.String())
 	case outputForeign:
-		return guard.StatusForeign.String()
+		return opts.Styler.Foreign(guard.StatusForeign.String())
 	case outputSecretsMissing:
-		return "unknown (a secret is missing)"
+		return opts.Styler.Unknown("unknown (a secret is missing)")
 	case outputQuickSkipped:
-		return "unknown (--quick)"
+		return opts.Styler.Unknown("unknown (--quick)")
 	default: // outputErrored
 		return "?"
 	}

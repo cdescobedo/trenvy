@@ -1,13 +1,18 @@
 package cli_test
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
+
 	"github.com/cdescobedo/trenvy/internal/config"
 	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/style"
 )
 
 func TestStatusReportsSecretPresence(t *testing.T) {
@@ -358,5 +363,54 @@ func TestStatusAlignsEveryHintInOneColumnAcrossInterveningRows(t *testing.T) {
 	}
 	if cols[0] != cols[1] {
 		t.Errorf("hint arrows land in different columns %v:\n%s", cols, h.out.String())
+	}
+}
+
+// status colours the words that already carry meaning. TrueColor is forced
+// explicitly (termenv.WithProfile would silently do nothing), and each word
+// is checked against its own token rather than "some escape", so a routing
+// that sent present through Missing would fail.
+func TestStatusColoursItsStateWords(t *testing.T) {
+	r := lipgloss.NewRenderer(io.Discard)
+	r.SetColorProfile(termenv.TrueColor)
+	st := style.New(r)
+
+	h := newHarness(t)
+	h.opts.Styler = st
+	h.register("vpb", fixtureManifest(t))
+	// ALPHA_TOKEN deliberately absent: MISSING, and its output not rendered.
+
+	if err := h.run("status"); err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	out := h.out.String()
+
+	for _, c := range []struct{ word, want string }{
+		{"MISSING", st.Missing("MISSING")},
+		{"present", st.Stored("present")},
+		{"not rendered", st.Absent("not rendered")},
+	} {
+		if !strings.Contains(out, c.word) {
+			t.Fatalf("fixture has no %q; the case proves nothing:\n%s", c.word, out)
+		}
+		if c.want == c.word {
+			t.Fatalf("token for %q renders plain under TrueColor", c.word)
+		}
+		if !strings.Contains(out, c.want) {
+			t.Errorf("%q not routed through its token; want %q in:\n%q", c.word, c.want, out)
+		}
+	}
+}
+
+// Without a Styler, status stays byte-plain: every other assertion in this
+// package relies on it.
+func TestStatusWithoutAStylerEmitsNoEscapes(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+	if err := h.run("status"); err != nil {
+		t.Fatal(err)
+	}
+	if out := h.out.String(); strings.Contains(out, "\x1b") {
+		t.Errorf("zero Styler emitted an escape:\n%q", out)
 	}
 }
