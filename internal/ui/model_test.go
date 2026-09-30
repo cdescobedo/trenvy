@@ -160,10 +160,10 @@ func lineFor(t *testing.T, v, name string) string {
 
 // A secret row is marked with the word "secret" in its own column, matching
 // the vocabulary already on screen (shared, stored, optional, MISSING) --
-// not a glyph. A glyph's width is a font's opinion, and text/tabwriter sizes
-// columns by rune count, not display width, so a symbol here can throw off
-// the very alignment tabwriter exists to guarantee. Plain variables must not
-// carry the word at all.
+// not a glyph. A glyph's width is a prediction from Unicode width tables that
+// terminals do not all agree with (emoji especially), so a symbol here can
+// throw off the row it is meant to call out; a word cannot. Plain variables
+// must not carry the word at all.
 func TestVariablesTabMarksSecretRowsWithWord(t *testing.T) {
 	m := allCellsModel(t)
 	v := m.View()

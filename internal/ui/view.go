@@ -42,13 +42,16 @@ const outputFreshnessCaveat = "A secret-bearing output can't be told fresh from 
 // measured by visible width.
 //
 // A secret row is marked with the word "secret" in its own column, not a
-// glyph. A double-width symbol (the terminal's opinion, not a byte or rune
-// count's) is the kind of cell whose width is easy to get wrong, and this is
-// the one view whose whole job is trustworthy alignment. style.Columns
-// measures visible width, so it would cope with one today, but a glyph's
-// width still varies by terminal and font, and a misjudged cell throws off
-// exactly the row it is meant to call out. A word also matches the
-// vocabulary already on screen instead of adding a symbol nothing else uses.
+// glyph, for two independent reasons. First, a word matches the vocabulary
+// already on screen (shared, override, stored, optional, MISSING) instead of
+// adding a symbol nothing else uses. Second, width: style.Columns measures
+// with lipgloss.Width, which resolves a glyph's width from Unicode width
+// tables -- a prediction of what a terminal will draw, not a fact. For emoji
+// (ZWJ sequences, variation selectors, regional indicators) terminals
+// genuinely disagree, so no layout engine can be right for all of them, and
+// a misjudged cell shifts exactly the row meant to call out a secret, on the
+// view whose whole job is trustworthy alignment. A word has no such
+// ambiguity.
 func (m Model) viewVariables() string {
 	if m.mx == nil {
 		return "No variables defined.\n"
