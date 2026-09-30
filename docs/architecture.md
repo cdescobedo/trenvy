@@ -66,6 +66,19 @@ what the other renders. `ui` loads secret presence through `Has` only, never
 already follow, so opening `trenvy ui` never raises a keyring authorization
 prompt by itself.
 
+### `internal/style`
+
+`internal/style` owns the token vocabulary (the colour each of `MISSING`,
+`stored`, `STALE`, `FOREIGN` and the rest is drawn in) and both containers: the
+aligned-column layout and the bordered panel. It is shared between
+`internal/ui` and `internal/cli` so the same word cannot mean different things
+in `trenvy status` and `trenvy ui`. A `Styler` is built over an injected
+renderer rather than lipgloss's global, which keeps `internal/ui` free of I/O
+and makes the colour profile testable. Colour is additive: the Ascii profile
+(`NO_COLOR`, or output that is not a terminal) removes escape sequences and
+nothing else. The panel borders carry no colour, so that output still contains
+box-drawing characters.
+
 **Beneath:** `store` holds secret values behind one small interface with an
 implementation per platform. `config` owns everything in the config directory —
 global settings, the project registry, and render state. `guard` holds the

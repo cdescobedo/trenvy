@@ -364,6 +364,37 @@ the command surface may still move under you.
   --clear` by hand. That escape hatch still exists for a state file `rm`
   never saw (a hand edit, or one left behind by an older version), but the
   common path is now closed automatically.
+- **Colour, and a width-aware layout, for `trenvy status` and
+  `trenvy ui`; `show` gains the layout but no colour.** Tokens that already carried meaning are now coloured (for
+  example `MISSING`, `stored`, `STALE`, `FOREIGN`), using the base ANSI colours
+  so they follow your terminal theme. Colour is additive: every word, bracket
+  and marker is still printed, so the text carries the same information
+  without it. Setting `NO_COLOR` (any non-empty value), or piping the output,
+  removes every escape sequence; `CLICOLOR_FORCE=1` turns colour on when
+  piped, and `NO_COLOR` wins if both are set. "No escapes" is the whole
+  promise: the panel borders in `trenvy ui` carry no colour, so `NO_COLOR`
+  output still contains the box-drawing characters.
+
+  `trenvy ui` draws bordered panels at **72 columns or wider** and falls back
+  to the existing flat layout below that. The `?` help and the project
+  switcher are deliberately not panelled. `trenvy get <NAME>`, `show --format
+  dotenv`, `show --format json`, and the `profile use` no-output contract are
+  byte-identical to before.
+
+  Replacing `text/tabwriter` moves visible text in three places. These are
+  intentional, not whitespace-only:
+
+  1. **`trenvy status` hints align.** `tabwriter` ends a column block at an
+     intervening row with fewer cells, so with a long-named MISSING variable, a
+     short-named present one, and a short-named MISSING one, the two
+     `-> trenvy ... set ...` hints landed in different columns. They now all
+     align in one column.
+  2. **`show` with an empty value.** The name column is now measured even when
+     the value is empty, so the other rows stay aligned; previously a single
+     empty value collapsed the column. That line also no longer carries
+     trailing spaces.
+  3. **Trailing whitespace is gone** wherever a row's last cell was empty: in
+     `show`, and in the last profile column of `trenvy ui`.
 
 ### Fixed
 
