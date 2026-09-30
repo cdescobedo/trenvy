@@ -65,3 +65,20 @@ func TestColumnsHandlesEmptyGrid(t *testing.T) {
 		t.Errorf("Columns(empty) = %q, want empty", got)
 	}
 }
+
+// An empty last cell must not leave the gap behind it: profile.go emits an
+// empty (default) note cell for most rows, and tabwriter padded it.
+func TestColumnsTrimsTrailingEmptyCells(t *testing.T) {
+	got := style.Columns([][]string{{"a", "b"}, {"c", ""}}, 2)
+	if want := "a  b\nc\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// An empty cell in the middle of a row still holds its column open.
+func TestColumnsKeepsMiddleEmptyCellAligned(t *testing.T) {
+	got := style.Columns([][]string{{"d", "x", "y"}, {"e", "", "f"}}, 1)
+	if want := "d x y\ne   f\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
