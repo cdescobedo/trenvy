@@ -15,16 +15,18 @@ import (
 
 // Columns lays out a grid, padding every column to its widest visible cell.
 //
-// It replaces text/tabwriter, which measures bytes. An ANSI escape inside a
-// cell counts toward tabwriter's idea of width and shifts the whole row --
-// the same class of defect as a double-width glyph, which phase 1 of the TUI
-// hit with a lock emoji. lipgloss.Width measures what the terminal draws.
+// It replaces text/tabwriter, which counts runes (utf8.RuneCount), not
+// terminal columns, and that goes wrong in two directions. An ANSI escape is
+// several runes that draw nothing, so tabwriter OVERcounts a styled cell. A
+// double-width glyph (the lock emoji phase 1 of the TUI hit) is one rune but
+// two columns, so tabwriter UNDERcounts it. Either way the row shifts.
+// lipgloss.Width measures what the terminal draws.
 //
 // A row's last non-empty cell is never padded, and trailing EMPTY cells ("")
 // are ignored, so the gap is never written after a row's last cell. A cell
-// holding only whitespace is not empty and is kept as given.
-// tabwriter padded a trailing empty cell to its column width, which callers
-// worked around by hand (see the note this replaces in internal/cli/profile.go).
+// holding only whitespace is not empty and is kept as given. (text/tabwriter
+// padded a trailing empty cell to its column width, which callers had to
+// work around by omitting the cell.)
 func Columns(rows [][]string, gap int) string {
 	if len(rows) == 0 {
 		return ""
@@ -44,7 +46,10 @@ func Columns(rows [][]string, gap int) string {
 
 	var widths []int
 	for _, row := range rows {
-		for i, cell := range row {
+		// A row's last cell is printed but never measured: it has nothing
+		// after it to align against, and letting it widen its column would
+		// push every other row's next cell right for no benefit.
+		for i, cell := range row[:max(len(row)-1, 0)] {
 			w := lipgloss.Width(cell)
 			switch {
 			case i >= len(widths):

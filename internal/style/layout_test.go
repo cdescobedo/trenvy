@@ -10,7 +10,7 @@ import (
 )
 
 // The whole point of the change: a styled cell carries ANSI escapes that
-// text/tabwriter counted as visible width, shifting the row. lipgloss.Width
+// a rune-counting layout counted as visible width, shifting the row. lipgloss.Width
 // measures what the terminal draws.
 func TestColumnsIgnoresAnsiEscapesWhenMeasuring(t *testing.T) {
 	plain := style.Columns([][]string{{"MISSING", "x"}, {"ok", "y"}}, 2)
@@ -67,7 +67,7 @@ func TestColumnsHandlesEmptyGrid(t *testing.T) {
 }
 
 // An empty last cell must not leave the gap behind it: profile.go emits an
-// empty (default) note cell for most rows, and tabwriter padded it.
+// empty (default) note cell for most rows, and padding it left trailing space.
 func TestColumnsTrimsTrailingEmptyCells(t *testing.T) {
 	got := style.Columns([][]string{{"a", "b"}, {"c", ""}}, 2)
 	if want := "a  b\nc\n"; got != want {
@@ -79,6 +79,27 @@ func TestColumnsTrimsTrailingEmptyCells(t *testing.T) {
 func TestColumnsKeepsMiddleEmptyCellAligned(t *testing.T) {
 	got := style.Columns([][]string{{"d", "x", "y"}, {"e", "", "f"}}, 1)
 	if want := "d x y\ne   f\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// A row's last cell has nothing after it to align against, so it must not
+// widen its column: in the profile list shape below "* prod" (6 wide) is the
+// last cell of its row and must not push "(default)" out to column 8.
+func TestColumnsLastCellDoesNotWidenItsColumn(t *testing.T) {
+	got := style.Columns([][]string{{"  dev", "(default)"}, {"* prod", ""}}, 2)
+	if want := "  dev  (default)\n* prod\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// Both rules are needed: the exclusion applies to the last cell AFTER
+// trailing empties are trimmed, and the trim applies even when the empty cell
+// is the only thing in a column.
+func TestColumnsLastCellRuleAppliesAfterTrim(t *testing.T) {
+	got := style.Columns([][]string{{"a", "b", "c"}, {"longer", "", ""}, {"x", "yy"}}, 2)
+	// col0 from a, x (longer is last after trim); col1 from b only (yy is last).
+	if want := "a  b  c\nlonger\nx  yy\n"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
