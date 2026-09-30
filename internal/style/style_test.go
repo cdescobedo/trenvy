@@ -2,6 +2,7 @@ package style_test
 
 import (
 	"io"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -24,32 +25,72 @@ func forced() style.Styler {
 	return style.New(r)
 }
 
-func TestTokensCarryColourWhenTheProfileAllowsIt(t *testing.T) {
-	s := forced()
-	for name, got := range map[string]string{
-		"Missing":  s.Missing("MISSING"),
-		"Stored":   s.Stored("stored"),
-		"Optional": s.Optional("optional"),
-		"Override": s.Override("override"),
-		"Stale":    s.Stale("STALE"),
-		"Foreign":  s.Foreign("FOREIGN"),
-	} {
-		if !strings.Contains(got, "\x1b[") {
-			t.Errorf("%s emitted no escape: %q", name, got)
+type token struct {
+	name  string
+	apply func(style.Styler, string) string
+	sgr   string // exact parameters between "\x1b[" and "m"
+}
+
+// tokens is the spec's colour table, one row per styled token. Shared is
+// absent on purpose: it earns no ink (TestSharedIsUnstyled).
+func tokens() []token {
+	return []token{
+		{"Missing", style.Styler.Missing, "31"},
+		{"Foreign", style.Styler.Foreign, "31"},
+		{"Stored", style.Styler.Stored, "32"},
+		{"Fresh", style.Styler.Fresh, "32"},
+		{"Stale", style.Styler.Stale, "33"},
+		{"Modified", style.Styler.Modified, "33"},
+		{"SecretMark", style.Styler.SecretMark, "33"},
+		{"Override", style.Styler.Override, "36"},
+		{"Staged", style.Styler.Staged, "35"},
+		{"Optional", style.Styler.Optional, "90"},
+		{"Absent", style.Styler.Absent, "90"},
+		{"Unknown", style.Styler.Unknown, "90"},
+		{"Cursor", style.Styler.Cursor, "7"},
+		// lipgloss v1.1.0 writes underline as "4;4" even for a bare
+		// Underline(true) (checked against a plain NewStyle), so the
+		// doubled 4 is the library's, not a slip in ActiveTab.
+		{"ActiveTab", style.Styler.ActiveTab, "1;4;4"},
+	}
+}
+
+// ansi renders on the 16-colour profile, where base colours "1".."6" and "8"
+// become SGR 31-36 and 90 -- the codes the spec's table implies.
+func ansi() style.Styler {
+	r := lipgloss.NewRenderer(io.Discard)
+	r.SetColorProfile(termenv.ANSI)
+	return style.New(r)
+}
+
+// Pins the exact escape, not merely that one exists: a wrong colour constant
+// must fail here.
+func TestEveryTokenEmitsItsExactColour(t *testing.T) {
+	s := ansi()
+	for _, tok := range tokens() {
+		// One character: lipgloss wraps each rune of an underlined string
+		// in its own escape, so a longer word would only obscure the code.
+		want := "\x1b[" + tok.sgr + "mx\x1b[0m"
+		if got := tok.apply(s, "x"); got != want {
+			t.Errorf("%s = %q, want %q", tok.name, got, want)
 		}
 	}
 }
 
-// Colour is additive. Every method must return its input unchanged apart from
-// escapes -- a token that loses a character stops reading under NO_COLOR.
-func TestTokensPreserveTheirTextExactly(t *testing.T) {
-	s := forced()
-	for _, word := range []string{"MISSING", "stored", "optional", "STALE", "unknown (--quick)"} {
-		if got := lipgloss.NewStyle().Render(s.Missing(word)); !strings.Contains(got, word) {
-			t.Errorf("Missing(%q) lost its text: %q", word, got)
+// Colour is additive: stripping the escapes must give back the input exactly.
+// A token that lost, added or altered a character stops reading under NO_COLOR.
+func TestEveryTokenPreservesItsTextExactly(t *testing.T) {
+	s := ansi()
+	for _, tok := range tokens() {
+		for _, word := range []string{"MISSING", "stored", "unknown (--quick)", "a b"} {
+			if got := ansiRE.ReplaceAllString(tok.apply(s, word), ""); got != word {
+				t.Errorf("%s(%q) text became %q", tok.name, word, got)
+			}
 		}
 	}
 }
+
+var ansiRE = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
 // The default renderer under `go test` is Ascii, which is what keeps the 126
 // existing strings.Contains assertions in internal/ui working untouched.
@@ -65,11 +106,10 @@ func TestDefaultStylerEmitsNoEscapes(t *testing.T) {
 // panics or starts colouring, those suites break in bulk.
 func TestZeroStylerIsSafeAndPlain(t *testing.T) {
 	var z style.Styler
-	if got := z.Missing("MISSING"); got != "MISSING" {
-		t.Errorf("zero Styler changed its input: %q", got)
-	}
-	if got := z.Stale("STALE"); got != "STALE" {
-		t.Errorf("zero Styler changed its input: %q", got)
+	for _, tok := range tokens() {
+		if got := tok.apply(z, "word"); got != "word" {
+			t.Errorf("zero Styler.%s changed its input: %q", tok.name, got)
+		}
 	}
 	if got := z.Panel("Variables", "body", 40); got != "body" {
 		t.Errorf("zero Styler.Panel should pass the body through: %q", got)
