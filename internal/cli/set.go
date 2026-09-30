@@ -93,7 +93,7 @@ func newSetCmd(opts *Options) *cobra.Command {
 }
 
 func newSecretCmd(opts *Options) *cobra.Command {
-	cmd := &cobra.Command{Use: "secret", Short: "Manage secret values in the keyring"}
+	cmd := newGroupCmd("secret", "Manage secret values in the keyring")
 	cmd.AddCommand(newSecretSetCmd(opts), newSecretRmCmd(opts))
 	return cmd
 }

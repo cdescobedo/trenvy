@@ -19,10 +19,7 @@ import (
 // -- an output decides where values go, a profile decides what they are -- and
 // a user who has learned one should not have to learn the other.
 func newOutputCmd(opts *Options) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "output",
-		Short: "List and manage this project's outputs",
-	}
+	cmd := newGroupCmd("output", "List and manage this project's outputs")
 	cmd.AddCommand(
 		newOutputListCmd(opts),
 		newOutputAddCmd(opts),

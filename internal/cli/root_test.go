@@ -346,3 +346,35 @@ func mustReadFile(t *testing.T, path string) string {
 	}
 	return string(data)
 }
+
+// A command group that only holds subcommands has no RunE, and cobra's default
+// for that shape is to print help and return nil -- so a typo'd subcommand
+// looked like success. `profile` never had the bug because it carries a RunE of
+// its own; these three did, and a script branching on the exit status of
+// `trenvy secret st VAR` would have taken the success path.
+func TestUnknownSubcommandFailsForEveryGroup(t *testing.T) {
+	for _, group := range []string{"output", "project", "secret"} {
+		t.Run(group, func(t *testing.T) {
+			h := newHarness(t)
+			if err := h.run(group, "bogus"); err == nil {
+				t.Errorf("`trenvy %s bogus` returned nil; a typo must not exit 0", group)
+			}
+		})
+	}
+}
+
+// The fix must not cost the bare invocation, which is how someone discovers
+// what a group holds.
+func TestBareGroupStillPrintsHelp(t *testing.T) {
+	for _, group := range []string{"output", "project", "secret"} {
+		t.Run(group, func(t *testing.T) {
+			h := newHarness(t)
+			if err := h.run(group); err != nil {
+				t.Errorf("`trenvy %s` returned %v; it should print help and succeed", group, err)
+			}
+			if out := h.out.String() + h.errb.String(); !strings.Contains(out, "Usage:") {
+				t.Errorf("`trenvy %s` printed no usage:\n%s", group, out)
+			}
+		})
+	}
+}

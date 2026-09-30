@@ -19,10 +19,7 @@ import (
 )
 
 func newProjectCmd(opts *Options) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "project",
-		Short: "Register, list, move and remove projects",
-	}
+	cmd := newGroupCmd("project", "Register, list, move and remove projects")
 	cmd.AddCommand(
 		newInitCmd(opts), newProjectListCmd(opts),
 		newProjectMoveCmd(opts), newProjectRmCmd(opts),

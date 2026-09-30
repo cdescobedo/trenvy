@@ -271,3 +271,20 @@ func Execute(opts Options, args []string) error {
 
 	return root.Execute()
 }
+
+// newGroupCmd builds a command that only holds subcommands. Both Args and RunE
+// are load-bearing and neither works alone: cobra returns flag.ErrHelp for a
+// command that is not Runnable, and it makes that check BEFORE it validates
+// args, so a group with no RunE never reaches NoArgs at all -- every argument,
+// including a typo'd subcommand, became help text and a nil error. The RunE is
+// what gets the group as far as NoArgs, and NoArgs is what rejects the typo.
+func newGroupCmd(use, short string) *cobra.Command {
+	return &cobra.Command{
+		Use:   use,
+		Short: short,
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
+		},
+	}
+}

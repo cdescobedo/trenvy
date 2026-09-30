@@ -367,6 +367,15 @@ the command surface may still move under you.
 
 ### Fixed
 
+- **A typo'd subcommand exits 1 instead of 0.** `trenvy secret st API_KEY`,
+  and the same slip under `output` and `project`, printed help and reported
+  success, so a script branching on the exit status took the success path
+  after running nothing. Cobra checks whether a command is runnable before it
+  validates arguments, and a group that only holds subcommands had no `RunE`
+  to make it runnable -- so `Args: cobra.NoArgs` alone would never have been
+  reached. `profile` was always correct, because it has a `RunE` of its own.
+  Bare `trenvy output`, `project` and `secret` still print help and exit 0.
+
 - **`trenvy status` lists every variable, not only secrets.** A plain variable
   was invisible, which hid the case that matters: a value set under one profile
   and not another is a valid manifest that `render` refuses the moment you
