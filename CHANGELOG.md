@@ -364,10 +364,10 @@ the command surface may still move under you.
   --clear` by hand. That escape hatch still exists for a state file `rm`
   never saw (a hand edit, or one left behind by an older version), but the
   common path is now closed automatically.
-- **Colour, and a width-aware layout, for `trenvy status` and
-  `trenvy ui`; `show` gains the layout but no colour.** Tokens that already carried meaning are now coloured (for
-  example `MISSING`, `stored`, `STALE`, `FOREIGN`), using the base ANSI colours
-  so they follow your terminal theme. Colour is additive: every word, bracket
+- **Colour and a width-aware layout.** `trenvy status` and `trenvy ui` gain
+  both. `show` gains the layout but no colour. Tokens that already carried
+  meaning are now coloured (for example `MISSING`, `stored`, `STALE`,
+  `FOREIGN`), using the base ANSI colours so they follow your terminal theme. Colour is additive: every word, bracket
   and marker is still printed, so the text carries the same information
   without it. Setting `NO_COLOR` (any non-empty value), or piping the output,
   removes every escape sequence; `CLICOLOR_FORCE=1` turns colour on when
