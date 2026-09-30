@@ -245,6 +245,11 @@ type Model struct {
 	// what every test that builds a Model without one relies on.
 	st style.Styler
 
+	// width is the terminal's column count from the last tea.WindowSizeMsg.
+	// Zero means none has arrived yet, which is every test and the first
+	// frame, and is treated as narrow.
+	width int
+
 	project      string
 	profile      string // active profile name, e.g. "prod"
 	source       string // where profile came from: "--profile", "TRENVY_PROFILE", "default"
@@ -1134,6 +1139,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case RevealedMsg:
 		m.setRevealed(msg.Name, msg.Profile, msg.Value)
+		return m, nil
+
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
 		return m, nil
 
 	case tea.KeyMsg:
@@ -2209,16 +2218,18 @@ func (m Model) View() string {
 	}
 	b.WriteString("\n\n")
 
+	var body string
 	switch m.tab {
 	case TabOverview:
-		b.WriteString(m.viewOverview())
+		body = m.viewOverview()
 	case TabVariables:
-		b.WriteString(m.viewVariables())
+		body = m.viewVariables()
 	case TabProfiles:
-		b.WriteString(m.viewProfiles())
+		body = m.viewProfiles()
 	case TabOutputs:
-		b.WriteString(m.viewOutputs())
+		body = m.viewOutputs()
 	}
+	b.WriteString(m.region(m.tab.String(), body))
 
 	// The status line lives outside the per-tab switch above, not inside
 	// viewVariables: q and its confirmation apply from every tab, so what is

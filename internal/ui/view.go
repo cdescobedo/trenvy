@@ -12,6 +12,24 @@ import (
 // grid, so this is generous rather than tuned to a typical name.
 const nameColumnWidth = 40
 
+// panelFloor is the narrowest terminal that gets bordered panels. Below it a
+// border costs two columns of content and wraps, which reads worse than the
+// flat layout -- so the flat layout is what a narrow terminal gets. Width
+// zero means no WindowSizeMsg has arrived yet, which is every test and the
+// first frame, and is treated as narrow.
+const panelFloor = 72
+
+func (m Model) panelled() bool { return m.width >= panelFloor }
+
+// region is the one path both layouts share: above the floor the body sits in
+// a titled panel, below it the body is returned untouched.
+func (m Model) region(title, body string) string {
+	if !m.panelled() {
+		return body
+	}
+	return m.st.Panel(title, body, m.width) + "\n"
+}
+
 // outputFreshnessCaveat is the one sentence added, never per output, when at
 // least one output's freshness could not be verified without reading a
 // secret (see Model.outputFreshnessUnverified). Both the Overview's healthy
