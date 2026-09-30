@@ -9,13 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
 	"github.com/cdescobedo/trenvy/internal/config"
 	"github.com/cdescobedo/trenvy/internal/manifest"
 	"github.com/cdescobedo/trenvy/internal/store"
+	"github.com/cdescobedo/trenvy/internal/style"
 )
 
 func newProjectCmd(opts *Options) *cobra.Command {
@@ -42,12 +42,12 @@ func newProjectListCmd(opts *Options) *cobra.Command {
 				fmt.Fprintln(opts.Stdout, "  register one with: trenvy project init")
 				return nil
 			}
-			w := tabwriter.NewWriter(opts.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "ID\tROOT")
+			rows := [][]string{{"ID", "ROOT"}}
 			for _, p := range reg.Projects {
-				fmt.Fprintf(w, "%s\t%s\n", p.ID, p.Root)
+				rows = append(rows, []string{p.ID, p.Root})
 			}
-			return w.Flush()
+			_, err = io.WriteString(opts.Stdout, style.Columns(rows, 2))
+			return err
 		},
 	}
 }

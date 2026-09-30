@@ -3,10 +3,10 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
@@ -14,6 +14,7 @@ import (
 	"github.com/cdescobedo/trenvy/internal/manifest"
 	"github.com/cdescobedo/trenvy/internal/resolve"
 	"github.com/cdescobedo/trenvy/internal/store"
+	"github.com/cdescobedo/trenvy/internal/style"
 )
 
 func newProfileCmd(opts *Options) *cobra.Command {
@@ -52,7 +53,7 @@ func newProfileListCmd(opts *Options) *cobra.Command {
 			names := append([]string(nil), app.Manifest.Project.Profiles...)
 			sort.Strings(names)
 
-			w := tabwriter.NewWriter(opts.Stdout, 0, 0, 2, ' ', 0)
+			rows := make([][]string, 0, len(names))
 			for _, n := range names {
 				marker := " "
 				if n == app.Profile.Name {
@@ -62,16 +63,10 @@ func newProfileListCmd(opts *Options) *cobra.Command {
 				if n == app.Manifest.Project.DefaultProfile {
 					note = "(default)"
 				}
-				// A row with no note omits the tab entirely -- a trailing tab
-				// before an empty cell would still be padded to the column
-				// width by tabwriter, leaving trailing whitespace on the line.
-				if note == "" {
-					fmt.Fprintf(w, "%s %s\n", marker, n)
-				} else {
-					fmt.Fprintf(w, "%s %s\t%s\n", marker, n, note)
-				}
+				rows = append(rows, []string{marker + " " + n, note})
 			}
-			return w.Flush()
+			_, err = io.WriteString(opts.Stdout, style.Columns(rows, 2))
+			return err
 		},
 	}
 }

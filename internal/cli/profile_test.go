@@ -112,9 +112,8 @@ func TestProfileListMarksActiveAndDefaultSeparately(t *testing.T) {
 }
 
 // A row with no note (the common case: neither active nor default) must not
-// leave trailing whitespace behind -- tabwriter pads a tab-terminated empty
-// cell to the column width, and an earlier version of this command asked for
-// exactly that cell.
+// leave trailing whitespace behind -- padding an empty note cell to the
+// column width would do exactly that.
 func TestProfileListRendersNoTrailingWhitespace(t *testing.T) {
 	h := profileHarness(t)
 	t.Setenv("TRENVY_PROFILE", "prod")

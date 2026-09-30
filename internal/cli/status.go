@@ -2,10 +2,10 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"path/filepath"
 	"runtime"
 	"sort"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
@@ -15,6 +15,7 @@ import (
 	"github.com/cdescobedo/trenvy/internal/render"
 	"github.com/cdescobedo/trenvy/internal/resolve"
 	"github.com/cdescobedo/trenvy/internal/store"
+	"github.com/cdescobedo/trenvy/internal/style"
 )
 
 func newStatusCmd(opts *Options) *cobra.Command {
@@ -52,7 +53,7 @@ func newStatusCmd(opts *Options) *cobra.Command {
 			fmt.Fprintf(out, "vars      %d total, %d secret\n", len(names), secrets)
 
 			missing := 0
-			vw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+			var vrows [][]string
 			for _, n := range names {
 				v := app.Manifest.Vars[n]
 
@@ -64,13 +65,13 @@ func newStatusCmd(opts *Options) *cobra.Command {
 				if !v.Secret {
 					switch {
 					case v.Profiles[app.Profile.Name] != "" || v.Value != nil:
-						fmt.Fprintf(vw, "  present\t%s\n", n)
+						vrows = append(vrows, []string{"  present", n})
 					case v.Optional:
-						fmt.Fprintf(vw, "  optional\t%s\t(omitted when unset)\n", n)
+						vrows = append(vrows, []string{"  optional", n, "(omitted when unset)"})
 					default:
 						missing++
-						fmt.Fprintf(vw, "  MISSING\t%s\t-> trenvy -p %s set %s <value>\n",
-							n, app.Profile.Name, n)
+						vrows = append(vrows, []string{"  MISSING", n,
+							fmt.Sprintf("-> trenvy -p %s set %s <value>", app.Profile.Name, n)})
 					}
 					continue
 				}
@@ -87,26 +88,28 @@ func newStatusCmd(opts *Options) *cobra.Command {
 				}
 				switch {
 				case ok:
-					fmt.Fprintf(vw, "  present\t%s\n", n)
+					vrows = append(vrows, []string{"  present", n})
 				case v.Optional:
-					fmt.Fprintf(vw, "  optional\t%s\t(omitted when unset)\n", n)
+					vrows = append(vrows, []string{"  optional", n, "(omitted when unset)"})
 				default:
 					missing++
-					fmt.Fprintf(vw, "  MISSING\t%s\t-> trenvy -p %s secret set %s\n", n, app.Profile.Name, n)
+					vrows = append(vrows, []string{"  MISSING", n,
+						fmt.Sprintf("-> trenvy -p %s secret set %s", app.Profile.Name, n)})
 				}
 			}
-			if err := vw.Flush(); err != nil {
+			if _, err := io.WriteString(out, style.Columns(vrows, 2)); err != nil {
 				return err
 			}
 
 			fmt.Fprintln(out, "\noutputs")
-			w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+			var orows [][]string
 			for _, name := range sortedOutputNames(app.Manifest) {
 				o := app.Manifest.Outputs[name]
 				state := describeOutput(opts, app, name, o, missing > 0, quick)
-				fmt.Fprintf(w, "  %s\t%s\t%s\n", name, o.Path, state)
+				orows = append(orows, []string{"  " + name, o.Path, state})
 			}
-			return w.Flush()
+			_, err = io.WriteString(out, style.Columns(orows, 2))
+			return err
 		},
 	}
 	c.Flags().BoolVar(&quick, "quick", false,

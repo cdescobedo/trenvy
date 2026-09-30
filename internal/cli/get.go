@@ -2,14 +2,15 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"sort"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
 	"github.com/cdescobedo/trenvy/internal/manifest"
 	"github.com/cdescobedo/trenvy/internal/render"
 	"github.com/cdescobedo/trenvy/internal/resolve"
+	"github.com/cdescobedo/trenvy/internal/style"
 )
 
 // maskedSecret stands in for a secret's value in a table that was not asked
@@ -137,11 +138,12 @@ func newShowCmd(opts *Options) *cobra.Command {
 				return err
 			}
 
-			w := tabwriter.NewWriter(opts.Stdout, 0, 0, 2, ' ', 0)
+			rows := make([][]string, 0, len(values.Names))
 			for _, name := range values.Names {
-				fmt.Fprintf(w, "%s\t%s\n", name, values.Values[name])
+				rows = append(rows, []string{name, values.Values[name]})
 			}
-			return w.Flush()
+			_, err = io.WriteString(opts.Stdout, style.Columns(rows, 2))
+			return err
 		},
 	}
 	c.Flags().BoolVar(&reveal, "reveal", false, "print secret values instead of masking them")
@@ -181,11 +183,12 @@ func showMasked(opts *Options, app *appContext, output string) error {
 	}
 	sort.Strings(names)
 
-	w := tabwriter.NewWriter(opts.Stdout, 0, 0, 2, ' ', 0)
+	rows := make([][]string, 0, len(names))
 	for _, name := range names {
-		fmt.Fprintf(w, "%s\t%s\n", name, maskedDisplay(app, app.Profile.Name, name))
+		rows = append(rows, []string{name, maskedDisplay(app, app.Profile.Name, name)})
 	}
-	return w.Flush()
+	_, err := io.WriteString(opts.Stdout, style.Columns(rows, 2))
+	return err
 }
 
 // maskedDisplay is what one variable looks like with secrets withheld. The
