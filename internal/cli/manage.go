@@ -3,6 +3,7 @@ package cli
 import (
 	"io"
 	"os"
+	"sync"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -42,8 +43,17 @@ func runManage(opts *Options, app *appContext) error {
 			return err
 		}
 		cur := app
+		// Reveal can run while Reload swaps cur, so cur is only read or
+		// assigned under mu.
+		var mu sync.Mutex
+		current := func() *appContext {
+			mu.Lock()
+			defer mu.Unlock()
+			return cur
+		}
 		deps := manage.Deps{
 			Reveal: func(name, profile string) (string, error) {
+				cur := current()
 				s, err := cur.store()
 				if err != nil {
 					return "", err
@@ -51,7 +61,7 @@ func runManage(opts *Options, app *appContext) error {
 				return s.Get(cur.Cfg.Keyring.ServiceName(cur.Manifest.Project.ID, profile, name))
 			},
 			Commit: func(cs []session.Change) (manage.CommitResult, error) {
-				res, err := commitStaged(&quiet, cur, cs)
+				res, err := commitStaged(&quiet, current(), cs)
 				if err != nil {
 					return manage.CommitResult{}, err
 				}
@@ -61,13 +71,14 @@ func runManage(opts *Options, app *appContext) error {
 			// commitStaged mutates cur.Manifest in memory, succeeding or not,
 			// so the next commit must never start from that copy.
 			Reload: func() (manage.Snapshot, error) {
-				next, err := quiet.resolveAppByID(cur.Entry.ID)
+				next, err := quiet.resolveAppByID(current().Entry.ID)
 				if err != nil {
 					return manage.Snapshot{}, err
 				}
-				next.adoptStore(cur)
+				mu.Lock()
 				cur = next
-				return buildSnapshot(&quiet, cur, projects)
+				mu.Unlock()
+				return buildSnapshot(&quiet, next, projects)
 			},
 		}
 		final, err := opts.RunManage(manage.New(snap, deps, th))

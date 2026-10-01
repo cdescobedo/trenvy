@@ -2237,3 +2237,33 @@ func TestUiQuitWithNothingStagedSaysSo(t *testing.T) {
 		t.Errorf("stdout = %q, want an acknowledgement that nothing was written", h.out.String())
 	}
 }
+
+// The original interface's session has ended by the time it commits, so
+// every commit error it reports ends with the redo sentence, once -- after
+// the progress line, which commitStaged now states without it.
+func TestUiCommitErrorEndsWithTheRedoSentenceExactlyOnce(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+	h.opts.NewStore = func(*config.Config, string) (store.Store, error) {
+		return failOnUIStore{Mem: h.mem, failOn: "trenvy/vpb/dev/ALPHA_TOKEN"}, nil
+	}
+	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
+		mo, _ = mo.Update(ui.KeyRune('2'))
+		mo, _ = mo.Update(ui.KeyRune('e')) // ALPHA_TOKEN, secret
+		mo, _ = mo.Update(keyRunes("new-secret-value"))
+		mo, _ = mo.Update(keyEnter()) // stage set-secret
+		return markUISaved(mo), nil
+	}
+	err := h.run("ui")
+	if err == nil {
+		t.Fatal("ui succeeded despite a failing keyring write")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "stored 0 of 1 secrets") {
+		t.Errorf("error lacks the progress line: %v", err)
+	}
+	const sentence = "everything else staged this session is gone"
+	if n := strings.Count(msg, sentence); n != 1 {
+		t.Errorf("redo sentence appears %d times, want 1: %v", n, err)
+	}
+}

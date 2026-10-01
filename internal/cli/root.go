@@ -204,13 +204,6 @@ func (a *appContext) store() (store.Store, error) {
 	return a.storeVal, a.storeErr
 }
 
-// adoptStore hands prev's store to a freshly reloaded context, so the
-// reload after every save in `trenvy ui --new` does not reopen it: the file
-// backend's unlock alone takes about two seconds (observed 2026-09-30).
-func (a *appContext) adoptStore(prev *appContext) {
-	a.storeOnce.Do(func() { a.storeVal, a.storeErr = prev.store() })
-}
-
 // secretLookup adapts the store to resolve.SecretLookup, applying the
 // configured service-name pattern.
 func (a *appContext) secretLookup() resolve.SecretLookup {

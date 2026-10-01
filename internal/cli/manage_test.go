@@ -71,6 +71,9 @@ func TestUiNewSavesAndStaysOpen(t *testing.T) {
 	if h.out.Len() != 0 {
 		t.Errorf("wrote to stdout while the interface owned it: %q", h.out.String())
 	}
+	if h.errb.Len() != 0 {
+		t.Errorf("wrote to stderr while the interface owned the terminal: %q", h.errb.String())
+	}
 }
 
 // The reload after a save shows what is on disk, not what was staged.

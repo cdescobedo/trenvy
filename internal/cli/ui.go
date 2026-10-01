@@ -726,7 +726,7 @@ func commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal, mo
 // save that failed partway through committing staged ui changes, in the
 // shape this codebase's other partial-failure errors (edit's applyRows,
 // unset, profile rm, project rm) all use: name the item, say how far the run
-// got, say the manifest was not saved, name the way back.
+// got, and say the manifest was not saved.
 //
 // It states facts only. What the caller tells the user to do next depends on
 // the interface: the original one has ended its session by now and says to
