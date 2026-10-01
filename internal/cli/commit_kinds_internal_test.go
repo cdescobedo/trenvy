@@ -353,3 +353,38 @@ func TestCommitRetryAfterAManifestSaveFailureMatchesOneCleanCommit(t *testing.T)
 		t.Error("render record for local survived the removal")
 	}
 }
+
+// setRecorder records every Set it passes to Mem.
+type setRecorder struct {
+	*store.Mem
+	sets []string
+}
+
+func (r *setRecorder) Set(service, value string) error {
+	r.sets = append(r.sets, service)
+	return r.Mem.Set(service, value)
+}
+
+// A hand-built batch that deletes a variable it also promotes must not store
+// the promotion's keyring items: the delete leaves no manifest entry naming
+// them, so they would be orphaned. session.Staged never builds this batch;
+// commitStaged must not trust that every caller used it.
+func TestCommitSkipsSecretWritesForADeletedVariable(t *testing.T) {
+	st := &setRecorder{Mem: store.NewMem()}
+	opts, app := newCommitApp(t, st)
+	_, err := commitStaged(opts, app, []ui.Change{
+		{Kind: ui.ChangeSetSecret, Name: "APP_MODE", Profile: "dev", Value: "development"},
+		{Kind: ui.ChangeSetSecret, Name: "APP_MODE", Profile: "prod", Value: "production"},
+		{Kind: ui.ChangePromoteSecret, Name: "APP_MODE"},
+		{Kind: ui.ChangeDeleteVar, Name: "APP_MODE"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.sets) != 0 {
+		t.Errorf("stored %v for a variable the same batch deletes", st.sets)
+	}
+	if _, ok := loadVPB(t).Vars["APP_MODE"]; ok {
+		t.Error("APP_MODE survived its delete")
+	}
+}

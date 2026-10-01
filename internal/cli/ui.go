@@ -220,9 +220,17 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) (commitRes
 	}
 	var writes, deletes []keyOp
 
+	// A set-secret for a variable the batch also deletes is skipped: the
+	// delete leaves no manifest entry naming the item, so storing it would
+	// orphan it in the keyring. session.Staged never stages both; this
+	// guards a hand-built batch, as applyManifestEdits' deletedNames does.
+	deleted := deletedVarNames(staged)
 	for _, c := range staged {
 		switch c.Kind {
 		case ui.ChangeSetSecret:
+			if deleted[c.Name] {
+				continue
+			}
 			writes = append(writes, keyOp{
 				service: app.Cfg.Keyring.ServiceName(app.Manifest.Project.ID, c.Profile, c.Name),
 				value:   c.Value,
@@ -509,12 +517,7 @@ func applyManifestEdits(m *manifest.Manifest, staged []ui.Change) {
 	// It stays here anyway: a Change slice is a plain exported value, and
 	// this function must not trust that every caller built one the only way
 	// internal/ui's keys currently allow.
-	deletedNames := make(map[string]bool, len(staged))
-	for _, c := range staged {
-		if c.Kind == ui.ChangeDeleteVar {
-			deletedNames[c.Name] = true
-		}
-	}
+	deletedNames := deletedVarNames(staged)
 
 	// Phase 5a: every remaining manifest mutation EXCEPT rename-output,
 	// including every removal. Only now does the manifest change, and only
@@ -666,6 +669,17 @@ func applyManifestEdits(m *manifest.Manifest, staged []ui.Change) {
 			m.Project.Output = c.Value
 		}
 	}
+}
+
+// deletedVarNames is every variable staged deletes.
+func deletedVarNames(staged []ui.Change) map[string]bool {
+	out := make(map[string]bool, len(staged))
+	for _, c := range staged {
+		if c.Kind == ui.ChangeDeleteVar {
+			out[c.Name] = true
+		}
+	}
+	return out
 }
 
 // withLeftInPlace names, in `trenvy output rm --force`'s own wording, every

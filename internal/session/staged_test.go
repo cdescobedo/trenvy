@@ -91,6 +91,24 @@ func TestStagedDeleteOfAnAddedVariableRemovesEverything(t *testing.T) {
 	}
 }
 
+// Deleting a variable drops every other change staged on it, so commit
+// never receives a delete alongside a change that would write for the same
+// name -- a promotion's set-secrets would store keyring items the delete
+// then leaves nothing in the manifest to find.
+func TestStagedDeleteDropsEveryOtherChangeOnTheVariable(t *testing.T) {
+	var s session.Staged
+	s.Add(session.Change{Kind: session.ChangeSetShared, Name: "OTHER", Value: "o"})
+	for _, c := range session.PromotionChanges("A", manifest.Var{Value: ptr("v")}, []string{"dev", "prod"}) {
+		s.Add(c)
+	}
+	s.Add(session.Change{Kind: session.ChangeSetOptional, Name: "A", Value: "true"})
+	s.Add(session.Change{Kind: session.ChangeDeleteVar, Name: "A"})
+	want := []string{"set-shared:OTHER::o", "delete-var:A::"}
+	if got := kinds(s.All()); !reflect.DeepEqual(got, want) {
+		t.Errorf("All() = %v, want %v", got, want)
+	}
+}
+
 // Editing a variable marked for deletion un-marks it -- the same rule
 // internal/ui's beginEdit holds, so commit never sees both on one name.
 func TestStagedEditCancelsAPendingDelete(t *testing.T) {

@@ -32,18 +32,25 @@ func slot(c Change) string {
 
 // Add stages c.
 //
-// Two rules keep the set coherent:
-//   - Deleting a variable that was only added this session removes every
-//     change on it and stages nothing: it never existed.
+// The invariant: a delete-var is never staged beside another change on the
+// same name, so commit never receives both. Two rules hold it:
+//   - Deleting a variable drops every other change staged on it. One that
+//     was only added this session then stages nothing at all: it never
+//     existed.
 //   - Any other change on a variable marked for deletion un-marks it, the
-//     rule internal/ui's beginEdit holds, so commit never receives an edit
-//     and a delete for one name.
+//     rule internal/ui's beginEdit holds.
+//
+// Without the first, a promotion staged before the delete would store its
+// keyring items and the delete would then remove the manifest entry that
+// names them.
 func (s *Staged) Add(c Change) {
-	if c.Kind == ChangeDeleteVar && s.Has(ChangeAddVar, c.Name) {
+	if c.Kind == ChangeDeleteVar {
+		added := s.Has(ChangeAddVar, c.Name)
 		s.DropOn(c.Name)
-		return
-	}
-	if c.Kind != ChangeDeleteVar {
+		if added {
+			return
+		}
+	} else {
 		s.DropKind(ChangeDeleteVar, c.Name)
 	}
 	k := slot(c)

@@ -92,6 +92,18 @@ func TestDInTheListTogglesDeletionAndUUndoes(t *testing.T) {
 	}
 }
 
+// Deleting a variable drops what was staged on it (session.Staged.Add);
+// the message must say so rather than discard the edits silently.
+func TestDeletingAVariableSaysItDroppedItsStagedChanges(t *testing.T) {
+	m := press(newModel(&fakeDeps{}), "j", "enter", "j", "j", "j", "d", "left", "d") // APP_MODE prod override removed, then deleted
+	if got := staged(m); len(got) != 1 || got[0] != "delete-var:APP_MODE::" {
+		t.Fatalf("staged = %v", got)
+	}
+	if v := m.View(); !strings.Contains(v, "dropped 1 staged change") {
+		t.Errorf("message does not say the override removal was dropped:\n%s", v)
+	}
+}
+
 func TestUOnADetailRowUndoesOnlyThatCell(t *testing.T) {
 	m := press(newModel(&fakeDeps{}), "j", "enter", "enter")
 	m = typeText(m, "a")

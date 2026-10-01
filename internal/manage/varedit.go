@@ -138,13 +138,20 @@ func (m *Model) toggleDelete(name string) {
 		return
 	}
 	added := m.staged.Has(session.ChangeAddVar, name)
+	// Add drops every other change on name; say so rather than lose them
+	// silently.
+	others := len(m.staged.On(name))
 	m.staged.Add(session.Change{Kind: session.ChangeDeleteVar, Name: name})
 	if added {
 		m.msg = message{name + " removed -- it was only added this session", false}
 		m.moveCursor(0)
 		return
 	}
-	m.msg = message{name + " marked for deletion -- u to undo", false}
+	text := name + " marked for deletion"
+	if others > 0 {
+		text += ", dropped " + plural(others, "staged change") + " on it"
+	}
+	m.msg = message{text + " -- u to undo", false}
 }
 
 func (m *Model) undoVar(name string) {
