@@ -388,3 +388,55 @@ func TestCommitSkipsSecretWritesForADeletedVariable(t *testing.T) {
 		t.Error("APP_MODE survived its delete")
 	}
 }
+
+// Spec §3, phases 4 and 6 together: the rename reaches the state file, then
+// the manifest save fails. The retry starts from records already under the
+// new name, so it only ends where one clean commit would if repointing
+// nothing is not a failure ("State.RenameOutput on records already moved
+// moves none"). The state-save test above cannot see this: its failed save
+// writes nothing, so its retry is a first run.
+func TestCommitRetryAfterARenameReachedTheStateFileMatchesOneCleanCommit(t *testing.T) {
+	opts, app := newCommitAppFrom(t, store.NewMem(), kindsManifestWithOutput)
+	app = recordLocalRender(t, opts, app)
+	batch := []ui.Change{
+		{Kind: ui.ChangeRenameOutput, Name: "local", Value: "main"},
+		{Kind: ui.ChangeSetShared, Name: "APP_MODE", Value: "x"},
+	}
+
+	restore := lockDir(t, filepath.Dir(config.ManifestPath("vpb")))
+	if _, err := commitStaged(opts, app, batch); err == nil {
+		t.Fatal("first commit succeeded; the manifest directory is read-only")
+	}
+	restore()
+	moved, err := opts.resolveAppByID("vpb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := moved.State.Find(app.Entry.Root, "main"); !ok {
+		t.Fatal("setup: the state save did not land before the manifest failure")
+	}
+	if _, ok := moved.Manifest.Outputs["local"]; !ok {
+		t.Fatal("manifest changed on a failed commit: local is gone")
+	}
+
+	if _, err := commitStaged(opts, moved, batch); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	m := loadVPB(t)
+	if _, ok := m.Outputs["main"]; !ok {
+		t.Error("output main missing after the retry")
+	}
+	if _, ok := m.Outputs["local"]; ok {
+		t.Error("output local still present after the retry")
+	}
+	if v := m.Vars["APP_MODE"]; *v.Value != "x" {
+		t.Errorf("APP_MODE = %+v, want x", v)
+	}
+	after, err := opts.resolveAppByID("vpb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := after.State.Find(app.Entry.Root, "main"); !ok {
+		t.Error("render record not under main after the retry")
+	}
+}
