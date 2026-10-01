@@ -1,10 +1,12 @@
-// Package ui is the tabbed management interface behind `trenvy ui`.
+// Package session is the interface-free half of trenvy's interactive
+// editors: how a variable classifies under a profile, the matrix of every
+// variable by every profile, the problems worth surfacing, which outputs
+// select a variable, and the staged changes a session holds until it saves.
 //
-// It is separate from internal/tui, which is the flat single-profile table
-// that edit and import drive. The two share no state: a matrix over profiles
-// and a list of one profile's variables are different shapes, and keeping
-// them apart means edit cannot regress when this changes.
-package ui
+// It imports no terminal library. Both internal/ui (the original interface)
+// and internal/manage (its replacement) build on it, which is what lets the
+// two run side by side until the cutover without two copies of the rules.
+package session
 
 import "github.com/cdescobedo/trenvy/internal/manifest"
 

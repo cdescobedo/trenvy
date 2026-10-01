@@ -1,10 +1,10 @@
-package ui_test
+package session_test
 
 import (
 	"testing"
 
 	"github.com/cdescobedo/trenvy/internal/manifest"
-	"github.com/cdescobedo/trenvy/internal/ui"
+	"github.com/cdescobedo/trenvy/internal/session"
 )
 
 func TestMatrixOrdersRowsAndColumns(t *testing.T) {
@@ -14,7 +14,7 @@ func TestMatrixOrdersRowsAndColumns(t *testing.T) {
 			"ZED": {Value: s("z")}, "ALPHA": {Value: s("a")},
 		},
 	}
-	mx := ui.NewMatrix(m, nil)
+	mx := session.NewMatrix(m, nil)
 
 	if got := mx.Names; len(got) != 2 || got[0] != "ALPHA" || got[1] != "ZED" {
 		t.Errorf("Names = %v, want sorted", got)
@@ -31,12 +31,12 @@ func TestMatrixCellUsesStoredPresence(t *testing.T) {
 		Project: manifest.Project{Profiles: []string{"dev", "prod"}},
 		Vars:    map[string]manifest.Var{"TOK": {Secret: true}},
 	}
-	mx := ui.NewMatrix(m, map[string]map[string]bool{"TOK": {"dev": true}})
+	mx := session.NewMatrix(m, map[string]map[string]bool{"TOK": {"dev": true}})
 
-	if got := mx.Cell("TOK", "dev"); got != ui.CellStored {
+	if got := mx.Cell("TOK", "dev"); got != session.CellStored {
 		t.Errorf("dev = %q, want stored", got)
 	}
-	if got := mx.Cell("TOK", "prod"); got != ui.CellMissing {
+	if got := mx.Cell("TOK", "prod"); got != session.CellMissing {
 		t.Errorf("prod = %q, want MISSING", got)
 	}
 }

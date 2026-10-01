@@ -1,11 +1,11 @@
-package ui_test
+package session_test
 
 import (
 	"strings"
 	"testing"
 
 	"github.com/cdescobedo/trenvy/internal/manifest"
-	"github.com/cdescobedo/trenvy/internal/ui"
+	"github.com/cdescobedo/trenvy/internal/session"
 )
 
 func TestProblemsFindsMissingCellsPerProfile(t *testing.T) {
@@ -16,7 +16,7 @@ func TestProblemsFindsMissingCellsPerProfile(t *testing.T) {
 			"ONLY": {Profiles: map[string]string{"dev": "x"}},
 		},
 	}
-	ps := ui.Problems(ui.NewMatrix(m, nil), nil)
+	ps := session.Problems(session.NewMatrix(m, nil), nil)
 
 	if len(ps) != 1 {
 		t.Fatalf("Problems = %+v, want exactly one", ps)
@@ -36,14 +36,14 @@ func TestProblemsIgnoresOptional(t *testing.T) {
 		Project: manifest.Project{Profiles: []string{"dev"}},
 		Vars:    map[string]manifest.Var{"OPT": {Optional: true}},
 	}
-	if ps := ui.Problems(ui.NewMatrix(m, nil), nil); len(ps) != 0 {
+	if ps := session.Problems(session.NewMatrix(m, nil), nil); len(ps) != 0 {
 		t.Errorf("Problems = %+v, want none", ps)
 	}
 }
 
 func TestProblemsReportsUnhealthyOutputs(t *testing.T) {
 	m := &manifest.Manifest{Project: manifest.Project{Profiles: []string{"dev"}}}
-	ps := ui.Problems(ui.NewMatrix(m, nil),
+	ps := session.Problems(session.NewMatrix(m, nil),
 		map[string]string{"good": "fresh", "bad": "FOREIGN"})
 
 	if len(ps) != 1 || ps[0].Name != "bad" {
@@ -58,7 +58,7 @@ func TestProblemsReportsUnhealthyOutputs(t *testing.T) {
 // that actually resolves the question, so that's the Fix this state gets.
 func TestProblemsGivesUnknownItsOwnFixNamingStatus(t *testing.T) {
 	m := &manifest.Manifest{Project: manifest.Project{Profiles: []string{"dev"}}}
-	ps := ui.Problems(ui.NewMatrix(m, nil), map[string]string{"app": "unknown"})
+	ps := session.Problems(session.NewMatrix(m, nil), map[string]string{"app": "unknown"})
 
 	if len(ps) != 1 || ps[0].Name != "app" {
 		t.Fatalf("Problems = %+v, want exactly one problem for app", ps)
@@ -79,7 +79,7 @@ func TestProblemsGivesUnknownItsOwnFixNamingStatus(t *testing.T) {
 // permanent false alarm for every new user.
 func TestProblemsIgnoresAbsentOutput(t *testing.T) {
 	m := &manifest.Manifest{Project: manifest.Project{Profiles: []string{"dev"}}}
-	ps := ui.Problems(ui.NewMatrix(m, nil), map[string]string{"out": ui.StateAbsent})
+	ps := session.Problems(session.NewMatrix(m, nil), map[string]string{"out": session.StateAbsent})
 	if len(ps) != 0 {
 		t.Errorf("Problems = %+v, want none for an absent output", ps)
 	}
@@ -100,7 +100,7 @@ func TestProblemsIgnoresAbsentOutput(t *testing.T) {
 // StateFresh and StateAbsent, not the flagged one like StateUnknown.
 func TestProblemsIgnoresUnverifiedOutput(t *testing.T) {
 	m := &manifest.Manifest{Project: manifest.Project{Profiles: []string{"dev"}}}
-	ps := ui.Problems(ui.NewMatrix(m, nil), map[string]string{"out": ui.StateUnverified})
+	ps := session.Problems(session.NewMatrix(m, nil), map[string]string{"out": session.StateUnverified})
 	if len(ps) != 0 {
 		t.Errorf("Problems = %+v, want none for an unverified output -- flagging it would be a permanent alarm", ps)
 	}
@@ -112,7 +112,7 @@ func TestProblemsFixNamesSecretSet(t *testing.T) {
 		Project: manifest.Project{Profiles: []string{"dev"}},
 		Vars:    map[string]manifest.Var{"TOKEN": {Secret: true}},
 	}
-	ps := ui.Problems(ui.NewMatrix(m, nil), nil)
+	ps := session.Problems(session.NewMatrix(m, nil), nil)
 	if len(ps) != 1 {
 		t.Fatalf("Problems = %+v, want exactly one", ps)
 	}
@@ -142,9 +142,9 @@ func TestProblemsFlagsMembershipAtZeroAndSeveralNotOne(t *testing.T) {
 			"ORPHAN":  {Value: s("o")}, // no output -- must appear
 		},
 	}
-	ps := ui.Problems(ui.NewMatrix(m, nil), nil)
+	ps := session.Problems(session.NewMatrix(m, nil), nil)
 
-	byName := map[string]ui.Problem{}
+	byName := map[string]session.Problem{}
 	for _, p := range ps {
 		if p.Kind == "membership" {
 			byName[p.Name] = p
@@ -200,7 +200,7 @@ func TestProblemsSuppressesReachesSeveralWhenEveryVariableHasTheSameCount(t *tes
 			"TIMEOUT": {Value: s("t")}, // ditto -- uniform membership, nothing stands out
 		},
 	}
-	ps := ui.Problems(ui.NewMatrix(m, nil), nil)
+	ps := session.Problems(session.NewMatrix(m, nil), nil)
 	for _, p := range ps {
 		if p.Kind == "membership" {
 			t.Errorf("Problems flagged membership on a uniform two-output project: %+v", p)
@@ -239,9 +239,9 @@ func TestProblemsFlagsOnlyTheOutlierAmongManyUniformVariables(t *testing.T) {
 			"ODD_ONE_OUT": {Value: s("1")},
 		},
 	}
-	ps := ui.Problems(ui.NewMatrix(m, nil), nil)
+	ps := session.Problems(session.NewMatrix(m, nil), nil)
 
-	var membership []ui.Problem
+	var membership []session.Problem
 	for _, p := range ps {
 		if p.Kind == "membership" {
 			membership = append(membership, p)
@@ -280,7 +280,7 @@ func TestProblemsStaysSilentWhenThereIsNoClearMajorityCount(t *testing.T) {
 			"OTHER_ONE": {Value: s("1")}, "OTHER_TWO": {Value: s("1")},
 		},
 	}
-	ps := ui.Problems(ui.NewMatrix(m, nil), nil)
+	ps := session.Problems(session.NewMatrix(m, nil), nil)
 	for _, p := range ps {
 		if p.Kind == "membership" {
 			t.Errorf("Problems flagged membership with no clear majority count: %+v", p)
@@ -301,7 +301,7 @@ func TestProblemsMembershipWordingIsNotAlarming(t *testing.T) {
 		},
 		Vars: map[string]manifest.Var{"ORPHAN": {Value: s("o")}},
 	}
-	ps := ui.Problems(ui.NewMatrix(m, nil), nil)
+	ps := session.Problems(session.NewMatrix(m, nil), nil)
 	if len(ps) != 1 {
 		t.Fatalf("Problems = %+v, want exactly one", ps)
 	}
@@ -323,7 +323,7 @@ func TestProblemsMembershipFixIsNotRender(t *testing.T) {
 		},
 		Vars: map[string]manifest.Var{"ORPHAN": {Value: s("o")}},
 	}
-	ps := ui.Problems(ui.NewMatrix(m, nil), nil)
+	ps := session.Problems(session.NewMatrix(m, nil), nil)
 	if len(ps) != 1 {
 		t.Fatalf("Problems = %+v, want exactly one", ps)
 	}
@@ -346,7 +346,7 @@ func TestProblemsSuppressesMembershipWhenProjectHasNoOutputs(t *testing.T) {
 			"ONE": {Value: s("1")}, "TWO": {Value: s("2")}, "THREE": {Value: s("3")},
 		},
 	}
-	ps := ui.Problems(ui.NewMatrix(m, nil), nil)
+	ps := session.Problems(session.NewMatrix(m, nil), nil)
 	if len(ps) != 0 {
 		t.Errorf("Problems = %+v, want none: an exec/shell-only project has every variable at zero by definition", ps)
 	}
@@ -365,7 +365,7 @@ func TestProblemsAreSortedByNameThenProfile(t *testing.T) {
 			"MID":   {},
 		},
 	}
-	ps := ui.Problems(ui.NewMatrix(m, nil), nil)
+	ps := session.Problems(session.NewMatrix(m, nil), nil)
 
 	want := []struct {
 		name    string

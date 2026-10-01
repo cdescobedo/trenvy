@@ -1,10 +1,10 @@
-package ui_test
+package session_test
 
 import (
 	"testing"
 
 	"github.com/cdescobedo/trenvy/internal/manifest"
-	"github.com/cdescobedo/trenvy/internal/ui"
+	"github.com/cdescobedo/trenvy/internal/session"
 )
 
 // TestMembershipCountsOutputsPerVariable pins the basic shape: a variable no
@@ -27,7 +27,7 @@ func TestMembershipCountsOutputsPerVariable(t *testing.T) {
 	// EVERYONE is picked up by both outputs via a second, catch-all output.
 	m.Outputs["all"] = manifest.Output{Format: manifest.FormatDotenv, Path: "all.env", Include: []string{"EVERYONE"}}
 
-	counts := ui.Membership(m)
+	counts := session.Membership(m)
 
 	want := map[string]int{
 		"API_KEY":  1,
@@ -60,7 +60,7 @@ func TestMembershipUsesResolveSelectsNotAStringMatch(t *testing.T) {
 			"SECRET_TOKEN": {Value: s("t")},
 		},
 	}
-	counts := ui.Membership(m)
+	counts := session.Membership(m)
 	if counts["PUBLIC_URL"] != 1 {
 		t.Errorf("PUBLIC_URL = %d, want 1 (matches PUBLIC_* and is not excluded)", counts["PUBLIC_URL"])
 	}
@@ -81,7 +81,7 @@ func TestMembershipEveryVariableIsZeroWithNoOutputs(t *testing.T) {
 		Project: manifest.Project{Profiles: []string{"dev"}},
 		Vars:    map[string]manifest.Var{"ONLY_VAR": {Value: s("v")}},
 	}
-	counts := ui.Membership(m)
+	counts := session.Membership(m)
 	if got, ok := counts["ONLY_VAR"]; !ok || got != 0 {
 		t.Errorf("Membership() = %v, want ONLY_VAR present at 0", counts)
 	}
