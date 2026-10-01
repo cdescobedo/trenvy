@@ -48,7 +48,12 @@ type message struct {
 	isErr bool
 }
 
-type revealedMsg struct{ name, profile, value string }
+// revealedMsg carries gen, the reload generation it was requested in; one
+// that arrives after a reload is dropped.
+type revealedMsg struct {
+	name, profile, value string
+	gen                  int
+}
 type revealFailedMsg struct{ err error }
 type committedMsg struct {
 	res CommitResult
@@ -77,6 +82,11 @@ type Model struct {
 	// (spec Risks, "Save-and-stay").
 	stale  bool
 	saving bool
+	// reloading holds input from a finished commit until its reload lands,
+	// so nothing is staged or committed against the pre-commit snapshot.
+	reloading bool
+	// gen counts reloads; a reveal from an earlier one is stale.
+	gen int
 
 	quit     bool
 	switchTo string
@@ -136,7 +146,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
 	case revealedMsg:
-		if name, ok := m.selected(); ok && name == msg.name {
+		if name, ok := m.selected(); ok && name == msg.name && msg.gen == m.gen {
 			m.vars.revealed[cellKey{msg.name, msg.profile}] = msg.value
 		}
 		return m, nil
@@ -158,7 +168,7 @@ func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.quit = true
 		return m, tea.Quit
 	}
-	if m.saving {
+	if m.saving || m.reloading {
 		return m, nil
 	}
 	m.msg = message{}

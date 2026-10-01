@@ -192,13 +192,13 @@ func (m Model) toggleReveal(name, profile string) (tea.Model, tea.Cmd) {
 		m.msg = message{"nothing stored to reveal under " + profile, false}
 		return m, nil
 	}
-	reveal := m.deps.Reveal
+	reveal, gen := m.deps.Reveal, m.gen
 	return m, func() tea.Msg {
 		val, err := reveal(name, profile)
 		if err != nil {
 			return revealFailedMsg{err}
 		}
-		return revealedMsg{name, profile, val}
+		return revealedMsg{name, profile, val, gen}
 	}
 }
 

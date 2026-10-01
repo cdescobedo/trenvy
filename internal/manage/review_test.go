@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func stageTwo(f *fakeDeps) manageModel {
@@ -157,5 +159,84 @@ func TestRevealDoesNotSurviveAReload(t *testing.T) {
 func TestWWithNothingStagedSaysSo(t *testing.T) {
 	if v := press(newModel(&fakeDeps{}), "w").View(); !strings.Contains(v, "nothing to save") {
 		t.Errorf("view:\n%s", v)
+	}
+}
+
+// held runs the commit but returns the reload Cmd unrun, so the window
+// between committedMsg and reloadedMsg can be probed.
+func held(t *testing.T, f *fakeDeps) (manageModel, func() tea.Msg) {
+	t.Helper()
+	m := press(stageTwo(f), "w")
+	next, cmd := m.Update(key("enter"))
+	m = next.(manageModel)
+	next, reload := m.Update(cmd())
+	if reload == nil {
+		t.Fatal("afterCommit returned no reload cmd")
+	}
+	return next.(manageModel), reload
+}
+
+func TestKeysAreIgnoredBetweenCommitAndReload(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		commitErr error
+		staged    int
+	}{{"success", nil, 0}, {"failure", errors.New("keyring is locked"), 2}} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakeDeps{commitErr: tc.commitErr}
+			m, reload := held(t, f)
+			m = press(m, "enter", "d", "u", "q")
+			if len(f.commits) != 1 || len(m.Staged()) != tc.staged || m.Quitting() {
+				t.Fatalf("keys acted before the reload: commits %d, staged %v, quitting %v", len(f.commits), staged(m), m.Quitting())
+			}
+			m = send(m, reload())
+			f.commitErr = nil
+			if m = press(m, "d"); len(m.Staged()) != tc.staged+1 && tc.staged == 0 {
+				t.Errorf("keys still blocked after the reload: %v", staged(m))
+			}
+			if tc.staged == 2 {
+				if m = press(m, "w", "enter"); len(f.commits) != 2 {
+					t.Errorf("retry blocked after the reload: commits %d", len(f.commits))
+				}
+			}
+		})
+	}
+}
+
+func TestPromotionReviewNamesTheKeyringItems(t *testing.T) {
+	m := press(newModel(&fakeDeps{}), "j", ".", "enter", "enter", "w") // APP_MODE, Make secret, confirm
+	v := m.View()
+	if !strings.Contains(v, "moves 3 into keyring: dev, staging, prod") {
+		t.Errorf("review:\n%s", v)
+	}
+}
+
+func TestRevealDoesNotSurviveAFailedReload(t *testing.T) {
+	f := &fakeDeps{secrets: map[string]string{"API_TOKEN/dev": "tok-dev"}, reloadErr: errors.New("manifest unreadable")}
+	m := press(newModel(f), "enter", "v", "j", "enter")
+	m = typeText(m, "x")
+	m = press(m, "enter", "w", "enter")
+	if f.reloads != 1 || !strings.Contains(m.View(), "reload failed") {
+		t.Fatalf("setup: reloads %d, view:\n%s", f.reloads, m.View())
+	}
+	if strings.Contains(m.View(), "tok-dev") {
+		t.Error("a revealed value survived a failed reload")
+	}
+}
+
+func TestStaleRevealIsDroppedAfterAReload(t *testing.T) {
+	f := &fakeDeps{secrets: map[string]string{"API_TOKEN/dev": "tok-dev"}}
+	m := press(newModel(f), "enter")
+	next, reveal := m.Update(key("v")) // requested, not yet delivered
+	m = next.(manageModel)
+	if reveal == nil {
+		t.Fatal("v returned no cmd")
+	}
+	m = press(m, "j", "enter")
+	m = typeText(m, "x")
+	m = press(m, "enter", "w", "enter") // save + reload, back on API_TOKEN
+	m = send(m, reveal())
+	if strings.Contains(m.View(), "tok-dev") {
+		t.Error("a reveal requested before a reload was shown after it")
 	}
 }

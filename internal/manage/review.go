@@ -3,6 +3,7 @@ package manage
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -88,7 +89,17 @@ func (m *Model) describe(i int, c session.Change) reviewLine {
 	case session.ChangeSetSecret:
 		l.what, l.detail = c.Profile, "store new value (keyring)"
 	case session.ChangePromoteSecret:
-		l.what, l.detail, l.irreversible = "make secret", "its values move into the keyring; there is no way back to plain", true
+		l.what, l.irreversible = "make secret", true
+		var into []string
+		for _, pc := range session.PromotionChanges(c.Name, base, m.snap.Matrix.Profiles) {
+			if pc.Kind == session.ChangeSetSecret {
+				into = append(into, pc.Profile)
+			}
+		}
+		l.detail = "moves " + strconv.Itoa(len(into)) + " into keyring"
+		if len(into) > 0 {
+			l.detail += ": " + strings.Join(into, ", ")
+		}
 	case session.ChangeSetOptional:
 		l.what = "mark required"
 		if c.Value == "true" {
@@ -170,6 +181,8 @@ func (r *reviewOverlay) view(m *Model, w, h int) string {
 	switch {
 	case m.saving:
 		body = append(body, "", t.Muted.Render("saving…"))
+	case m.reloading:
+		body = append(body, "", t.Muted.Render("reloading…"))
 	case r.failure != "":
 		body = append(body, "")
 		for _, l := range strings.Split(r.failure, "\n") {
@@ -181,7 +194,7 @@ func (r *reviewOverlay) view(m *Model, w, h int) string {
 }
 
 func (r *reviewOverlay) hints(m *Model) []hint {
-	if m.saving {
+	if m.saving || m.reloading {
 		return []hint{{"ctrl+c", "quit without waiting"}}
 	}
 	return []hint{{"enter", "save all"}, {"u", "drop this change"}, {"esc", "keep editing"}}
@@ -216,9 +229,10 @@ func (m *Model) review() *reviewOverlay {
 // review; failure keeps both, shows the report, and still reloads, because
 // part of the batch (keyring items, the state file) may already have landed
 // and the screen must say so. Either way the snapshot is reloaded before
-// anything else can be staged or saved.
+// anything else can be staged or saved: input stays blocked (reloading)
+// from this message until the reload lands, on success or failure.
 func (m Model) afterCommit(msg committedMsg) (tea.Model, tea.Cmd) {
-	m.saving = false
+	m.saving, m.reloading = false, true
 	if msg.err != nil {
 		if r := m.review(); r != nil {
 			r.failure = msg.err.Error()
@@ -243,6 +257,9 @@ func (m Model) afterCommit(msg committedMsg) (tea.Model, tea.Cmd) {
 // variable. Revealed values are dropped: a reload is a new view of disk,
 // and a secret shown before it must be asked for again.
 func (m Model) afterReload(msg reloadedMsg) (tea.Model, tea.Cmd) {
+	m.reloading = false
+	m.gen++
+	m.vars.revealed = map[cellKey]string{}
 	if msg.err != nil {
 		m.stale = true
 		m.msg = message{"reload failed: " + msg.err.Error() + " -- press . then Reload from disk", true}
@@ -250,7 +267,6 @@ func (m Model) afterReload(msg reloadedMsg) (tea.Model, tea.Cmd) {
 	}
 	keep, _ := m.selected()
 	m.stale, m.snap = false, msg.snap
-	m.vars.revealed = map[cellKey]string{}
 	if keep != "" {
 		m.selectName(keep)
 	}
