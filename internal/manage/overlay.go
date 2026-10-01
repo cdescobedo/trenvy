@@ -70,14 +70,27 @@ func (c *confirmOverlay) hints(*Model) []hint {
 }
 
 // helpOverlay is the full key list. It wraps rather than truncates (spec
-// diagnosis #11: the old list was cut off at 110 columns).
-type helpOverlay struct{}
+// diagnosis #11: the old list was cut off at 110 columns), and on a short
+// terminal it scrolls, saying which way there is more (spec §1: "never
+// truncates").
+type helpOverlay struct{ off int }
 
-func (helpOverlay) update(_ *Model, k tea.KeyMsg) (bool, tea.Cmd) { return keyIs(k, "?"), nil }
+func (o *helpOverlay) update(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
+	w, h := m.size()
+	_, _, maxOff := o.layout(m, w, h-chromeLines)
+	switch {
+	case keyIs(k, "j", "down"):
+		o.off = clamp(o.off+1, 0, maxOff)
+	case keyIs(k, "k", "up"):
+		o.off = clamp(o.off-1, 0, maxOff)
+	}
+	return keyIs(k, "?"), nil
+}
 
-func (helpOverlay) view(m *Model, w, h int) string {
+// layout is the help body for a w x h body area, how many of its lines fit
+// in the panel, and the furthest it can scroll.
+func (o *helpOverlay) layout(m *Model, w, h int) (body []string, rows, maxOff int) {
 	descW := min(w, 76) - 4 - 10
-	var body []string
 	for _, v := range verbs {
 		desc := strings.Split(m.th.KeyDesc.Width(descW).Render(v.desc), "\n")
 		for i, d := range desc {
@@ -88,7 +101,47 @@ func (helpOverlay) view(m *Model, w, h int) string {
 			body = append(body, lipgloss.JoinHorizontal(lipgloss.Top, m.th.Key.Width(10).Render(k), d))
 		}
 	}
-	return m.panel("Keys", body, w, h)
+	// Two borders, the title and the blank line under it.
+	rows = max(0, min(h, len(body)+4)-4)
+	// Scrolling needs a row for an indicator and one for the body. minHeight
+	// keeps rows above that; below it the pane simply cuts.
+	if len(body) <= rows || rows < 2 {
+		return body, rows, 0
+	}
+	// Scrolled to the end, the first row is "↑ more" and the rest is body.
+	return body, rows, max(0, len(body)-(rows-1))
 }
 
-func (helpOverlay) hints(*Model) []hint { return []hint{{"esc", "close"}} }
+func (o *helpOverlay) view(m *Model, w, h int) string {
+	body, rows, maxOff := o.layout(m, w, h)
+	if maxOff == 0 {
+		return m.panel("Keys", body, w, h)
+	}
+	off := clamp(o.off, 0, maxOff) // a resize can shrink maxOff
+	var shown []string
+	n := rows
+	if off > 0 {
+		shown = append(shown, m.th.Muted.Render("↑ more"))
+		n--
+	}
+	more := off+n < len(body)
+	if more {
+		n--
+	}
+	if n < 1 && off > 0 { // too short for both: a verb and ↓ more win
+		shown, n = nil, n+1
+	}
+	shown = append(shown, body[off:off+max(0, n)]...)
+	if more {
+		shown = append(shown, m.th.Muted.Render("↓ more"))
+	}
+	return m.panel("Keys", shown, w, h)
+}
+
+func (o *helpOverlay) hints(m *Model) []hint {
+	w, h := m.size()
+	if _, _, maxOff := o.layout(m, w, h-chromeLines); maxOff > 0 {
+		return []hint{{"↑↓ j k", "scroll"}, {"esc", "close"}}
+	}
+	return []hint{{"esc", "close"}}
+}

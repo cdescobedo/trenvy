@@ -182,7 +182,7 @@ func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.quit = true
 		return m, tea.Quit
 	case keyIs(k, "?"):
-		m.push(helpOverlay{})
+		m.push(&helpOverlay{})
 		return m, nil
 	case keyIs(k, "w"):
 		return m.openReview()

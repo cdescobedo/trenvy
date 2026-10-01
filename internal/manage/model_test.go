@@ -134,3 +134,94 @@ func lineWith(t *testing.T, v, sub string) string {
 	t.Fatalf("no line contains %q:\n%s", sub, v)
 	return ""
 }
+
+// cursorLines is every screen line holding the cursor glyph.
+func cursorLines(v string) []string {
+	var out []string
+	for _, l := range strings.Split(v, "\n") {
+		if strings.Contains(l, ">") {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// Global constraint "every state reads in words with no colour" and the
+// spec §1 mock: the selection and the focused pane read without colour.
+func TestCursorAndPaneFocusShowWithoutColour(t *testing.T) {
+	m := newModel(&fakeDeps{})
+	if v := m.View(); !strings.Contains(v, "> API_TOKEN") {
+		t.Errorf("list cursor not drawn before the selected name:\n%s", v)
+	}
+	if v := press(m, "j").View(); !strings.Contains(v, "> APP_MODE") || strings.Contains(v, "> API_TOKEN") {
+		t.Errorf("list cursor did not move with j:\n%s", v)
+	}
+
+	m = press(m, "enter") // detail focused, on dev
+	v := m.View()
+	if strings.Contains(v, "> API_TOKEN") || !strings.Contains(v, "· API_TOKEN") {
+		t.Errorf("with the detail focused the list row should show · rather than >:\n%s", v)
+	}
+	if cl := cursorLines(v); len(cl) != 1 || !strings.Contains(cl[0], "dev") {
+		t.Errorf("want one detail cursor line, on dev; got %q", cl)
+	}
+	if cl := cursorLines(press(m, "j").View()); len(cl) != 1 || !strings.Contains(cl[0], "staging") {
+		t.Errorf("want one detail cursor line, on staging; got %q", cl)
+	}
+}
+
+// Spec §2: * marks the active profile -- including while it is selected.
+func TestActiveProfileStarSurvivesSelection(t *testing.T) {
+	v := press(newModel(&fakeDeps{}), "enter").View() // detail focused on dev
+	cl := cursorLines(v)
+	if len(cl) != 1 || !strings.Contains(cl[0], "dev") || !strings.Contains(cl[0], "*") {
+		t.Errorf("selected active-profile row = %q, want > and *", cl)
+	}
+}
+
+// Spec §1: the ? key list wraps and never truncates, so when it is taller
+// than the terminal it scrolls and says there is more.
+func TestHelpScrollsWhenTallerThanTheTerminal(t *testing.T) {
+	m := press(sized(newModel(&fakeDeps{}), 100, 16), "?")
+	v := m.View()
+	if strings.Contains(v, "this list") || !strings.Contains(v, "↓ more") {
+		t.Fatalf("a cut help list should end in ↓ more:\n%s", v)
+	}
+	if !strings.Contains(strings.Join(m.FooterKeys(), " "), "j") {
+		t.Errorf("help footer %q does not offer scrolling", m.FooterKeys())
+	}
+	for range 20 {
+		m = press(m, "j")
+	}
+	v = m.View()
+	if !strings.Contains(v, "this list") || !strings.Contains(v, "↑ more") || strings.Contains(v, "↓ more") {
+		t.Errorf("scrolled to the end, help should show its last verb and ↑ more:\n%s", v)
+	}
+	if v = press(m, "k").View(); !strings.Contains(v, "↓ more") {
+		t.Errorf("k did not scroll back up:\n%s", v)
+	}
+}
+
+// At the minimum size the help panel has room for two rows; every scroll
+// position must still show a verb, not only the two indicators.
+func TestHelpAtTheMinimumSizeAlwaysShowsAVerb(t *testing.T) {
+	m := press(sized(newModel(&fakeDeps{}), 40, 10), "?")
+	for i := 0; i < 20; i++ {
+		v := m.View()
+		if strings.Contains(v, "↑ more") && strings.Contains(v, "↓ more") {
+			t.Fatalf("after %d j: only indicators, no verb:\n%s", i, v)
+		}
+		m = press(m, "j")
+	}
+}
+
+// The cursor column must not push the detail pane's text against its
+// right border: the meta keeps a one-cell gap.
+func TestDetailKeepsAGapBeforeTheRightBorder(t *testing.T) {
+	for _, w := range []int{60, 100} {
+		v := press(sized(newModel(&fakeDeps{}), w, 30), "enter").View()
+		if l := lineWith(t, v, "secret · required"); !strings.Contains(l, "required │") {
+			t.Errorf("w=%d: detail header %q has no gap before the border", w, l)
+		}
+	}
+}

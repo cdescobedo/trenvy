@@ -154,13 +154,13 @@ func (m Model) variablesHints() []hint {
 func (m Model) viewVariables(w, h int) string {
 	if w < stackBelow {
 		if m.vars.pane == paneDetail {
-			return m.th.Pane(m.detailBody(w-4, h-2), w, h, true)
+			return m.th.Pane(m.detailBody(w-5, h-2), w, h, true)
 		}
 		return m.th.Pane(m.listBody(w-2, h-2, false), w, h, true)
 	}
 	lw := m.listWidth(w)
 	list := m.th.Pane(m.listBody(lw-2, h-2, w >= wideFrom), lw, h, m.vars.pane == paneList)
-	detail := m.th.Pane(m.detailBody(w-lw-4, h-2), w-lw, h, m.vars.pane == paneDetail)
+	detail := m.th.Pane(m.detailBody(w-lw-5, h-2), w-lw, h, m.vars.pane == paneDetail)
 	return lipgloss.JoinHorizontal(lipgloss.Top, list, detail)
 }
 
@@ -210,6 +210,12 @@ func (m Model) listRows(inner, height int, wide bool) string {
 	if wide {
 		nameW -= previewWidth + 1
 	}
+	// The cursor column shows the selection without colour: > where the
+	// keys go, a muted · when the detail pane has them.
+	cur := t.Accent.Render(">")
+	if m.vars.pane != paneList {
+		cur = t.Muted.Render("·")
+	}
 	var lines []string
 	cursor := clamp(m.vars.cursor, 0, len(names)-1)
 	for i, n := range names {
@@ -233,10 +239,10 @@ func (m Model) listRows(inner, height int, wide bool) string {
 		}
 		row := " " + pad(cutTo(n, nameW), nameW) + " " + pad(tag, 6) + " "
 		if i == cursor {
-			lines = append(lines, t.Selected.Render(row)+markSt.Render(mark)+t.Muted.Render(preview))
+			lines = append(lines, cur+t.Selected.Render(row)+markSt.Render(mark)+t.Muted.Render(preview))
 			continue
 		}
-		lines = append(lines, " "+t.Text.Render(pad(cutTo(n, nameW), nameW))+" "+t.Muted.Render(pad(tag, 6))+" "+markSt.Render(mark)+t.Muted.Render(preview))
+		lines = append(lines, "  "+t.Text.Render(pad(cutTo(n, nameW), nameW))+" "+t.Muted.Render(pad(tag, 6))+" "+markSt.Render(mark)+t.Muted.Render(preview))
 	}
 	return strings.Join(window(lines, cursor, height), "\n")
 }
@@ -300,6 +306,9 @@ func (m Model) cellText(name string, v session.VarView, r detailRow) (value, ann
 	return t.Muted.Render("-"), t.Danger.Render("MISSING !")
 }
 
+// detailBody draws the selected variable. inner is the width its text may
+// use: the pane's inside less the two-cell cursor lead and a one-cell gap
+// before the right border.
 func (m Model) detailBody(inner, height int) string {
 	t := m.th
 	name, ok := m.selected()
@@ -326,7 +335,8 @@ func (m Model) detailBody(inner, height int) string {
 	lines := []string{head + strings.Repeat(" ", max(1, inner-lipgloss.Width(head)-lipgloss.Width(meta))) + t.Muted.Render(meta), ""}
 
 	valueW := max(8, inner-labelW-annotW-1)
-	focusLine := 0
+	focused := m.vars.pane == paneDetail
+	cursorAt := -1
 	for i, r := range m.detailRows(v) {
 		label := r.label
 		if r.profile == m.snap.Profile {
@@ -337,9 +347,17 @@ func (m Model) detailBody(inner, height int) string {
 			annot += " " + t.Staged.Render("~")
 		}
 		wrapped := strings.Split(lipgloss.NewStyle().Width(valueW).Render(value), "\n")
-		if i == m.vars.row && m.vars.pane == paneDetail {
-			focusLine = len(lines)
-			lines = append(lines, t.Selected.Render(pad(r.label, labelW)+pad(stripStyles(wrapped[0]), valueW))+" "+annot)
+		if i == m.vars.row && focused {
+			cursorAt = len(lines)
+			// The * stays: accent clears 4.5:1 on the selection surface
+			// (spec §0), so it is drawn on it rather than dropped.
+			sel := t.Selected
+			lab := sel.Render(r.label)
+			if r.profile == m.snap.Profile {
+				lab += sel.Render(" ") + t.Accent.Inherit(sel).Render("*")
+			}
+			fill := strings.Repeat(" ", max(0, labelW-lipgloss.Width(lab)))
+			lines = append(lines, lab+sel.Render(fill+pad(stripStyles(wrapped[0]), valueW))+" "+annot)
 		} else {
 			lines = append(lines, pad(t.Muted.Render(pad(label, labelW)), labelW)+pad(wrapped[0], valueW)+" "+annot)
 		}
@@ -376,10 +394,15 @@ func (m Model) detailBody(inner, height int) string {
 		}
 		lines = append(lines, lead+l)
 	}
+	// A two-cell lead: the cursor column and a space, as in the list.
 	for i := range lines {
-		lines[i] = " " + lines[i]
+		lead := "  "
+		if i == cursorAt {
+			lead = t.Accent.Render(">") + " "
+		}
+		lines[i] = lead + lines[i]
 	}
-	return strings.Join(window(lines, focusLine, height), "\n")
+	return strings.Join(window(lines, max(cursorAt, 0), height), "\n")
 }
 
 // problemLine words a problem for the interface, with an in-app fix (spec

@@ -13,9 +13,9 @@ const (
 	listMax      = 36
 	previewWidth = 24
 	// listChrome is everything in a list row but the name: two borders,
-	// the leading space, a space, the six-cell "secret" tag, a space and
-	// the one-cell mark.
-	listChrome = 12
+	// the one-cell cursor column and a space, a space, the six-cell
+	// "secret" tag, a space and the one-cell mark.
+	listChrome = 13
 )
 
 func clamp(v, lo, hi int) int {
