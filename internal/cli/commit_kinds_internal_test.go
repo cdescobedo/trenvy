@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/manage"
 	"github.com/cdescobedo/trenvy/internal/manifest"
 	"github.com/cdescobedo/trenvy/internal/store"
 	"github.com/cdescobedo/trenvy/internal/ui"
@@ -438,5 +439,27 @@ func TestCommitRetryAfterARenameReachedTheStateFileMatchesOneCleanCommit(t *test
 	}
 	if _, ok := after.State.Find(app.Entry.Root, "main"); !ok {
 		t.Error("render record not under main after the retry")
+	}
+}
+
+// The new interface keeps a refused batch staged, and retrying it unchanged
+// cannot succeed, so its commit error must say nothing was written in a way
+// the review can test for -- and leave the words to the review.
+func TestManageCommitMarksARefusedBatchAsNothingWritten(t *testing.T) {
+	opts, app := newCommitApp(t, store.NewMem())
+	_, err := manageCommit(opts, app, []ui.Change{{Kind: ui.ChangeAddVar, Name: "EMPTY"}})
+	if !errors.Is(err, manage.ErrNothingWritten) {
+		t.Errorf("err = %v, want it to match manage.ErrNothingWritten", err)
+	}
+	if err != nil && (!strings.Contains(err.Error(), "needs value") || strings.Contains(err.Error(), "nothing was written")) {
+		t.Errorf("err text = %q, want the manifest's reason and not the review's words", err)
+	}
+
+	// A keyring write that fails partway is not a refusal: a retry can land.
+	st := &failOnce{Mem: store.NewMem(), failOn: "trenvy/vpb/dev/TOKEN"}
+	opts, app = newCommitApp(t, st)
+	_, err = manageCommit(opts, app, []ui.Change{{Kind: ui.ChangeSetSecret, Name: "TOKEN", Profile: "dev", Value: "v"}})
+	if err == nil || errors.Is(err, manage.ErrNothingWritten) {
+		t.Errorf("err = %v, want a failure that is not ErrNothingWritten", err)
 	}
 }

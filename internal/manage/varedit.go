@@ -106,6 +106,8 @@ func (m *Model) unsetRow(name, profile string) {
 		m.msg = message{name + " is marked for deletion -- u to restore it first", true}
 	case v.Var.Secret:
 		m.msg = message{fmt.Sprintf("a stored secret is removed with: trenvy -p %s secret rm %s", profile, name), false}
+	case onlyValue(v, profile):
+		m.msg = message{"can't remove " + name + "'s only value -- mark it optional (.) or delete the variable (d in the list)", true}
 	case profile != "":
 		if _, ok := v.Var.Profiles[profile]; !ok {
 			m.msg = message{name + " has no override under " + profile + " -- it already uses the shared value", false}
@@ -115,8 +117,6 @@ func (m *Model) unsetRow(name, profile string) {
 		m.msg = message{name + " override for " + profile + " removed -- u to undo", false}
 	case v.Var.Value == nil:
 		m.msg = message{name + " has no shared value to remove", false}
-	case len(v.Var.Profiles) == 0 && !v.Var.Optional:
-		m.msg = message{"can't remove " + name + "'s only value -- mark it optional (.) or delete the variable (d in the list)", true}
 	default:
 		m.staged.Add(session.Change{Kind: session.ChangeUnsetValue, Name: name})
 		if left := m.inheritors(v.Var); len(left) > 0 && !v.Var.Optional {

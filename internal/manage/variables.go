@@ -271,9 +271,9 @@ func (m Model) variablesHints() []hint {
 }
 
 // removable reports whether d on this detail row removes something: an
-// override, or a shared value that is not the variable's only value.
+// override, or a shared value, that is not the variable's only value.
 func (m Model) removable(v session.VarView, r detailRow) bool {
-	if v.Var.Secret || v.Deleted {
+	if v.Var.Secret || v.Deleted || onlyValue(v, r.profile) {
 		return false
 	}
 	if r.profile != "" {
@@ -281,6 +281,20 @@ func (m Model) removable(v session.VarView, r detailRow) bool {
 		return ok
 	}
 	return v.Var.Value != nil
+}
+
+// onlyValue reports whether the value on row profile ("" the shared value)
+// is a required plain variable's last one. Removing it would leave the
+// variable with no value, which the manifest refuses.
+func onlyValue(v session.VarView, profile string) bool {
+	if v.Var.Optional {
+		return false
+	}
+	if profile == "" {
+		return v.Var.Value != nil && len(v.Var.Profiles) == 0
+	}
+	_, ok := v.Var.Profiles[profile]
+	return ok && v.Var.Value == nil && len(v.Var.Profiles) == 1
 }
 
 func (m Model) viewVariables(w, h int) string {

@@ -1,6 +1,7 @@
 package manage
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -19,6 +20,7 @@ import (
 type reviewOverlay struct {
 	cursor  int
 	failure string // the last commit's error, shown until the next attempt
+	refused bool   // that error was ErrNothingWritten: retrying cannot succeed
 }
 
 type reviewLine struct {
@@ -192,7 +194,7 @@ func (r *reviewOverlay) update(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
 			m.msg = message{"can't save: the last reload failed -- esc, then . and Reload from disk", true}
 			return false, nil
 		}
-		m.saving, r.failure = true, ""
+		m.saving, r.failure, r.refused = true, "", false
 		return false, m.commitCmd()
 	}
 	return false, nil
@@ -282,14 +284,22 @@ func (r *reviewOverlay) view(m *Model, w, h int) string {
 	return m.panelAt("Review "+t.PillStaged.Render(plural(m.staged.Len(), "change")), body, focus, w, h)
 }
 
-// nextStep is the line under a failure's report.
+// nextStep is the line under a failure's report. A partial failure is
+// retried whole (spec §3); a refused batch wrote nothing and would be
+// refused again, so it points at the change to drop or edit instead.
 func (r *reviewOverlay) nextStep() string {
+	if r.refused {
+		return "nothing was written -- u to drop the change the manifest refuses, or esc to edit"
+	}
 	return "every change is still staged -- enter to retry"
 }
 
 func (r *reviewOverlay) hints(m *Model) []hint {
-	if m.saving || m.reloading {
-		return []hint{{"ctrl+c", "quit without waiting"}}
+	if m.saving {
+		return []hint{{"ctrl+c", "quit now -- the save may be left partly applied"}}
+	}
+	if m.reloading {
+		return []hint{{"ctrl+c", "quit now"}}
 	}
 	return []hint{{"enter", "save all"}, {"u", "drop this change"}, {"esc", "keep editing"}}
 }
@@ -329,7 +339,7 @@ func (m Model) afterCommit(msg committedMsg) (tea.Model, tea.Cmd) {
 	m.saving, m.reloading = false, true
 	if msg.err != nil {
 		if r := m.review(); r != nil {
-			r.failure = msg.err.Error()
+			r.failure, r.refused = msg.err.Error(), errors.Is(msg.err, ErrNothingWritten)
 		}
 		return m, m.reloadCmd()
 	}
@@ -358,7 +368,13 @@ func (m Model) afterReload(msg reloadedMsg) (tea.Model, tea.Cmd) {
 		m.stale = true
 		// The recovery comes before the error, whose length is not ours to
 		// choose, so the message line never cuts it off.
-		m.msg = message{"reload failed, press . then Reload from disk: " + msg.err.Error(), true}
+		text := "reload failed, press . then Reload from disk: " + msg.err.Error()
+		// A save that landed set a plain message just before this reload;
+		// keep it, or the failure reads as if nothing was saved.
+		if m.msg.text != "" && !m.msg.isErr {
+			text = m.msg.text + " -- " + text
+		}
+		m.msg = message{text, true}
 		return m, nil
 	}
 	keep, _ := m.selected()

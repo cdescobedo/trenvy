@@ -4,7 +4,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cdescobedo/trenvy/internal/manage"
+	"github.com/cdescobedo/trenvy/internal/manifest"
 	"github.com/cdescobedo/trenvy/internal/session"
+	"github.com/cdescobedo/trenvy/internal/style"
 )
 
 func staged(m interface{ Staged() []session.Change }) []string {
@@ -72,6 +75,23 @@ func TestDOnAnOverrideRevertsToShared(t *testing.T) {
 func TestDOnTheOnlyValueRefusesWithAReason(t *testing.T) {
 	m := press(newModel(&fakeDeps{}), "j", "j", "enter", "d") // DATABASE_URL shared, no overrides
 	if len(m.Staged()) != 0 || !strings.Contains(m.View(), "only value") {
+		t.Errorf("staged %v, view:\n%s", staged(m), m.View())
+	}
+}
+
+// The same refusal on a variable with no shared value: d on its last
+// override would leave it with no value, which the manifest refuses.
+func TestDOnTheLastOverrideRefusesWithAReason(t *testing.T) {
+	mf := fixtureManifest()
+	mf.Vars["ONLY_PROD"] = manifest.Var{Profiles: map[string]string{"prod": "p"}}
+	m := sized(manage.New(snapshotOf(mf, nil), (&fakeDeps{}).deps(), style.Theme{}), 100, 30)
+	m = press(m, "j", "j", "j", "j", "enter", "j", "j", "j") // ONLY_PROD, prod
+	for _, k := range m.FooterKeys() {
+		if k == "d" {
+			t.Errorf("footer offers d on the only value: %v", m.FooterKeys())
+		}
+	}
+	if m = press(m, "d"); len(m.Staged()) != 0 || !strings.Contains(m.View(), "only value") {
 		t.Errorf("staged %v, view:\n%s", staged(m), m.View())
 	}
 }

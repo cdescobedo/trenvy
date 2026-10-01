@@ -2,10 +2,13 @@ package manage_test
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/cdescobedo/trenvy/internal/manage"
 )
 
 func stageTwo(f *fakeDeps) manageModel {
@@ -291,3 +294,48 @@ func TestReviewShowsAnAddedPlainVariableAsBeforeAndAfter(t *testing.T) {
 		t.Errorf("review:\n%s", v)
 	}
 }
+
+// A save that lands followed by a reload that fails must not lose the
+// fact that the save landed.
+func TestAFailedReloadAfterASaveStillSaysItSaved(t *testing.T) {
+	f := &fakeDeps{reloadErr: errors.New("manifest unreadable")}
+	v := press(stageTwo(f), "w", "enter").View()
+	if !strings.Contains(v, "saved 2 changes") || !strings.Contains(v, "reload failed") {
+		t.Errorf("message after save then failed reload:\n%s", v)
+	}
+}
+
+// ctrl+c while saving quits at once, but the commit may already be partway
+// through: the hint must not suggest that quitting writes nothing.
+func TestTheSavingHintSaysQuittingMayLeaveItPartlyApplied(t *testing.T) {
+	m := press(stageTwo(&fakeDeps{}), "w")
+	next, _ := m.Update(key("enter")) // saving, the commit not yet run
+	if v := next.(manageModel).View(); !strings.Contains(v, "partly applied") {
+		t.Errorf("saving footer:\n%s", v)
+	}
+}
+
+// A batch the manifest refuses wrote nothing, and retrying it unchanged
+// cannot succeed: the review must not offer enter to retry.
+func TestARefusedBatchDoesNotOfferARetry(t *testing.T) {
+	f := &fakeDeps{commitErr: fmt.Errorf("%w", refused{})}
+	v := press(stageTwo(f), "w", "enter").View()
+	if !strings.Contains(flat(v), flat("nothing was written -- u to drop the change the manifest refuses, or esc to edit")) {
+		t.Errorf("refused batch:\n%s", v)
+	}
+	if strings.Contains(v, "enter to retry") {
+		t.Errorf("a refused batch offered a retry:\n%s", v)
+	}
+	if !strings.Contains(v, "needs value") {
+		t.Errorf("the manifest's reason is not shown:\n%s", v)
+	}
+}
+
+// refused is a commit error the way the cli reports a refused batch: the
+// manifest's reason, with manage.ErrNothingWritten reachable.
+type refused struct{}
+
+func (refused) Error() string {
+	return `var "APP_MODE": needs value, a profile value, secret = true, or optional = true`
+}
+func (refused) Unwrap() []error { return []error{manage.ErrNothingWritten} }

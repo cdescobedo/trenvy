@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"io"
 	"os"
 	"sync"
@@ -61,11 +62,7 @@ func runManage(opts *Options, app *appContext) error {
 				return s.Get(cur.Cfg.Keyring.ServiceName(cur.Manifest.Project.ID, profile, name))
 			},
 			Commit: func(cs []session.Change) (manage.CommitResult, error) {
-				res, err := commitStaged(&quiet, current(), cs)
-				if err != nil {
-					return manage.CommitResult{}, err
-				}
-				return manage.CommitResult{Saved: res.saved, LeftInPlace: res.leftInPlace}, nil
+				return manageCommit(&quiet, current(), cs)
 			},
 			// Reload re-reads the project from disk into a fresh appContext.
 			// commitStaged mutates cur.Manifest in memory, succeeding or not,
@@ -94,6 +91,29 @@ func runManage(opts *Options, app *appContext) error {
 		}
 	}
 }
+
+// manageCommit is Deps.Commit: commitStaged, with its result in the
+// interface's terms.
+func manageCommit(opts *Options, app *appContext, cs []session.Change) (manage.CommitResult, error) {
+	res, err := commitStaged(opts, app, cs)
+	if err != nil {
+		var invalid *invalidBatchError
+		if errors.As(err, &invalid) {
+			return manage.CommitResult{}, &refusedBatch{invalid.err}
+		}
+		return manage.CommitResult{}, err
+	}
+	return manage.CommitResult{Saved: res.saved, LeftInPlace: res.leftInPlace}, nil
+}
+
+// refusedBatch is a batch the manifest refuses, as the new interface
+// receives it: the manifest's reason, matching manage.ErrNothingWritten so
+// the review knows a retry cannot succeed. invalidBatchError's own "nothing
+// was written" line is left out; the review words that with the next step.
+type refusedBatch struct{ reason error }
+
+func (e *refusedBatch) Error() string   { return e.reason.Error() }
+func (e *refusedBatch) Unwrap() []error { return []error{manage.ErrNothingWritten, e.reason} }
 
 // buildSnapshot loads what the interface shows, reusing the original
 // interface's loaders so both read presence and freshness the same way:

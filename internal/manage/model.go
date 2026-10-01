@@ -8,6 +8,7 @@
 package manage
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -35,6 +36,13 @@ type CommitResult struct {
 	Saved       int
 	LeftInPlace []string
 }
+
+// ErrNothingWritten marks a Commit error for a batch refused before
+// anything was written -- one the manifest will not accept. Retrying it
+// unchanged cannot succeed, so the review says so instead of offering a
+// retry. The error's own text is the reason; the review supplies the words
+// "nothing was written".
+var ErrNothingWritten = errors.New("nothing was written")
 
 // Deps is every piece of I/O the interface asks for.
 type Deps struct {
