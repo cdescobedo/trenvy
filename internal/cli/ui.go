@@ -122,7 +122,7 @@ func newUiCmd(opts *Options) *cobra.Command {
 	return cmd
 }
 
-// commitStaged writes w's staged changes in six phases, because Task 6's new
+// commitStaged writes w's staged changes in phases 0 to 6, because Task 6's new
 // operations depend on each other in ways the four Change kinds Tasks 1-4
 // shipped never did:
 //
@@ -339,10 +339,11 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) (commitRes
 	// w has already committed the rest of the batch, the wrong moment, and
 	// pressing d on this tab has already asked for exactly this. What
 	// --force does not skip, and neither does this, is naming every file
-	// left on disk -- forgotten, printed once the whole commit succeeds,
-	// in the exact words `output rm --force` already uses: removing the
-	// manifest entry is not removing the file, and a file that may carry
-	// secrets must never be silently forgotten about.
+	// left on disk -- forgotten, named in the commit's result once the
+	// whole commit succeeds (and in its error after a later failure, see
+	// withLeftInPlace), in the exact words `output rm --force` already
+	// uses: removing the manifest entry is not removing the file, and a
+	// file that may carry secrets must never be silently forgotten about.
 	//
 	// Both RenameOutput and Forget only ever mutate app.State in memory;
 	// Save runs once, unconditionally, whenever either kind was staged --
@@ -608,7 +609,7 @@ func applyManifestEdits(m *manifest.Manifest, staged []ui.Change) {
 			m.Project.Output = c.Name
 		case ui.ChangeSetGlobs:
 			// Task 8's own kind (see commitStaged's doc): it did not exist
-			// when the six phases above it were built, so it lands here,
+			// when the phases above it were built, so it lands here,
 			// in the manifest-edits phase, as one more case -- never a
 			// restructuring of the phases themselves.
 			if removedOutputNames[c.Name] {
