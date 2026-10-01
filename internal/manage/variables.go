@@ -120,8 +120,8 @@ func (m *Model) moveCursor(d int) {
 	m.vars.revealed = map[cellKey]string{}
 }
 
-// variablesKey handles the Variables screen's keys. Task 9 adds
-// staging to the switches below.
+// variablesKey handles the Variables screen's keys, including every
+// staging action.
 func (m Model) variablesKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case keyIs(k, "/"):
@@ -130,6 +130,14 @@ func (m Model) variablesKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyIs(k, "!"):
 		m.vars.problemsOnly = !m.vars.problemsOnly
 		m.resetCursor()
+		return m, nil
+	case keyIs(k, "a"):
+		if m.canStage() {
+			m.push(&addOverlay{f: newField("", false)})
+		}
+		return m, nil
+	case keyIs(k, "."):
+		m.push(m.varMenu())
 		return m, nil
 	}
 	name, ok := m.selected()
@@ -144,6 +152,10 @@ func (m Model) variablesKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.moveCursor(-1)
 		case keyIs(k, "l", "right", "enter"):
 			m.vars.pane, m.vars.row = paneDetail, 0
+		case keyIs(k, "d"):
+			m.toggleDelete(name)
+		case keyIs(k, "u"):
+			m.undoVar(name)
 		}
 		return m, nil
 	}
@@ -157,6 +169,12 @@ func (m Model) variablesKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.vars.pane = paneList
 	case keyIs(k, "v"):
 		return m.toggleReveal(name, rows[m.vars.row].profile)
+	case keyIs(k, "enter"):
+		return m.beginEdit(name, rows[m.vars.row].profile)
+	case keyIs(k, "d"):
+		m.unsetRow(name, rows[m.vars.row].profile)
+	case keyIs(k, "u"):
+		m.undoCell(name, rows[m.vars.row].profile)
 	}
 	return m, nil
 }

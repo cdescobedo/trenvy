@@ -136,3 +136,28 @@ func TestFilteringOrTogglingProblemsHidesRevealedValues(t *testing.T) {
 		t.Error("! left the value revealed")
 	}
 }
+
+// Spec §1: the footer lists only keys that do something for the selection
+// right now. Each listed key must change the screen or return a command.
+func TestEveryFooterKeyDoesSomething(t *testing.T) {
+	states := map[string][]string{
+		"list, secret":         nil,
+		"list, plain":          {"j"},
+		"detail, secret dev":   {"enter"},
+		"detail, plain shared": {"j", "enter"},
+		"detail, plain prod":   {"j", "enter", "j", "j", "j"},
+	}
+	for name, setup := range states {
+		f := &fakeDeps{secrets: map[string]string{"API_TOKEN/dev": "d"}}
+		base := press(sized(manage.New(fixture(), f.deps(), colourTheme()), 100, 30), setup...)
+		for _, k := range base.FooterKeys() {
+			if k == "?" {
+				continue
+			}
+			next, cmd := base.Update(key(k))
+			if cmd == nil && next.(manage.Model).View() == base.View() {
+				t.Errorf("%s: footer key %q did nothing", name, k)
+			}
+		}
+	}
+}

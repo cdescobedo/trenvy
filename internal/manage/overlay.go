@@ -5,6 +5,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/cdescobedo/trenvy/internal/session"
 )
 
 // overlay is a panel drawn over the body: an edit field, the . menu, the
@@ -168,3 +170,226 @@ func (o *filterOverlay) view(*Model, int, int) string { return "" }
 func (o *filterOverlay) hints(*Model) []hint {
 	return []hint{{"enter", "done"}, {"ctrl+u", "clear"}}
 }
+
+// editOverlay edits one value. save returns false to keep the field open,
+// having set m.msg to say why.
+type editOverlay struct {
+	title string
+	f     field
+	save  func(m *Model, value string) bool
+}
+
+func (e *editOverlay) update(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
+	if k.Type == tea.KeyEnter {
+		return e.save(m, e.f.value()), nil
+	}
+	e.f = e.f.update(k)
+	return false, nil
+}
+
+func (e *editOverlay) view(m *Model, w, h int) string {
+	return m.panel(e.title, []string{" " + e.f.view(m.th)}, w, h)
+}
+
+func (e *editOverlay) hints(*Model) []hint {
+	return []hint{{"enter", "stage"}, {"ctrl+u", "clear"}, {"esc", "cancel"}}
+}
+
+// addOverlay is a: name, then plain or secret, then the first value --
+// staged together, as one change the review lists (spec §2).
+type addOverlay struct {
+	step   int // 0 name, 1 kind, 2 value
+	name   string
+	secret bool
+	f      field
+}
+
+func (a *addOverlay) update(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
+	switch a.step {
+	case 0:
+		if k.Type != tea.KeyEnter {
+			a.f = a.f.update(k)
+			return false, nil
+		}
+		name := strings.TrimSpace(a.f.value())
+		switch {
+		case name == "":
+			m.msg = message{"a variable needs a name", true}
+		case strings.ContainsAny(name, " \t="):
+			m.msg = message{"a name can't contain spaces or =", true}
+		case m.exists(name):
+			m.msg = message{name + " already exists", true}
+		default:
+			a.name, a.step = name, 1
+		}
+	case 1:
+		switch {
+		case keyIs(k, "p"):
+			a.secret, a.step, a.f = false, 2, newField("", false)
+		case keyIs(k, "s"):
+			a.secret, a.step, a.f = true, 2, newField("", true)
+		}
+	case 2:
+		if k.Type != tea.KeyEnter {
+			a.f = a.f.update(k)
+			return false, nil
+		}
+		val := a.f.value()
+		if a.secret && val == "" {
+			m.msg = message{"a secret can't be empty -- esc to cancel", true}
+			return false, nil
+		}
+		m.staged.Add(session.Change{Kind: session.ChangeAddVar, Name: a.name})
+		if a.secret {
+			m.staged.Add(session.Change{Kind: session.ChangePromoteSecret, Name: a.name})
+			m.staged.Add(session.Change{Kind: session.ChangeSetSecret, Name: a.name, Profile: m.snap.Profile, Value: val})
+		} else {
+			m.staged.Add(session.Change{Kind: session.ChangeSetShared, Name: a.name, Value: val})
+		}
+		m.selectName(a.name)
+		m.msg = message{a.name + " added -- u to undo", false}
+		return true, nil
+	}
+	return false, nil
+}
+
+func (a *addOverlay) view(m *Model, w, h int) string {
+	switch a.step {
+	case 0:
+		return m.panel("Add variable -- name", []string{" " + a.f.view(m.th)}, w, h)
+	case 1:
+		return m.panel("Add "+a.name+" -- kind", []string{
+			" " + m.th.Key.Render("p") + " " + m.th.Text.Render("plain: one shared value, overridable per profile"),
+			" " + m.th.Key.Render("s") + " " + m.th.Text.Render("secret: one keyring item per profile"),
+		}, w, h)
+	}
+	title := "Add " + a.name + " -- shared value"
+	if a.secret {
+		title = "Add " + a.name + " -- value for " + m.snap.Profile
+	}
+	return m.panel(title, []string{" " + a.f.view(m.th)}, w, h)
+}
+
+func (a *addOverlay) hints(*Model) []hint {
+	if a.step == 1 {
+		return []hint{{"p", "plain"}, {"s", "secret"}, {"esc", "cancel"}}
+	}
+	return []hint{{"enter", "next"}, {"esc", "cancel"}}
+}
+
+// menuItem is one . entry. A disabled entry stays in the list with its
+// reason, so an absent action is never a silent one.
+type menuItem struct {
+	label, disabled string
+	run             func(m *Model) tea.Cmd
+}
+
+type menuOverlay struct {
+	title  string
+	items  []menuItem
+	cursor int
+}
+
+func (o *menuOverlay) update(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
+	switch {
+	case keyIs(k, "j", "down"):
+		o.cursor = min(o.cursor+1, len(o.items)-1)
+	case keyIs(k, "k", "up"):
+		o.cursor = max(o.cursor-1, 0)
+	case keyIs(k, "enter"):
+		it := o.items[o.cursor]
+		if it.disabled != "" {
+			m.msg = message{it.disabled, true}
+			return false, nil
+		}
+		return true, it.run(m)
+	}
+	return false, nil
+}
+
+func (o *menuOverlay) view(m *Model, w, h int) string {
+	var body []string
+	for i, it := range o.items {
+		label := m.th.Text.Render(it.label)
+		if it.disabled != "" {
+			label = m.th.Muted.Render(it.label + " (unavailable)")
+		}
+		if i == o.cursor {
+			label = m.th.Selected.Render(" " + it.label + " ")
+		}
+		body = append(body, " "+label)
+	}
+	return m.panel(o.title, body, w, h)
+}
+
+func (o *menuOverlay) hints(*Model) []hint { return []hint{{"enter", "choose"}, {"esc", "close"}} }
+
+// infoOverlay is Project info: the facts Overview used to show, as
+// reference rather than a screen (spec §1).
+type infoOverlay struct{}
+
+func (infoOverlay) update(*Model, tea.KeyMsg) (bool, tea.Cmd) { return false, nil }
+
+func (infoOverlay) view(m *Model, w, h int) string {
+	const labelW = 10
+	valW := max(8, min(w, 76)-4-labelW)
+	row := func(label, value string) []string {
+		lines := strings.Split(m.th.Text.Width(valW).Render(display(value)), "\n")
+		out := []string{m.th.Muted.Render(pad(label, labelW)) + lines[0]}
+		for _, l := range lines[1:] {
+			out = append(out, strings.Repeat(" ", labelW)+l)
+		}
+		return out
+	}
+	var body []string
+	body = append(body, row("project", m.snap.Project)...)
+	body = append(body, row("profile", m.snap.Profile+" ("+m.snap.Source+")")...)
+	body = append(body, row("manifest", m.snap.ManifestPath)...)
+	body = append(body, row("worktree", m.snap.Worktree)...)
+	body = append(body, row("backend", m.snap.Backend)...)
+	return m.panel("Project info", body, w, h)
+}
+
+func (infoOverlay) hints(*Model) []hint { return []hint{{"esc", "close"}} }
+
+// switchOverlay picks another registered project.
+type switchOverlay struct {
+	ids    []string
+	cursor int
+}
+
+func (o *switchOverlay) update(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
+	switch {
+	case keyIs(k, "j", "down"):
+		o.cursor = min(o.cursor+1, len(o.ids)-1)
+	case keyIs(k, "k", "up"):
+		o.cursor = max(o.cursor-1, 0)
+	case keyIs(k, "enter"):
+		id := o.ids[o.cursor]
+		leave := func(m *Model) tea.Cmd { m.switchTo, m.quit = id, true; return tea.Quit }
+		if m.staged.Len() == 0 {
+			return true, leave(m)
+		}
+		m.push(&confirmOverlay{
+			title:   "Switch to " + id,
+			text:    "Switching discards " + plural(m.staged.Len(), "unsaved change") + ".",
+			choices: []choice{{"enter", "switch", leave}},
+		})
+		return true, nil
+	}
+	return false, nil
+}
+
+func (o *switchOverlay) view(m *Model, w, h int) string {
+	var body []string
+	for i, id := range o.ids {
+		if i == o.cursor {
+			body = append(body, " "+m.th.Selected.Render(" "+id+" "))
+		} else {
+			body = append(body, " "+m.th.Text.Render(id))
+		}
+	}
+	return m.panel("Switch project", body, w, h)
+}
+
+func (o *switchOverlay) hints(*Model) []hint { return []hint{{"enter", "switch"}, {"esc", "stay"}} }

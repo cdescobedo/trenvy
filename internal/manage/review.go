@@ -7,3 +7,4 @@ func (m Model) openReview() (tea.Model, tea.Cmd)              { return m, nil }
 func (m *Model) openReviewPtr() (bool, tea.Cmd)               { return false, nil }
 func (m Model) afterCommit(committedMsg) (tea.Model, tea.Cmd) { return m, nil }
 func (m Model) afterReload(reloadedMsg) (tea.Model, tea.Cmd)  { return m, nil }
+func (m *Model) reloadCmd() tea.Cmd                           { return nil }
