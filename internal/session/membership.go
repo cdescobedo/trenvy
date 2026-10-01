@@ -69,3 +69,10 @@ func membershipOutputs(m *manifest.Manifest) map[string][]string {
 func membershipOutputsForMatrix(mx *Matrix) map[string][]string {
 	return membershipOutputs(&manifest.Manifest{Outputs: mx.Outputs, Vars: mx.Vars})
 }
+
+// OutputsFor names, for every variable in mx, each output that selects it,
+// sorted -- the "written to" line of the variable's detail pane. It is
+// membershipOutputsForMatrix exported under the name its new caller reads.
+func OutputsFor(mx *Matrix) map[string][]string {
+	return membershipOutputsForMatrix(mx)
+}

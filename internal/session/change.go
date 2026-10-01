@@ -57,3 +57,18 @@ type Change struct {
 	Format, Path               string
 	Include, Exclude           []string
 }
+
+// Kinds added for internal/manage (spec 2026-09-30). The original interface
+// never stages them; internal/cli's commitStaged applies them in phase 5a
+// with the other manifest edits.
+const (
+	// ChangeSetShared sets a plain variable's shared Value -- the value every
+	// profile without an override resolves to. ChangeSetValue, by contrast,
+	// always writes one profile's override.
+	ChangeSetShared = "set-shared"
+	// ChangeUnsetValue removes a plain value: the shared Value when Profile
+	// is "", otherwise that profile's override.
+	ChangeUnsetValue = "unset-value"
+	// ChangeSetOptional sets Optional. Value is "true" or "false".
+	ChangeSetOptional = "set-optional"
+)

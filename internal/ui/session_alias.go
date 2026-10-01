@@ -38,6 +38,10 @@ const (
 	ChangeRemoveOutput  = session.ChangeRemoveOutput
 	ChangeDefaultOutput = session.ChangeDefaultOutput
 	ChangeSetGlobs      = session.ChangeSetGlobs
+
+	ChangeSetShared   = session.ChangeSetShared
+	ChangeUnsetValue  = session.ChangeUnsetValue
+	ChangeSetOptional = session.ChangeSetOptional
 )
 
 var (

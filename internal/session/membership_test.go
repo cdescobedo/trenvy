@@ -1,6 +1,7 @@
 package session_test
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/cdescobedo/trenvy/internal/manifest"
@@ -84,5 +85,20 @@ func TestMembershipEveryVariableIsZeroWithNoOutputs(t *testing.T) {
 	counts := session.Membership(m)
 	if got, ok := counts["ONLY_VAR"]; !ok || got != 0 {
 		t.Errorf("Membership() = %v, want ONLY_VAR present at 0", counts)
+	}
+}
+
+func TestOutputsForNamesEveryOutputSelectingEachVariable(t *testing.T) {
+	m := &manifest.Manifest{
+		Project: manifest.Project{Profiles: []string{"dev"}},
+		Outputs: map[string]manifest.Output{
+			"local": {Format: manifest.FormatDotenv, Path: ".env"},
+			"web":   {Format: manifest.FormatJSON, Path: "web.json", Include: []string{"PUBLIC_*"}},
+		},
+		Vars: map[string]manifest.Var{"PUBLIC_URL": {Value: s("u")}, "DB": {Value: s("d")}},
+	}
+	got := session.OutputsFor(session.NewMatrix(m, nil))
+	if !reflect.DeepEqual(got["PUBLIC_URL"], []string{"local", "web"}) || !reflect.DeepEqual(got["DB"], []string{"local"}) {
+		t.Errorf("OutputsFor = %v", got)
 	}
 }
