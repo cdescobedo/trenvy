@@ -282,6 +282,10 @@ func (m Model) viewHeader(w int) string {
 
 // headerLeft is " project · profile (source)" in at most avail cells.
 func (m Model) headerLeft(avail int) string {
+	if avail <= 0 {
+		// MaxWidth(0) would mean no limit at all.
+		return ""
+	}
 	t := m.th
 	on := t.OnHeader
 	proj, prof, src := display(m.snap.Project), display(m.snap.Profile), " ("+m.snap.Source+")"
@@ -297,7 +301,7 @@ func (m Model) headerLeft(avail int) string {
 	}
 	left := on(t.Title).Render(" "+proj) + on(t.Muted).Render(" · ") + on(t.Title).Render(prof) + on(t.Muted).Render(src)
 	if over() > 0 {
-		left = lipgloss.NewStyle().MaxWidth(max(0, avail)).Render(left)
+		left = lipgloss.NewStyle().MaxWidth(avail).Render(left)
 	}
 	return left
 }

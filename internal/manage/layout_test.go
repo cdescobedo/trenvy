@@ -2,6 +2,7 @@ package manage_test
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -233,6 +234,28 @@ func TestHeaderKeepsItsCountsWhenTheProjectIsLong(t *testing.T) {
 			if !strings.Contains(head, want) {
 				t.Errorf("w=%d: header %q lost %q", w, head, want)
 			}
+		}
+	}
+}
+
+// With double-digit counts at the minimum width the right side leaves the
+// project no room at all; the counts must still be whole.
+func TestHeaderKeepsItsCountsWhenTheyFillTheLine(t *testing.T) {
+	mf := fixtureManifest()
+	for i := 0; i < 12; i++ {
+		mf.Vars[fmt.Sprintf("SECRET_%02d", i)] = manifest.Var{Secret: true}
+	}
+	m := sized(manage.New(snapshotOf(mf, nil), (&fakeDeps{}).deps(), asciiTheme()), 40, 24)
+	for i := 0; i < 12; i++ {
+		m = press(m, "d", "j")
+	}
+	head := strings.SplitN(m.View(), "\n", 2)[0]
+	if lw := lipgloss.Width(head); lw > 40 {
+		t.Errorf("header is %d wide: %q", lw, head)
+	}
+	for _, want := range []string{"problems", "12 unsaved", "w review"} {
+		if !strings.Contains(head, want) {
+			t.Errorf("header %q lost %q", head, want)
 		}
 	}
 }
