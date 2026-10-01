@@ -266,10 +266,38 @@ func (m Model) previewValue(name string, v session.VarView) string {
 	return "-"
 }
 
+// The detail pane's label column is sized to the labels it holds, within
+// labelMin..labelMax; annotW is the room kept for an annotation.
 const (
-	labelW = 12
-	annotW = 14
+	labelMin = 12
+	labelMax = 24
+	annotW   = 14
 )
+
+// labelWidth is the detail pane's label column. Profile names have no
+// length limit, so it fits the longest label -- a profile with room for
+// " *", or "written to" -- plus one separating space. It is clamped, and
+// never so wide that the value and annotation would be pushed past inner,
+// where the pane would cut them; a label that still does not fit is cut
+// instead (detailLabel).
+func (m Model) labelWidth(inner int) int {
+	need := lipgloss.Width("written to") + 1
+	for _, p := range m.snap.Matrix.Profiles {
+		need = max(need, lipgloss.Width(p)+3)
+	}
+	return clamp(need, labelMin, min(labelMax, inner-annotW-1-8))
+}
+
+// detailLabel is r's label cut to leave a space before the value in a
+// column labelW wide, and whether it carries the active profile's *.
+func (m Model) detailLabel(r detailRow, labelW int) (string, bool) {
+	star := r.profile != "" && r.profile == m.snap.Profile
+	room := labelW - 1
+	if star {
+		room -= 2
+	}
+	return cutTo(r.label, max(1, room)), star
+}
 
 // cellText is one detail row's value and annotation, already styled.
 func (m Model) cellText(name string, v session.VarView, r detailRow) (value, annot string) {
@@ -334,12 +362,14 @@ func (m Model) detailBody(inner, height int) string {
 	head := t.Title.Render(cutTo(name, max(1, inner-lipgloss.Width(meta)-1)))
 	lines := []string{head + strings.Repeat(" ", max(1, inner-lipgloss.Width(head)-lipgloss.Width(meta))) + t.Muted.Render(meta), ""}
 
+	labelW := m.labelWidth(inner)
 	valueW := max(8, inner-labelW-annotW-1)
 	focused := m.vars.pane == paneDetail
 	cursorAt := -1
 	for i, r := range m.detailRows(v) {
-		label := r.label
-		if r.profile == m.snap.Profile {
+		short, star := m.detailLabel(r, labelW)
+		label := short
+		if star {
 			label += " " + t.Accent.Render("*")
 		}
 		value, annot := m.cellText(name, v, r)
@@ -352,8 +382,8 @@ func (m Model) detailBody(inner, height int) string {
 			// The * stays: accent clears 4.5:1 on the selection surface
 			// (spec §0), so it is drawn on it rather than dropped.
 			sel := t.Selected
-			lab := sel.Render(r.label)
-			if r.profile == m.snap.Profile {
+			lab := sel.Render(short)
+			if star {
 				lab += sel.Render(" ") + t.Accent.Inherit(sel).Render("*")
 			}
 			fill := strings.Repeat(" ", max(0, labelW-lipgloss.Width(lab)))

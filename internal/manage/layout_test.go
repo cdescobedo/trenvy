@@ -81,3 +81,59 @@ func TestWideTerminalPreviewsTheActiveValue(t *testing.T) {
 		t.Errorf("wide list row lacks the value preview: %q", lineWith(t, m.View(), "DATABASE_URL"))
 	}
 }
+
+// Profile names have no length limit (manifest validProfileName). A long
+// one must not glue its label to the value, nor push the row's annotation
+// past the pane's edge where it would be cut.
+func TestLongProfileNamesKeepLabelValueAndMark(t *testing.T) {
+	const long = "staging-eu-west-region-1"
+	for _, active := range []string{"dev", long} {
+		for _, w := range []int{60, 100} {
+			mf := fixtureManifest()
+			mf.Project.Profiles = []string{"dev", long, "prod"}
+			snap := snapshotOf(mf, map[string]map[string]bool{"API_TOKEN": {"dev": true, "prod": true}})
+			snap.Profile = active
+			m := sized(manage.New(snap, (&fakeDeps{}).deps(), style.Theme{}), w, 24)
+			if w < 80 {
+				m = press(m, "enter") // stacked: open the detail
+			}
+			for i, tc := range []struct{ name, value string }{{"API_TOKEN", "-"}, {"APP_MODE", "development"}} {
+				if i > 0 { // to the next variable
+					if w < 80 {
+						m = press(m, "left", "j", "enter")
+					} else {
+						m = press(m, "j")
+					}
+				}
+				v := m.View()
+				for i, l := range strings.Split(v, "\n") {
+					if lw := lipgloss.Width(l); lw > w {
+						t.Errorf("active=%s w=%d %s: line %d is %d wide: %q", active, w, tc.name, i, lw, l)
+					}
+				}
+				// Below the header and tab row, which name the active profile.
+				body := strings.SplitN(v, "\n", 3)[2]
+				row := lineWith(t, body, "staging-eu-west")
+				fields := strings.Fields(row[strings.Index(row, "staging-eu-west"):])
+				label := strings.TrimSuffix(fields[0], "…")
+				if !strings.HasPrefix(long, label) || len(fields) < 2 {
+					t.Errorf("active=%s w=%d %s: label glued to the value: %q", active, w, tc.name, row)
+					continue
+				}
+				next := fields[1]
+				if next == "*" {
+					next = fields[2]
+				}
+				if next != tc.value {
+					t.Errorf("active=%s w=%d %s: value after the label = %q, want %q: %q", active, w, tc.name, next, tc.value, row)
+				}
+				if tc.name == "API_TOKEN" && !strings.Contains(row, "MISSING !") {
+					t.Errorf("active=%s w=%d: MISSING ! not fully on the row: %q", active, w, row)
+				}
+				if active == long && !strings.Contains(row, "*") {
+					t.Errorf("w=%d %s: the active long profile lost its *: %q", w, tc.name, row)
+				}
+			}
+		}
+	}
+}
