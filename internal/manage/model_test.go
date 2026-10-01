@@ -225,3 +225,30 @@ func TestDetailKeepsAGapBeforeTheRightBorder(t *testing.T) {
 		}
 	}
 }
+
+// Without colour the . menu's cursor row must still be told apart.
+func TestMenuCursorShowsWithoutColour(t *testing.T) {
+	m := press(newModel(&fakeDeps{}), ".")
+	v := m.View()
+	if !strings.Contains(lineWith(t, v, "Make secret"), "> Make secret") || strings.Contains(lineWith(t, v, "Mark optional"), ">") {
+		t.Errorf("menu cursor not on Make secret:\n%s", v)
+	}
+	v = press(m, "j").View()
+	if !strings.Contains(lineWith(t, v, "Mark optional"), "> Mark optional") || strings.Contains(lineWith(t, v, "Make secret"), ">") {
+		t.Errorf("menu cursor did not move to Mark optional:\n%s", v)
+	}
+}
+
+func TestSwitchProjectCursorShowsWithoutColour(t *testing.T) {
+	snap := fixture()
+	snap.Projects = []string{"app", "other", "third"}
+	m := press(sized(manage.New(snap, (&fakeDeps{}).deps(), style.Theme{}), 100, 30), ".", "j", "j", "j", "j", "enter")
+	v := m.View()
+	if !strings.Contains(lineWith(t, v, "other"), "> other") || strings.Contains(lineWith(t, v, "third"), ">") {
+		t.Errorf("switch cursor not on other:\n%s", v)
+	}
+	v = press(m, "j").View()
+	if !strings.Contains(lineWith(t, v, "third"), "> third") || strings.Contains(lineWith(t, v, "other"), ">") {
+		t.Errorf("switch cursor did not move to third:\n%s", v)
+	}
+}

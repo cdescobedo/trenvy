@@ -310,16 +310,22 @@ func (o *menuOverlay) update(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
 func (o *menuOverlay) view(m *Model, w, h int) string {
 	var body []string
 	for i, it := range o.items {
-		label := m.th.Text.Render(it.label)
+		text, st := it.label, m.th.Text
 		if it.disabled != "" {
-			label = m.th.Muted.Render(it.label + " (unavailable)")
+			text, st = it.label+" (unavailable)", m.th.Muted
 		}
-		if i == o.cursor {
-			label = m.th.Selected.Render(" " + it.label + " ")
-		}
-		body = append(body, " "+label)
+		body = append(body, m.cursorRow(i == o.cursor, text, st))
 	}
 	return m.panel(o.title, body, w, h)
+}
+
+// cursorRow is one row of a pick list. The cursor row leads with > as well
+// as the selection surface, so it reads without colour too.
+func (m *Model) cursorRow(on bool, text string, st lipgloss.Style) string {
+	if on {
+		return m.th.Accent.Render(">") + " " + m.th.Selected.Render(text)
+	}
+	return "  " + st.Render(text)
 }
 
 func (o *menuOverlay) hints(*Model) []hint { return []hint{{"enter", "choose"}, {"esc", "close"}} }
@@ -383,11 +389,7 @@ func (o *switchOverlay) update(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
 func (o *switchOverlay) view(m *Model, w, h int) string {
 	var body []string
 	for i, id := range o.ids {
-		if i == o.cursor {
-			body = append(body, " "+m.th.Selected.Render(" "+id+" "))
-		} else {
-			body = append(body, " "+m.th.Text.Render(id))
-		}
+		body = append(body, m.cursorRow(i == o.cursor, display(id), m.th.Text))
 	}
 	return m.panel("Switch project", body, w, h)
 }

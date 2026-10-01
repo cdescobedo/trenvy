@@ -118,20 +118,17 @@ func (f field) update(k tea.KeyMsg) field {
 	return f
 }
 
-// view draws the field: a selected value highlighted as one block,
-// otherwise the text with the cursor cell reversed. A masked field draws a
-// bullet per rune and never the rune itself.
+// view draws the field. Both states read without colour: a selected value
+// is bracketed as well as highlighted, since the next key replaces it, and
+// otherwise a ▏ marks the cursor. A masked field draws a bullet per rune and
+// never the rune itself.
 func (f field) view(th style.Theme) string {
 	shown := f.runes
 	if f.masked {
 		shown = []rune(strings.Repeat("•", len(f.runes)))
 	}
 	if f.selected {
-		return th.Selected.Render(display(string(shown)))
+		return th.Muted.Render("[") + th.Selected.Render(display(string(shown))) + th.Muted.Render("]")
 	}
-	at, after := " ", ""
-	if f.cursor < len(shown) {
-		at, after = string(shown[f.cursor]), string(shown[f.cursor+1:])
-	}
-	return th.Text.Render(display(string(shown[:f.cursor]))) + th.Cursor.Render(display(at)) + th.Text.Render(display(after))
+	return th.Text.Render(display(string(shown[:f.cursor]))) + th.Accent.Render("▏") + th.Text.Render(display(string(shown[f.cursor:])))
 }

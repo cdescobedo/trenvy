@@ -106,3 +106,24 @@ func TestDisplayEscapesControlCharacters(t *testing.T) {
 		t.Error("plural")
 	}
 }
+
+// Without colour, the field's two states must still read: a selected value
+// (the next key replaces it) is bracketed, and an unselected field draws
+// its cursor.
+func TestFieldStatesShowWithoutColour(t *testing.T) {
+	f := newField("development", false)
+	if v := f.view(style.Theme{}); v != "[development]" {
+		t.Errorf("selected view = %q, want [development]", v)
+	}
+	f = f.update(kt(tea.KeyRight))
+	if v := f.view(style.Theme{}); v != "development▏" {
+		t.Errorf("after right, view = %q, want the cursor at the end", v)
+	}
+	f = f.update(kt(tea.KeyHome))
+	if v := f.view(style.Theme{}); v != "▏development" {
+		t.Errorf("after home, view = %q, want the cursor at the start", v)
+	}
+	if v := newField("", true).view(style.Theme{}); v != "▏" {
+		t.Errorf("empty field view = %q, want only the cursor", v)
+	}
+}

@@ -86,7 +86,7 @@ type Theme struct {
 	Title, Text, Muted, Accent, Danger, OK, Warn, Staged lipgloss.Style
 	Key, KeyDesc                                         lipgloss.Style
 	PillDanger, PillStaged                               lipgloss.Style
-	Selected, Header, TabActive, TabInactive, Cursor     lipgloss.Style
+	Selected, Header, TabActive, TabInactive             lipgloss.Style
 
 	borderFocused, borderBlurred lipgloss.TerminalColor
 	r                            *lipgloss.Renderer
@@ -119,7 +119,6 @@ func NewTheme(r *lipgloss.Renderer) Theme {
 		Header:      r.NewStyle().Background(swHeader.adaptive()),
 		TabActive:   r.NewStyle().Bold(true).Foreground(swAccent.adaptive()).Background(swSelection.adaptive()).Padding(0, 1),
 		TabInactive: fg(swMuted).Padding(0, 1),
-		Cursor:      r.NewStyle().Reverse(true),
 
 		borderFocused: swAccent.adaptive(),
 		borderBlurred: swBorder.adaptive(),
