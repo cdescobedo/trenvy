@@ -24,14 +24,14 @@ type overlay interface {
 }
 
 // panel is how every overlay draws: a title, a blank line, the body, in a
-// focused pane no wider than 76 columns and no taller than h.
+// focused pane no wider than panelMax columns and no taller than h.
 func (m *Model) panel(title string, body []string, w, h int) string {
 	return m.panelAt(title, body, 0, w, h)
 }
 
 // panelAt is panel scrolled so body line focus stays visible.
 func (m *Model) panelAt(title string, body []string, focus, w, h int) string {
-	pw := min(w, 76)
+	pw := min(w, panelMax)
 	lines := append([]string{m.th.Title.Render(title), ""}, body...)
 	ph := min(h, len(lines)+2)
 	return m.th.Pane(strings.Join(window(lines, focus+2, ph-2), "\n"), pw, ph, true)
@@ -59,7 +59,7 @@ func (c *confirmOverlay) update(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
 }
 
 func (c *confirmOverlay) view(m *Model, w, h int) string {
-	body := strings.Split(m.th.Text.Width(min(w, 76)-4).Render(c.text), "\n")
+	body := strings.Split(m.th.Text.Width(min(w, panelMax)-4).Render(c.text), "\n")
 	return m.panel(c.title, body, w, h)
 }
 
@@ -78,8 +78,8 @@ func (c *confirmOverlay) hints(*Model) []hint {
 type helpOverlay struct{ off int }
 
 func (o *helpOverlay) update(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
-	w, h := m.size()
-	_, _, maxOff := o.layout(m, w, h-chromeLines)
+	w, _ := m.size()
+	_, _, maxOff := o.layout(m, w, m.bodyHeight())
 	switch {
 	case keyIs(k, "j", "down"):
 		o.off = clamp(o.off+1, 0, maxOff)
@@ -92,7 +92,7 @@ func (o *helpOverlay) update(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
 // layout is the help body for a w x h body area, how many of its lines fit
 // in the panel, and the furthest it can scroll.
 func (o *helpOverlay) layout(m *Model, w, h int) (body []string, rows, maxOff int) {
-	descW := min(w, 76) - 4 - 10
+	descW := min(w, panelMax) - 4 - 10
 	for _, v := range verbs {
 		desc := strings.Split(m.th.KeyDesc.Width(descW).Render(v.desc), "\n")
 		for i, d := range desc {
@@ -141,8 +141,8 @@ func (o *helpOverlay) view(m *Model, w, h int) string {
 }
 
 func (o *helpOverlay) hints(m *Model) []hint {
-	w, h := m.size()
-	if _, _, maxOff := o.layout(m, w, h-chromeLines); maxOff > 0 {
+	w, _ := m.size()
+	if _, _, maxOff := o.layout(m, w, m.bodyHeight()); maxOff > 0 {
 		return []hint{{"↑↓ j k", "scroll"}, {"esc", "close"}}
 	}
 	return []hint{{"esc", "close"}}
@@ -332,7 +332,7 @@ func (infoOverlay) update(*Model, tea.KeyMsg) (bool, tea.Cmd) { return false, ni
 
 func (infoOverlay) view(m *Model, w, h int) string {
 	const labelW = 10
-	valW := max(8, min(w, 76)-4-labelW)
+	valW := max(8, min(w, panelMax)-4-labelW)
 	row := func(label, value string) []string {
 		lines := strings.Split(m.th.Text.Width(valW).Render(display(value)), "\n")
 		out := []string{m.th.Muted.Render(pad(label, labelW)) + lines[0]}

@@ -231,7 +231,8 @@ func (m Model) View() string {
 	if w < minWidth || h < minHeight {
 		return fmt.Sprintf("trenvy needs at least %d×%d -- this terminal is %d×%d", minWidth, minHeight, w, h)
 	}
-	bodyH := h - chromeLines
+	msg := m.messageLines(w)
+	bodyH := m.bodyHeight()
 	body := m.viewVariables(w, bodyH)
 	if top := m.top(); top != nil {
 		// An overlay that draws nothing (the filter) leaves the body visible.
@@ -239,14 +240,23 @@ func (m Model) View() string {
 			body = lipgloss.Place(w, bodyH, lipgloss.Center, lipgloss.Center, o)
 		}
 	}
-	return strings.Join([]string{m.viewHeader(w), m.viewTabs(w), body, m.viewMessage(w), m.viewFooter(w)}, "\n")
+	return strings.Join(append(append([]string{m.viewHeader(w), m.viewTabs(w), body}, msg...), m.viewFooter(w)), "\n")
 }
 
+// bodyHeight is the rows left for the body under the current message,
+// which may take more than the one line chromeLines counts.
+func (m Model) bodyHeight() int {
+	w, h := m.size()
+	return h - chromeLines + 1 - len(m.messageLines(w))
+}
+
+// viewHeader draws the header. The right side -- the problem pill, the
+// unsaved count and its key -- is what needs acting on, so when the line is
+// too narrow the left side gives way: the project is cut first, then the
+// profile, then the profile's source.
 func (m Model) viewHeader(w int) string {
 	t := m.th
 	on := t.OnHeader
-	left := on(t.Title).Render(" "+m.snap.Project) + on(t.Muted).Render(" · ") +
-		on(t.Title).Render(m.snap.Profile) + on(t.Muted).Render(" ("+m.snap.Source+")")
 	var right []string
 	if n := len(m.snap.Problems); n > 0 {
 		right = append(right, t.PillDanger.Render("! "+plural(n, "problem")))
@@ -256,21 +266,55 @@ func (m Model) viewHeader(w int) string {
 			on(t.Muted).Render(" ")+on(t.Key).Render("w")+on(t.KeyDesc).Render(" review"))
 	}
 	r := strings.Join(right, on(t.Muted).Render("  ")) + on(t.Muted).Render(" ")
+	left := m.headerLeft(w - lipgloss.Width(r) - 1)
 	gap := max(1, w-lipgloss.Width(left)-lipgloss.Width(r))
 	line := left + on(t.Text).Render(strings.Repeat(" ", gap)) + r
 	return lipgloss.NewStyle().MaxWidth(w).Render(line)
+}
+
+// headerLeft is " project · profile (source)" in at most avail cells.
+func (m Model) headerLeft(avail int) string {
+	t := m.th
+	on := t.OnHeader
+	proj, prof, src := display(m.snap.Project), display(m.snap.Profile), " ("+m.snap.Source+")"
+	over := func() int { return lipgloss.Width(" "+proj+" · "+prof+src) - avail }
+	if n := over(); n > 0 {
+		proj = cutTo(proj, max(1, lipgloss.Width(proj)-n))
+	}
+	if n := over(); n > 0 {
+		prof = cutTo(prof, max(1, lipgloss.Width(prof)-n))
+	}
+	if over() > 0 {
+		src = ""
+	}
+	left := on(t.Title).Render(" "+proj) + on(t.Muted).Render(" · ") + on(t.Title).Render(prof) + on(t.Muted).Render(src)
+	if over() > 0 {
+		left = lipgloss.NewStyle().MaxWidth(max(0, avail)).Render(left)
+	}
+	return left
 }
 
 func (m Model) viewTabs(w int) string {
 	return lipgloss.NewStyle().MaxWidth(w).Render(" " + m.th.TabActive.Render("Variables"))
 }
 
-func (m Model) viewMessage(w int) string {
+// messageLines is the message, wrapped rather than cut so its end -- often
+// the way to undo or recover -- survives. Past maxMessageLines the last line
+// is cut, ending in ….
+func (m Model) messageLines(w int) []string {
 	st := m.th.Text
 	if m.msg.isErr {
 		st = m.th.Danger
 	}
-	return lipgloss.NewStyle().MaxWidth(w).Render(" " + st.Render(display(m.msg.text)))
+	lines := wrap(display(m.msg.text), w-2)
+	if len(lines) > maxMessageLines {
+		rest := strings.Join(lines[maxMessageLines-1:], " ")
+		lines = append(lines[:maxMessageLines-1], cutTo(rest, w-2))
+	}
+	for i, l := range lines {
+		lines[i] = " " + st.Render(l)
+	}
+	return lines
 }
 
 func (m Model) footerHints() []hint {

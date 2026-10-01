@@ -1,6 +1,7 @@
 package manage_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/muesli/termenv"
 
 	"github.com/cdescobedo/trenvy/internal/manage"
+	"github.com/cdescobedo/trenvy/internal/manifest"
 	"github.com/cdescobedo/trenvy/internal/style"
 )
 
@@ -133,6 +135,103 @@ func TestLongProfileNamesKeepLabelValueAndMark(t *testing.T) {
 				if active == long && !strings.Contains(row, "*") {
 					t.Errorf("w=%d %s: the active long profile lost its *: %q", w, tc.name, row)
 				}
+			}
+		}
+	}
+}
+
+// flat drops borders, spaces and line breaks, so text wrapped across lines
+// reads as one string again.
+func flat(s string) string { return strings.NewReplacer("│", "", " ", "", "\n", "").Replace(s) }
+
+func assertFits(t *testing.T, what string, v string, w, h int) {
+	t.Helper()
+	lines := strings.Split(v, "\n")
+	if len(lines) > h {
+		t.Errorf("%s: %d lines, want <= %d", what, len(lines), h)
+	}
+	for i, l := range lines {
+		if lw := lipgloss.Width(l); lw > w {
+			t.Errorf("%s: line %d is %d wide, want <= %d: %q", what, i, lw, w, l)
+		}
+	}
+}
+
+// Review lines wrap with a hanging indent rather than being cut at the
+// panel's edge: a plain value is shown in full (spec §3).
+func TestReviewWrapsLongValues(t *testing.T) {
+	before := "https://example.com/" + strings.Repeat("segment/", 12) + "before"
+	after := "https://example.com/" + strings.Repeat("other/", 14) + "after"
+	for _, w := range []int{40, 80, 100} {
+		mf := fixtureManifest()
+		mf.Vars["APP_MODE"] = manifest.Var{Value: str("development"), Profiles: map[string]string{"prod": before}}
+		m := sized(manage.New(snapshotOf(mf, nil), (&fakeDeps{}).deps(), asciiTheme()), w, 30)
+		m = press(m, "j", "enter", "j", "j", "j", "enter") // APP_MODE prod
+		m = typeText(m, after)
+		m = press(m, "enter", "w")
+		v := m.View()
+		assertFits(t, "review", v, w, 30)
+		if f := flat(v); !strings.Contains(f, before) || !strings.Contains(f, after) {
+			t.Errorf("w=%d: the review does not show both values in full:\n%s", w, v)
+		}
+	}
+}
+
+// The partial-failure report wraps too: its last clause is the one that
+// says the manifest was not saved.
+func TestReviewWrapsALongFailure(t *testing.T) {
+	report := "store trenvy/app/staging/API_TOKEN: keyring is locked\n" +
+		"  stored 1 of 2 secrets, deleted 0 of 3 keyring items, repointed 2 render record(s); the manifest was not saved"
+	for _, w := range []int{40, 80} {
+		f := &fakeDeps{commitErr: errors.New(report)}
+		m := sized(manage.New(fixture(), f.deps(), asciiTheme()), w, 30)
+		m = press(m, "j", "d", "w", "enter")
+		v := m.View()
+		assertFits(t, "failure", v, w, 30)
+		for _, want := range []string{flat(report), flat("every change is still staged -- enter to retry")} {
+			if !strings.Contains(flat(v), want) {
+				t.Errorf("w=%d: the failure panel lacks %q:\n%s", w, want, v)
+			}
+		}
+	}
+}
+
+// The message line wraps onto a second line rather than losing its end,
+// and the frame still fits the terminal.
+func TestLongMessagesKeepTheirEnd(t *testing.T) {
+	m := sized(newModel(&fakeDeps{}), 80, 24)
+	m = press(m, "j", ".", "j", "j", "enter") // Rename: disabled, with a long reason
+	v := m.View()
+	assertFits(t, "rename reason", v, 80, 24)
+	if !strings.Contains(flat(v), flat("would have to move with it")) {
+		t.Errorf("the rename reason lost its end:\n%s", v)
+	}
+
+	f := &fakeDeps{reloadErr: errors.New("open /home/someone/.config/trenvy/projects/app.toml: " + strings.Repeat("permission denied ", 3))}
+	m = sized(manage.New(fixture(), f.deps(), asciiTheme()), 80, 24)
+	m = press(m, "j", "d", "w", "enter")
+	v = m.View()
+	assertFits(t, "reload failure", v, 80, 24)
+	if !strings.Contains(flat(v), flat("press . then Reload from disk")) {
+		t.Errorf("the reload failure lost its recovery instruction:\n%s", v)
+	}
+}
+
+// The header cuts the project and profile first: the problem pill, the
+// unsaved count and "w review" always survive.
+func TestHeaderKeepsItsCountsWhenTheProjectIsLong(t *testing.T) {
+	for _, w := range []int{40, 80} {
+		snap := fixture()
+		snap.Project = strings.Repeat("a-very-long-project-id-", 4)
+		snap.Profile = "staging-eu-west-region-1"
+		m := press(sized(manage.New(snap, (&fakeDeps{}).deps(), asciiTheme()), w, 24), "j", "d")
+		head := strings.SplitN(m.View(), "\n", 2)[0]
+		if lw := lipgloss.Width(head); lw > w {
+			t.Errorf("w=%d: header is %d wide: %q", w, lw, head)
+		}
+		for _, want := range []string{"1 problem", "1 unsaved", "w review"} {
+			if !strings.Contains(head, want) {
+				t.Errorf("w=%d: header %q lost %q", w, head, want)
 			}
 		}
 	}

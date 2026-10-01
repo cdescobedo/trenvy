@@ -240,3 +240,54 @@ func TestStaleRevealIsDroppedAfterAReload(t *testing.T) {
 		t.Error("a reveal requested before a reload was shown after it")
 	}
 }
+
+// A variable added as a secret this session has nothing to move: its line
+// says it is new, and is not marked irreversible.
+func TestReviewDescribesAnAddedSecretAsNew(t *testing.T) {
+	m := press(newModel(&fakeDeps{}), "a")
+	m = typeText(m, "NEW_KEY")
+	m = press(m, "enter", "s")
+	m = typeText(m, "k")
+	v := press(m, "enter", "w").View()
+	if !strings.Contains(v, "new secret") || strings.Contains(v, "moves 0") || strings.Contains(v, "cannot be undone") {
+		t.Errorf("review of an added secret:\n%s", v)
+	}
+	if !strings.Contains(v, "(none)  ->  secret") {
+		t.Errorf("add variable line has no before -> after:\n%s", v)
+	}
+}
+
+// The promotion line is built from what is staged: dropping one profile's
+// set-secret means that profile's plain value is erased and nothing stored.
+func TestPromotionReviewFollowsTheStagedSecretWrites(t *testing.T) {
+	m := press(newModel(&fakeDeps{}), "j", ".", "enter", "enter", "w") // APP_MODE, Make secret, confirm
+	m = press(m, "j", "u")                                             // drop staging's set-secret
+	if len(m.Staged()) != 3 {
+		t.Fatalf("setup: staged = %v", staged(m))
+	}
+	v := m.View()
+	if !strings.Contains(flat(v), flat("moves 2 into keyring: dev, prod; staging becomes MISSING")) {
+		t.Errorf("review after dropping staging's write:\n%s", v)
+	}
+}
+
+func TestReviewShowsOptionalAndRequiredAsBeforeAndAfter(t *testing.T) {
+	m := press(newModel(&fakeDeps{}), "j", "j", "j", ".", "j", "enter", "w") // LOG_LEVEL, Mark required
+	if v := m.View(); !strings.Contains(v, "optional  ->  required") {
+		t.Errorf("review:\n%s", v)
+	}
+	m = press(newModel(&fakeDeps{}), "j", "j", ".", "j", "enter", "w") // DATABASE_URL, Mark optional
+	if v := m.View(); !strings.Contains(v, "required  ->  optional") {
+		t.Errorf("review:\n%s", v)
+	}
+}
+
+func TestReviewShowsAnAddedPlainVariableAsBeforeAndAfter(t *testing.T) {
+	m := press(newModel(&fakeDeps{}), "a")
+	m = typeText(m, "NEW")
+	m = press(m, "enter", "p")
+	m = typeText(m, "v")
+	if v := press(m, "enter", "w").View(); !strings.Contains(v, "(none)  ->  plain") {
+		t.Errorf("review:\n%s", v)
+	}
+}

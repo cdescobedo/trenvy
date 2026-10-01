@@ -7,7 +7,9 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
+	"github.com/cdescobedo/trenvy/internal/manifest"
 	"github.com/cdescobedo/trenvy/internal/session"
 )
 
@@ -53,7 +55,11 @@ func (m *Model) describe(i int, c session.Change) reviewLine {
 	base := m.snap.Matrix.Vars[c.Name]
 	switch c.Kind {
 	case session.ChangeAddVar:
-		l.what = "add variable"
+		kind := "plain"
+		if m.staged.Has(session.ChangePromoteSecret, c.Name) {
+			kind = "secret"
+		}
+		l.what, l.detail = "add variable", "(none)  ->  "+kind
 	case session.ChangeDeleteVar:
 		l.mark, l.what, l.irreversible = "x", "delete variable", true
 		if base.Secret {
@@ -89,26 +95,62 @@ func (m *Model) describe(i int, c session.Change) reviewLine {
 	case session.ChangeSetSecret:
 		l.what, l.detail = c.Profile, "store new value (keyring)"
 	case session.ChangePromoteSecret:
-		l.what, l.irreversible = "make secret", true
-		var into []string
-		for _, pc := range session.PromotionChanges(c.Name, base, m.snap.Matrix.Profiles) {
-			if pc.Kind == session.ChangeSetSecret {
-				into = append(into, pc.Profile)
-			}
-		}
-		l.detail = "moves " + strconv.Itoa(len(into)) + " into keyring"
-		if len(into) > 0 {
-			l.detail += ": " + strings.Join(into, ", ")
-		}
+		l.what, l.detail, l.irreversible = m.describePromotion(c.Name, base)
 	case session.ChangeSetOptional:
-		l.what = "mark required"
+		l.what, l.detail = "mark required", "optional  ->  required"
 		if c.Value == "true" {
-			l.what = "mark optional"
+			l.what, l.detail = "mark optional", "required  ->  optional"
 		}
 	default:
 		l.what = c.Kind
 	}
 	return l
+}
+
+// describePromotion words a promote-secret from what is staged, not from
+// disk: the set-secrets staged on name are what the keyring will hold. A
+// variable added this session has no plain value to lose, so it is "new
+// secret" and reversible until saved like any addition. A promoted one
+// with a value on disk under a profile that has no staged set-secret
+// (dropped with u) loses that value, and the line says the profile is left
+// without one.
+func (m *Model) describePromotion(name string, base manifest.Var) (what, detail string, irreversible bool) {
+	if m.staged.Has(session.ChangeAddVar, name) {
+		return "new secret", "values live in the keyring, never the manifest", false
+	}
+	writes := map[string]bool{}
+	for _, c := range m.staged.On(name) {
+		if c.Kind == session.ChangeSetSecret {
+			writes[c.Profile] = true
+		}
+	}
+	var into, lost []string
+	for _, p := range m.snap.Matrix.Profiles {
+		if writes[p] {
+			into = append(into, p)
+		}
+	}
+	for _, pc := range session.PromotionChanges(name, base, m.snap.Matrix.Profiles) {
+		if pc.Kind == session.ChangeSetSecret && !writes[pc.Profile] {
+			lost = append(lost, pc.Profile)
+		}
+	}
+	detail = "moves " + strconv.Itoa(len(into)) + " into keyring"
+	if len(into) > 0 {
+		detail += ": " + strings.Join(into, ", ")
+	}
+	if len(lost) > 0 {
+		state := "MISSING"
+		if m.varView(name).Var.Optional {
+			state = "unset"
+		}
+		verb := " becomes "
+		if len(lost) > 1 {
+			verb = " become "
+		}
+		detail += "; " + strings.Join(lost, ", ") + verb + state
+	}
+	return "make secret", detail, true
 }
 
 func (m Model) openReview() (tea.Model, tea.Cmd) {
@@ -156,41 +198,93 @@ func (r *reviewOverlay) update(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
 	return false, nil
 }
 
+// view draws the review. Nothing in it is cut: a detail wraps under its
+// own column, a "what" too wide for its column takes a line of its own, and
+// the panel scrolls to keep the cursor in view. The save's status and a
+// failure's report come first, above the changes, so they are on screen
+// when the review reopens with them.
 func (r *reviewOverlay) view(m *Model, w, h int) string {
 	t := m.th
+	inner := min(w, panelMax) - 2
+	// "> ~ " leads each line; the what column and the details follow, with
+	// a one-cell gap before the border.
+	const lead = 4
+	whatW := clamp((inner-lead)/2, 8, 22)
+	detailW := inner - lead - whatW - 1
 	var body []string
+	switch {
+	case m.saving:
+		body = append(body, t.Muted.Render("saving…"), "")
+	case m.reloading:
+		body = append(body, t.Muted.Render("reloading…"), "")
+	case r.failure != "":
+		for _, l := range strings.Split(r.failure, "\n") {
+			// A report line keeps its own indent; its continuation hangs
+			// two cells further in.
+			l = display(l)
+			text := strings.TrimLeft(l, " ")
+			ind := len(l) - len(text)
+			for j, part := range wrap(text, inner-1-ind-2) {
+				pre := strings.Repeat(" ", ind)
+				if j > 0 {
+					pre += "  "
+				}
+				body = append(body, pre+t.Danger.Render(part))
+			}
+		}
+		for _, part := range wrap(r.nextStep(), inner-1) {
+			body = append(body, t.Text.Render(part))
+		}
+		body = append(body, "")
+	}
 	group, focus := "", 0
+	indent := strings.Repeat(" ", lead+whatW)
 	for i, l := range m.reviewLines() {
 		if l.group != group {
 			group = l.group
-			body = append(body, t.Title.Render(group))
+			for _, part := range wrap(display(group), inner-1) {
+				body = append(body, t.Title.Render(part))
+			}
 		}
 		cur := "  "
 		if i == r.cursor {
 			cur, focus = t.Accent.Render("> "), len(body)
 		}
-		detail := t.Text.Render(l.detail)
+		st, text := t.Text, l.detail
 		if l.irreversible {
-			detail = t.Danger.Render(l.detail + " !")
+			st, text = t.Danger, l.detail+" !"
 		}
-		body = append(body, cur+t.Staged.Render(l.mark)+" "+t.Text.Render(pad(l.what, 22))+detail)
+		details := wrap(text, detailW)
+		if text == "" {
+			details = nil
+		}
 		if l.irreversible {
-			body = append(body, "    "+strings.Repeat(" ", 22)+t.Danger.Render("cannot be undone after saving"))
+			details = append(details, wrap("cannot be undone after saving", detailW)...)
 		}
-	}
-	switch {
-	case m.saving:
-		body = append(body, "", t.Muted.Render("saving…"))
-	case m.reloading:
-		body = append(body, "", t.Muted.Render("reloading…"))
-	case r.failure != "":
-		body = append(body, "")
-		for _, l := range strings.Split(r.failure, "\n") {
-			body = append(body, t.Danger.Render(display(l)))
+		head := cur + t.Staged.Render(l.mark) + " "
+		if lipgloss.Width(l.what) > whatW {
+			for j, part := range wrap(l.what, inner-lead-1) {
+				if j > 0 {
+					head = strings.Repeat(" ", lead)
+				}
+				body = append(body, head+t.Text.Render(part))
+			}
+		} else if len(details) > 0 {
+			body = append(body, head+t.Text.Render(pad(l.what, whatW))+st.Render(details[0]))
+			details = details[1:]
+		} else {
+			body = append(body, head+t.Text.Render(l.what))
 		}
-		body = append(body, t.Text.Render("every change is still staged -- enter to retry"))
+		for _, d := range details {
+			body = append(body, indent+st.Render(d))
+		}
 	}
 	return m.panelAt("Review "+t.PillStaged.Render(plural(m.staged.Len(), "change")), body, focus, w, h)
+}
+
+// nextStep is the line under a failure's report.
+func (r *reviewOverlay) nextStep() string {
+	return "every change is still staged -- enter to retry"
 }
 
 func (r *reviewOverlay) hints(m *Model) []hint {
@@ -262,7 +356,9 @@ func (m Model) afterReload(msg reloadedMsg) (tea.Model, tea.Cmd) {
 	m.vars.revealed = map[cellKey]string{}
 	if msg.err != nil {
 		m.stale = true
-		m.msg = message{"reload failed: " + msg.err.Error() + " -- press . then Reload from disk", true}
+		// The recovery comes before the error, whose length is not ours to
+		// choose, so the message line never cuts it off.
+		m.msg = message{"reload failed, press . then Reload from disk: " + msg.err.Error(), true}
 		return m, nil
 	}
 	keep, _ := m.selected()

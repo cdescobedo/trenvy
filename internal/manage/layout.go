@@ -1,6 +1,10 @@
 package manage
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 // Layout constants (spec §1).
 const (
@@ -12,6 +16,10 @@ const (
 	listMin      = 24
 	listMax      = 36
 	previewWidth = 24
+	panelMax     = 76 // the widest an overlay panel draws
+	// maxMessageLines is how far the message line may wrap; the body gives
+	// up a line when it does.
+	maxMessageLines = 2
 	// listChrome is everything in a list row but the name: two borders,
 	// the one-cell cursor column and a space, a space, the six-cell
 	// "secret" tag, a space and the one-cell mark.
@@ -37,6 +45,16 @@ func (m Model) listWidth(w int) int {
 		lw += previewWidth + 1
 	}
 	return lw
+}
+
+// wrap breaks s into lines of at most width cells, at spaces where it can
+// and inside a word where it must, so nothing is cut.
+func wrap(s string, width int) []string {
+	lines := strings.Split(lipgloss.NewStyle().Width(max(1, width)).Render(s), "\n")
+	for i, l := range lines {
+		lines[i] = strings.TrimRight(l, " ")
+	}
+	return lines
 }
 
 // window returns at most height of lines, scrolled so that line focus is
