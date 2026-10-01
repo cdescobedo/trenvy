@@ -433,9 +433,8 @@ secret says why it did nothing.
 The four tabs: **Overview** repeats `status`'s own project, profile, manifest,
 worktree and backend facts, lists every detected problem with the exact
 command that fixes it (or says the project is healthy), and flags a variable
-that reaches no output or reaches several — a plain fact, not an error, since
-`exec` and `shell` read a whole profile with no output at all and nothing
-stops two outputs from carrying the same variable on purpose. Enter on a
+that reaches no output — a plain fact, not an error, since
+`exec` and `shell` read a whole profile with no output at all. Enter on a
 problem jumps to the cell, or the tab, that explains it.
 
 **Variables** is the matrix above. **Outputs** lists every declared

@@ -3,7 +3,6 @@ package session
 import (
 	"fmt"
 	"sort"
-	"strings"
 )
 
 // Problem is one thing wrong with the project, paired with the command that
@@ -120,14 +119,13 @@ func Problems(mx *Matrix, outputs map[string]string) []Problem {
 		})
 	}
 
-	// Membership: does a variable reach any output at all, or too many?
-	// Neither is an error -- exec and shell deliver a project's whole
+	// Membership: does a variable reach any output at all?
+	// It is not an error -- exec and shell deliver a project's whole
 	// environment without naming a single output, so a project using only
-	// those legitimately has every variable at zero, and nothing stops two
-	// outputs from carrying the same variable on purpose. This only surfaces
-	// a fact a user cannot otherwise get without reading every output's
-	// globs by hand; a variable selected by exactly one output is the
-	// unremarkable case and is not reported at all.
+	// those legitimately has every variable at zero. This only surfaces a
+	// fact a user cannot otherwise get without reading every output's globs
+	// by hand. Reaching several outputs is not reported: it is a plain fact
+	// the interface shows on the variable itself (spec 2026-09-30 §4).
 	//
 	// Skipped entirely when the project defines no outputs -- the normal
 	// shape of an exec/shell-only project (see viewOutputs' own placeholder
@@ -137,56 +135,8 @@ func Problems(mx *Matrix, outputs map[string]string) []Problem {
 	if len(mx.Outputs) > 0 {
 		byName := membershipOutputsForMatrix(mx)
 
-		// Fix 6, round 2 (Minor, whole-branch review): "reaches several
-		// outputs" exists to surface a variable whose reach differs from the
-		// rest, not to describe the project's general shape -- but the first
-		// version of this fix evaluated that over the WHOLE project: it
-		// suppressed only when EVERY variable's count matched every other
-		// variable's, so a single outlier switched every one of its peers
-		// back on. That is not a rare shape; it is what the membership
-		// editor produces the first time anyone uses it. A default project
-		// starts uniform (every variable in every output), then someone
-		// opens the editor to carve an exception into ONE variable -- the
-		// entire purpose of the feature Task 8 built -- and the old rule
-		// answered with a warning on every other variable too, burying the
-		// one that actually carries information under ten that do not.
-		//
-		// The fix is per-variable: flag a count only when it differs from
-		// the MODAL count -- the number of outputs most variables reach.
-		// modeCount below is computed once over every variable's count
-		// (zero included; a variable that reaches none is judged separately
-		// by the case below and can never reach this branch, so including
-		// it here cannot cause it to be double-flagged, and excluding it
-		// would only complicate this loop for no behavioural difference).
-		// ok is false when there is no single most-common count -- a tie
-		// for the mode, e.g. half the variables at two outputs and half at
-		// three -- and the honest answer there is silence: "differs from
-		// the rest" presumes a rest to differ from, and a population split
-		// evenly in two has no majority to be the exception to.
-		counts := make(map[string]int, len(mx.Names))
-		freq := map[int]int{}
 		for _, name := range mx.Names {
-			n := len(byName[name])
-			counts[name] = n
-			freq[n]++
-		}
-		var modeCount, maxFreq int
-		var tied bool
-		for n, f := range freq {
-			switch {
-			case f > maxFreq:
-				maxFreq, modeCount = f, n
-				tied = false
-			case f == maxFreq:
-				tied = true
-			}
-		}
-		modeOK := maxFreq > 0 && !tied
-
-		for _, name := range mx.Names {
-			outs := byName[name]
-			switch {
-			case len(outs) == 0:
+			if len(byName[name]) == 0 {
 				ps = append(ps, Problem{
 					Kind:   "membership",
 					Name:   name,
@@ -194,13 +144,6 @@ func Problems(mx *Matrix, outputs map[string]string) []Problem {
 					Fix: fmt.Sprintf(
 						"Outputs tab (4): enter on an output, then space to include %s -- if it should reach a file",
 						name),
-				})
-			case len(outs) > 1 && modeOK && counts[name] != modeCount:
-				ps = append(ps, Problem{
-					Kind:   "membership",
-					Name:   name,
-					Detail: fmt.Sprintf("%s reaches %d outputs: %s", name, len(outs), strings.Join(outs, ", ")),
-					Fix:    "Outputs tab (4): enter on each listed output to review its globs, if that's not intended",
 				})
 			}
 		}

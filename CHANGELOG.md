@@ -318,6 +318,10 @@ the command surface may still move under you.
 
 ### Changed
 
+- **`trenvy ui` no longer lists a variable that reaches several outputs as a
+  problem.** Nothing stops two outputs from carrying the same variable on
+  purpose, and the Overview's problem list is for things worth fixing. A
+  variable that reaches no output is still listed.
 - `show` with no argument answers for the whole profile rather than inheriting
   `project.output`. An output is a filter on "what are my values", not a
   precondition for asking, so a project with no outputs can still be inspected.
