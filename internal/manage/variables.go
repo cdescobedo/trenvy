@@ -103,6 +103,13 @@ func (m Model) detailRows(v session.VarView) []detailRow {
 	return rows
 }
 
+// resetCursor returns to the first row of the list, hiding anything
+// revealed: the selection has changed under the user.
+func (m *Model) resetCursor() {
+	m.vars.cursor, m.vars.row, m.vars.pane = 0, 0, paneList
+	m.vars.revealed = map[cellKey]string{}
+}
+
 func (m *Model) moveCursor(d int) {
 	n := len(m.names())
 	if n == 0 {
@@ -113,9 +120,18 @@ func (m *Model) moveCursor(d int) {
 	m.vars.revealed = map[cellKey]string{}
 }
 
-// variablesKey handles the Variables screen's keys. Task 7 wires movement
-// and the panes; Tasks 8 and 9 add the rest to the switch below.
+// variablesKey handles the Variables screen's keys. Task 9 adds
+// staging to the switches below.
 func (m Model) variablesKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case keyIs(k, "/"):
+		m.push(&filterOverlay{f: newField(m.vars.filter, false)})
+		return m, nil
+	case keyIs(k, "!"):
+		m.vars.problemsOnly = !m.vars.problemsOnly
+		m.resetCursor()
+		return m, nil
+	}
 	name, ok := m.selected()
 	if !ok {
 		return m, nil
@@ -139,16 +155,89 @@ func (m Model) variablesKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.vars.row = max(m.vars.row-1, 0)
 	case keyIs(k, "h", "left", "esc"):
 		m.vars.pane = paneList
+	case keyIs(k, "v"):
+		return m.toggleReveal(name, rows[m.vars.row].profile)
 	}
 	return m, nil
 }
 
-// variablesHints is the footer for the Variables screen. Task 8 extends it.
-func (m Model) variablesHints() []hint {
-	if m.vars.pane == paneList {
-		return []hint{{"enter", "open"}}
+// toggleReveal shows or hides one secret cell's real value. Only this path
+// calls Get, so opening the interface never raises a keyring prompt.
+func (m Model) toggleReveal(name, profile string) (tea.Model, tea.Cmd) {
+	key := cellKey{name, profile}
+	if _, ok := m.vars.revealed[key]; ok {
+		delete(m.vars.revealed, key)
+		return m, nil
 	}
-	return []hint{{"←", "back"}}
+	v := m.varView(name)
+	if !v.Var.Secret || !m.snap.Matrix.Stored[name][profile] || v.NewSecret[profile] {
+		m.msg = message{"nothing stored to reveal under " + profile, false}
+		return m, nil
+	}
+	reveal := m.deps.Reveal
+	return m, func() tea.Msg {
+		val, err := reveal(name, profile)
+		if err != nil {
+			return revealFailedMsg{err}
+		}
+		return revealedMsg{name, profile, val}
+	}
+}
+
+// variablesHints is the footer for the Variables screen: only keys that do
+// something for the selection right now (spec §1).
+func (m Model) variablesHints() []hint {
+	name, ok := m.selected()
+	if !ok {
+		return []hint{{"a", "add"}, {"/", "filter"}, {"!", "problems"}}
+	}
+	v := m.varView(name)
+	if m.vars.pane == paneList {
+		hs := []hint{{"enter", "open"}}
+		if v.Deleted {
+			hs = append(hs, hint{"d", "restore"})
+		} else {
+			hs = append(hs, hint{"d", "delete"})
+		}
+		if len(m.staged.On(name)) > 0 {
+			hs = append(hs, hint{"u", "undo"})
+		}
+		return append(hs, hint{"a", "add"}, hint{".", "more"}, hint{"/", "filter"})
+	}
+	rows := m.detailRows(v)
+	r := rows[clamp(m.vars.row, 0, len(rows)-1)]
+	verb := "edit"
+	if v.Var.Secret {
+		verb = "store"
+	}
+	hs := []hint{{"enter", verb}}
+	if v.Var.Secret && !v.NewSecret[r.profile] && m.snap.Matrix.Stored[name][r.profile] {
+		if _, shown := m.vars.revealed[cellKey{name, r.profile}]; shown {
+			hs = append(hs, hint{"v", "hide"})
+		} else {
+			hs = append(hs, hint{"v", "reveal"})
+		}
+	}
+	if m.removable(v, r) {
+		hs = append(hs, hint{"d", "remove"})
+	}
+	if len(m.staged.OnCell(name, r.profile)) > 0 {
+		hs = append(hs, hint{"u", "undo"})
+	}
+	return append(hs, hint{"←", "back"}, hint{".", "more"})
+}
+
+// removable reports whether d on this detail row removes something: an
+// override, or a shared value that is not the variable's only value.
+func (m Model) removable(v session.VarView, r detailRow) bool {
+	if v.Var.Secret || v.Deleted {
+		return false
+	}
+	if r.profile != "" {
+		_, ok := v.Var.Profiles[r.profile]
+		return ok
+	}
+	return v.Var.Value != nil
 }
 
 func (m Model) viewVariables(w, h int) string {
@@ -186,7 +275,9 @@ func cutTo(s string, w int) string {
 func (m Model) listBody(inner, height int, wide bool) string {
 	t := m.th
 	var head []string
-	if m.vars.filter != "" {
+	if f, ok := m.top().(*filterOverlay); ok {
+		head = append(head, " "+t.Accent.Render("/ ")+f.f.view(t))
+	} else if m.vars.filter != "" {
 		head = append(head, " "+t.Muted.Render("filter: ")+t.Text.Render(display(m.vars.filter)))
 	}
 	if m.vars.problemsOnly {

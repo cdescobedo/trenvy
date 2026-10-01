@@ -145,3 +145,26 @@ func (o *helpOverlay) hints(m *Model) []hint {
 	}
 	return []hint{{"esc", "close"}}
 }
+
+// filterOverlay narrows the list as it is typed. enter and esc both close
+// it and keep the filter; to clear it, open / again and ctrl+u.
+type filterOverlay struct{ f field }
+
+func (o *filterOverlay) update(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
+	if k.Type == tea.KeyEnter {
+		return true, nil
+	}
+	o.f = o.f.update(k)
+	m.vars.filter = o.f.value()
+	m.resetCursor()
+	return false, nil
+}
+
+// view returns "" so the Model keeps drawing the list under it: the point
+// of a live filter is seeing the list narrow. The list's own first line
+// shows the field (see listBody).
+func (o *filterOverlay) view(*Model, int, int) string { return "" }
+
+func (o *filterOverlay) hints(*Model) []hint {
+	return []hint{{"enter", "done"}, {"ctrl+u", "clear"}}
+}
