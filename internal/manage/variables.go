@@ -22,8 +22,13 @@ type cellKey struct{ name, profile string }
 
 // variables is the Variables screen's own state.
 type variables struct {
-	cursor       int // index into Model.names()
-	row          int // detail row under the cursor
+	cursor int // index into Model.names()
+	// at is the detail row under the cursor, by profile ("" the shared
+	// row). It is a profile, not an index, because the rows change under
+	// it: Make secret drops the shared row and dropping that promotion
+	// brings it back. rowIndex turns it into an index that is always in
+	// range.
+	at           string
 	pane         pane
 	filter       string
 	problemsOnly bool
@@ -103,10 +108,21 @@ func (m Model) detailRows(v session.VarView) []detailRow {
 	return rows
 }
 
+// rowIndex is the detail cursor's index in rows: the row for vars.at, or
+// the first row when that row is gone (a secret has no shared row).
+func (m Model) rowIndex(rows []detailRow) int {
+	for i, r := range rows {
+		if r.profile == m.vars.at {
+			return i
+		}
+	}
+	return 0
+}
+
 // resetCursor returns to the first row of the list, hiding anything
 // revealed: the selection has changed under the user.
 func (m *Model) resetCursor() {
-	m.vars.cursor, m.vars.row, m.vars.pane = 0, 0, paneList
+	m.vars.cursor, m.vars.at, m.vars.pane = 0, "", paneList
 	m.vars.revealed = map[cellKey]string{}
 }
 
@@ -116,7 +132,7 @@ func (m *Model) moveCursor(d int) {
 		return
 	}
 	m.vars.cursor = clamp(m.vars.cursor+d, 0, n-1)
-	m.vars.row = 0
+	m.vars.at = ""
 	m.vars.revealed = map[cellKey]string{}
 }
 
@@ -151,7 +167,7 @@ func (m Model) variablesKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case keyIs(k, "k", "up"):
 			m.moveCursor(-1)
 		case keyIs(k, "l", "right", "enter"):
-			m.vars.pane, m.vars.row = paneDetail, 0
+			m.vars.pane, m.vars.at = paneDetail, ""
 		case keyIs(k, "d"):
 			m.toggleDelete(name)
 		case keyIs(k, "u"):
@@ -160,21 +176,27 @@ func (m Model) variablesKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	rows := m.detailRows(m.varView(name))
+	if len(rows) == 0 {
+		m.vars.pane = paneList
+		return m, nil
+	}
+	i := m.rowIndex(rows)
+	at := rows[i].profile
 	switch {
 	case keyIs(k, "j", "down"):
-		m.vars.row = min(m.vars.row+1, len(rows)-1)
+		m.vars.at = rows[min(i+1, len(rows)-1)].profile
 	case keyIs(k, "k", "up"):
-		m.vars.row = max(m.vars.row-1, 0)
+		m.vars.at = rows[max(i-1, 0)].profile
 	case keyIs(k, "h", "left", "esc"):
 		m.vars.pane = paneList
 	case keyIs(k, "v"):
-		return m.toggleReveal(name, rows[m.vars.row].profile)
+		return m.toggleReveal(name, at)
 	case keyIs(k, "enter"):
-		return m.beginEdit(name, rows[m.vars.row].profile)
+		return m.beginEdit(name, at)
 	case keyIs(k, "d"):
-		m.unsetRow(name, rows[m.vars.row].profile)
+		m.unsetRow(name, at)
 	case keyIs(k, "u"):
-		m.undoCell(name, rows[m.vars.row].profile)
+		m.undoCell(name, at)
 	}
 	return m, nil
 }
@@ -223,7 +245,10 @@ func (m Model) variablesHints() []hint {
 		return append(hs, hint{"a", "add"}, hint{".", "more"}, hint{"/", "filter"})
 	}
 	rows := m.detailRows(v)
-	r := rows[clamp(m.vars.row, 0, len(rows)-1)]
+	if len(rows) == 0 {
+		return []hint{{"←", "back"}, {".", "more"}}
+	}
+	r := rows[m.rowIndex(rows)]
 	verb := "edit"
 	if v.Var.Secret {
 		verb = "store"
@@ -475,7 +500,9 @@ func (m Model) detailBody(inner, height int) string {
 	valueW := max(8, inner-labelW-annotW-1)
 	focused := m.vars.pane == paneDetail
 	cursorAt := -1
-	for i, r := range m.detailRows(v) {
+	rows := m.detailRows(v)
+	at := m.rowIndex(rows)
+	for i, r := range rows {
 		short, star := m.detailLabel(r, labelW)
 		label := short
 		if star {
@@ -486,7 +513,7 @@ func (m Model) detailBody(inner, height int) string {
 			annot += " " + t.Staged.Render("~")
 		}
 		wrapped := strings.Split(lipgloss.NewStyle().Width(valueW).Render(value), "\n")
-		if i == m.vars.row && focused {
+		if i == at && focused {
 			cursorAt = len(lines)
 			// The * stays: accent clears 4.5:1 on the selection surface
 			// (spec §0), so it is drawn on it rather than dropped.

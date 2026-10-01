@@ -215,3 +215,41 @@ func TestQWithUnsavedAsksAndQAgainDiscards(t *testing.T) {
 		t.Error("second q did not quit")
 	}
 }
+
+// Make secret from the detail pane removes the shared row under a cursor
+// on the last profile row. The cursor must stay on that profile -- not
+// index past the shorter row list -- so enter opens that profile's field.
+func TestMakeSecretFromTheDetailPaneKeepsTheCursorOnItsProfile(t *testing.T) {
+	m := press(newModel(&fakeDeps{}), "j", "enter", "j", "j", "j") // APP_MODE, detail, prod
+	m = press(m, ".", "enter", "enter")                            // Make secret, confirm
+	if len(m.Staged()) != 4 {
+		t.Fatalf("setup: staged = %v", staged(m))
+	}
+	if cl := cursorLines(m.View()); len(cl) != 1 || !strings.Contains(cl[0], "prod") {
+		t.Errorf("after promotion the cursor should still be on prod; got %q", cl)
+	}
+	for _, k := range []string{"v", "d", "u"} {
+		press(m, k) // must not panic
+	}
+	m = press(m, "enter")
+	if v := m.View(); !strings.Contains(v, "Store APP_MODE for prod") {
+		t.Errorf("enter did not open prod's field:\n%s", v)
+	}
+}
+
+// The rows change under the cursor both ways: Make secret drops the shared
+// row above it, and dropping the promotion in the review brings it back.
+// Either way the cursor stays on the profile it was on.
+func TestPromotionAndItsDropKeepTheDetailCursorOnItsProfile(t *testing.T) {
+	m := press(newModel(&fakeDeps{}), "j", "enter", "j", ".", "enter", "enter") // APP_MODE dev, Make secret
+	if cl := cursorLines(m.View()); len(cl) != 1 || !strings.Contains(cl[0], "dev") {
+		t.Errorf("after promotion the cursor should still be on dev; got %q", cl)
+	}
+	m = press(m, "w", "j", "j", "j", "u") // the fourth line is make secret
+	if len(m.Staged()) != 0 {
+		t.Fatalf("setup: staged = %v", staged(m))
+	}
+	if cl := cursorLines(m.View()); len(cl) != 1 || !strings.Contains(cl[0], "dev") {
+		t.Errorf("after dropping the promotion the cursor should be on dev; got %q", cl)
+	}
+}

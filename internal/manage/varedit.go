@@ -21,7 +21,7 @@ func (m *Model) selectName(name string) {
 	for pass := 0; pass < 2; pass++ {
 		for i, n := range m.names() {
 			if n == name {
-				m.vars.cursor, m.vars.row, m.vars.pane = i, 0, paneList
+				m.vars.cursor, m.vars.at, m.vars.pane = i, "", paneList
 				return
 			}
 		}
