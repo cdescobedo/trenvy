@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/manage"
 	"github.com/cdescobedo/trenvy/internal/manifest"
 	"github.com/cdescobedo/trenvy/internal/resolve"
 	"github.com/cdescobedo/trenvy/internal/store"
@@ -55,6 +56,10 @@ type Options struct {
 	// takes (name, profile): internal/ui's matrix has one cell per profile,
 	// where internal/tui's flat table needed only a name.
 	RunUI func(ui.Model, func(name, profile string) (string, error)) (ui.Model, error)
+
+	// RunManage drives the redesigned interface (`trenvy ui --new`).
+	// Swappable so tests drive a model with keys instead of a terminal.
+	RunManage func(manage.Model) (manage.Model, error)
 }
 
 // Default returns Options wired to the real process.
@@ -82,6 +87,8 @@ func Default() Options {
 		},
 		RunTUI: tui.Run,
 		RunUI:  ui.Run,
+
+		RunManage: manage.Run,
 	}
 }
 
@@ -195,6 +202,13 @@ func (a *appContext) store() (store.Store, error) {
 		a.storeVal, a.storeErr = a.opts.NewStore(a.Cfg, a.opts.Backend)
 	})
 	return a.storeVal, a.storeErr
+}
+
+// adoptStore hands prev's store to a freshly reloaded context, so the
+// reload after every save in `trenvy ui --new` does not reopen it: the file
+// backend's unlock alone takes about two seconds (observed 2026-09-30).
+func (a *appContext) adoptStore(prev *appContext) {
+	a.storeOnce.Do(func() { a.storeVal, a.storeErr = prev.store() })
 }
 
 // secretLookup adapts the store to resolve.SecretLookup, applying the

@@ -16,7 +16,8 @@ import (
 )
 
 func newUiCmd(opts *Options) *cobra.Command {
-	return &cobra.Command{
+	var useNew bool
+	cmd := &cobra.Command{
 		Use:   "ui",
 		Short: "Manage this project's variables across every profile, interactively",
 		Args:  cobra.NoArgs,
@@ -24,6 +25,9 @@ func newUiCmd(opts *Options) *cobra.Command {
 			app, err := opts.resolveApp()
 			if err != nil {
 				return err
+			}
+			if useNew {
+				return runManage(opts, app)
 			}
 
 			// Loaded once, outside the loop below: the switcher lists what was
@@ -96,18 +100,26 @@ func newUiCmd(opts *Options) *cobra.Command {
 					return nil
 				}
 				res, err := commitStaged(opts, app, final.Staged())
-				var ib *invalidBatchError
-				if errors.As(err, &ib) {
-					return fmt.Errorf("%w\n  everything else staged this session is gone -- open trenvy ui again and redo it", err)
-				}
 				if err != nil {
-					return err
+					// This session has already ended, so "open trenvy ui again" is
+					// never a resume: it is a fresh session that has to redo
+					// everything this run did not finish. commitStaged leaves that
+					// sentence out because it is false in the redesigned interface,
+					// where the batch stays staged and enter retries.
+					return fmt.Errorf("%w\n  everything else staged this session is gone -- open trenvy ui again and redo it", err)
 				}
 				printCommitResult(opts.Stdout, res)
 				return nil
 			}
 		},
 	}
+	// --new opens the redesigned interface while it reaches parity with this
+	// one (spec 2026-09-30, "Phases and cutover"). Hidden, and not in the
+	// README or CHANGELOG, because phase 2 removes it by making the new
+	// interface the only one.
+	cmd.Flags().BoolVar(&useNew, "new", false, "open the redesigned interface")
+	_ = cmd.Flags().MarkHidden("new")
+	return cmd
 }
 
 // commitStaged writes w's staged changes in six phases, because Task 6's new
@@ -373,11 +385,10 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) (commitRes
 		// used to reach the caller unwarned on exactly that batch shape --
 		// the one Fix 3 was filed for.
 		if progress := commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal, renamedRecords, len(forgotten), stateSaved); progress != "" {
-			return commitResult{}, withLeftInPlace(fmt.Errorf("%w\n  %s; the manifest was not saved\n"+
-				"  everything else staged this session is gone -- open trenvy ui again and redo it",
+			return commitResult{}, withLeftInPlace(fmt.Errorf("%w\n  %s; the manifest was not saved",
 				err, progress), forgotten)
 		}
-		return commitResult{}, withLeftInPlace(fmt.Errorf("%w\n  everything else staged this session is gone -- open trenvy ui again and redo it", err), forgotten)
+		return commitResult{}, withLeftInPlace(err, forgotten)
 	}
 
 	if err := manifest.Save(config.ManifestPath(app.Entry.ID), app.Manifest); err != nil {
@@ -717,13 +728,12 @@ func commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal, mo
 // unset, profile rm, project rm) all use: name the item, say how far the run
 // got, say the manifest was not saved, name the way back.
 //
-// The session that staged these changes has already ended by the time this
-// runs, so "open trenvy ui again" is never a resume -- it is a fresh session
-// that has to redo everything this run did not finish.
+// It states facts only. What the caller tells the user to do next depends on
+// the interface: the original one has ended its session by now and says to
+// redo it, the redesigned one keeps the batch staged for a retry.
 func partialCommitError(verb, service string, err error, storedApplied, storedTotal, deletedApplied, deletedTotal, movedRecords, forgottenRecords int, stateSaved bool) error {
 	return fmt.Errorf(
-		"%s %s: %w\n  %s; the manifest was not saved\n"+
-			"  everything else staged this session is gone -- open trenvy ui again and redo it",
+		"%s %s: %w\n  %s; the manifest was not saved",
 		verb, service, err, commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal, movedRecords, forgottenRecords, stateSaved))
 }
 
