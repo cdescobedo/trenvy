@@ -137,3 +137,5 @@ func sized(m manage.Model, w, h int) manage.Model {
 func newModel(f *fakeDeps) manage.Model {
 	return sized(manage.New(fixture(), f.deps(), style.Theme{}), 100, 30)
 }
+
+type manageModel = manage.Model
