@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"strings"
+	"sync"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -160,5 +161,73 @@ func TestUiNewCommitErrorDoesNotClaimTheSessionIsGone(t *testing.T) {
 	}
 	if strings.Contains(view, "staged this session is gone") {
 		t.Errorf("new interface told the user their session is gone:\n%s", view)
+	}
+}
+
+// callLog records the presence checks and reads that reach a store.
+type callLog struct {
+	store.Store
+	mu    sync.Mutex
+	calls []string // "Has <service>" or "Get <service>"
+}
+
+func (c *callLog) add(call string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.calls = append(c.calls, call)
+}
+
+func (c *callLog) Has(service string) (bool, error) {
+	c.add("Has " + service)
+	return c.Store.Has(service)
+}
+
+func (c *callLog) Get(service string) (string, error) {
+	c.add("Get " + service)
+	return c.Store.Get(service)
+}
+
+func (c *callLog) since(n int) []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.calls[n:]...)
+}
+
+// The global constraint "presence comes from Has, never Get", at the seam:
+// opening the interface asks the store only Has, and v on one cell reads
+// exactly that cell, once.
+func TestUiNewOpensWithHasAndRevealsWithOneGet(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t))
+	if err := h.mem.Set("trenvy/vpb/dev/ALPHA_TOKEN", "tok-dev"); err != nil {
+		t.Fatal(err)
+	}
+	log := &callLog{Store: h.mem}
+	h.opts.NewStore = func(*config.Config, string) (store.Store, error) { return log, nil }
+	var opened, revealed []string
+	var view string
+	h.opts.RunManage = func(m manage.Model) (manage.Model, error) {
+		opened = log.since(0)
+		m = drive(m, enter, r("v")) // ALPHA_TOKEN, detail on dev, reveal
+		revealed = log.since(len(opened))
+		view = m.View()
+		return m, nil
+	}
+	if err := h.run("ui", "--new"); err != nil {
+		t.Fatal(err)
+	}
+	if len(opened) == 0 {
+		t.Error("opening asked the store nothing; presence was not checked")
+	}
+	for _, c := range opened {
+		if !strings.HasPrefix(c, "Has ") {
+			t.Errorf("opening the interface called %s", c)
+		}
+	}
+	if want := []string{"Get trenvy/vpb/dev/ALPHA_TOKEN"}; strings.Join(revealed, ",") != strings.Join(want, ",") {
+		t.Errorf("v called %v, want exactly %v", revealed, want)
+	}
+	if !strings.Contains(view, "tok-dev") {
+		t.Errorf("the revealed value is not on screen:\n%s", view)
 	}
 }
