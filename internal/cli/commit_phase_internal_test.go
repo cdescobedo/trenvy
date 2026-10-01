@@ -102,7 +102,7 @@ value = "http://+:8080"
 		{Kind: ui.ChangeAddOutput, Name: "public", Format: "dotenv", Path: "public/.env"},
 	}
 
-	if err := commitStaged(&opts, app, staged); err != nil {
+	if _, err := commitStaged(&opts, app, staged); err != nil {
 		t.Fatalf("commitStaged: %v", err)
 	}
 
@@ -165,7 +165,7 @@ salt = "abc123"
 	staged := []ui.Change{
 		{Kind: ui.ChangeAddOutput, Name: "public", Format: "yaml", Path: "public/env.yaml"},
 	}
-	err = commitStaged(&opts, app, staged)
+	_, err = commitStaged(&opts, app, staged)
 	if err == nil {
 		t.Fatal("commitStaged succeeded with an illegal output format")
 	}

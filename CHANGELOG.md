@@ -318,6 +318,10 @@ the command surface may still move under you.
 
 ### Changed
 
+- **`trenvy ui` validates a whole batch before writing anything.** A batch
+  the manifest would refuse -- a new variable with no value, say -- used to
+  store its secrets in the keyring first and only then fail. Now it fails
+  with nothing written, and says so.
 - **`trenvy ui` no longer lists a variable that reaches several outputs as a
   problem.** Nothing stops two outputs from carrying the same variable on
   purpose, and the Overview's problem list is for things worth fixing. A

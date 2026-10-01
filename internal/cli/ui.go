@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 
@@ -94,7 +95,16 @@ func newUiCmd(opts *Options) *cobra.Command {
 					fmt.Fprintln(opts.Stdout, "no changes written")
 					return nil
 				}
-				return commitStaged(opts, app, final.Staged())
+				res, err := commitStaged(opts, app, final.Staged())
+				var ib *invalidBatchError
+				if errors.As(err, &ib) {
+					return fmt.Errorf("%w\n  everything else staged this session is gone -- open trenvy ui again and redo it", err)
+				}
+				if err != nil {
+					return err
+				}
+				printCommitResult(opts.Stdout, res)
+				return nil
 			}
 		},
 	}
@@ -103,6 +113,9 @@ func newUiCmd(opts *Options) *cobra.Command {
 // commitStaged writes w's staged changes in six phases, because Task 6's new
 // operations depend on each other in ways the four Change kinds Tasks 1-4
 // shipped never did:
+//
+//  0. Validate the whole batch on a clone (prevalidate), so a batch the
+//     manifest refuses writes nothing at all.
 //
 //  1. Structural additions (add-var, add-output): pure in-memory map
 //     inserts. These run FIRST because nothing else may read an added
@@ -163,43 +176,30 @@ func newUiCmd(opts *Options) *cobra.Command {
 // was never stored, or missing one whose secret still sits in the keyring,
 // either of which is data loss or an item nothing can ever find again.
 //
-// staged changes carry no cross-run identity -- internal/ui holds them only
-// in memory, and the terminal session that produced them has already ended
-// by the time this runs (RunUI returned once w was pressed). So a failure
-// partway through cannot be resumed: there is no session left to press w
-// again in. What is reported is exactly how much of THIS run already
-// landed; everything else that was staged is gone, and the only way back is
-// a fresh trenvy ui session redoing it by hand -- except for a keyring
-// write/delete or a state save that already landed for real, which phase 4
-// and phase 6's error paths report so the message never claims something
-// gone that a retry would actually find already done.
+// The manifest save is last and atomic, so after any failure the manifest on
+// disk is the pre-commit one. Every earlier phase is safe to repeat: a
+// keyring write or delete, and a state-file repoint or forget, find their
+// work already done on a second run. So re-running the same batch is how
+// internal/manage retries after a partial failure. The error reports
+// exactly how much of THIS run already landed, so the message never claims
+// something gone that a retry would actually find already done.
+//
+// commitStaged returns its result instead of printing it, because the new
+// interface calls it while it owns the terminal; printCommitResult prints
+// it the way `trenvy ui` always has.
 //
 // Adding a kind (Task 8's set-globs) means adding one case to whichever
 // phase above it belongs in -- never restructuring the phases themselves.
-func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
+func commitStaged(opts *Options, app *appContext, staged []ui.Change) (commitResult, error) {
 	if len(staged) == 0 {
-		return nil
+		return commitResult{}, nil
+	}
+	if err := prevalidate(app.Manifest, staged); err != nil {
+		return commitResult{}, err
 	}
 
-	// Phase 1: structural additions. add-var and add-output only ever
-	// insert a key that does not exist yet, so applying them before
-	// anything else is always safe -- nothing here reads an added entry's
-	// OLD value, because there isn't one.
-	for _, c := range staged {
-		switch c.Kind {
-		case ui.ChangeAddVar:
-			if _, exists := app.Manifest.Vars[c.Name]; !exists {
-				app.Manifest.Vars[c.Name] = manifest.Var{}
-			}
-		case ui.ChangeAddOutput:
-			if app.Manifest.Outputs == nil {
-				app.Manifest.Outputs = map[string]manifest.Output{}
-			}
-			if _, exists := app.Manifest.Outputs[c.Name]; !exists {
-				app.Manifest.Outputs[c.Name] = manifest.Output{Format: c.Format, Path: c.Path}
-			}
-		}
-	}
+	// Phase 1: structural additions -- see applyAdditions.
+	applyAdditions(app.Manifest, staged)
 
 	type keyOp struct {
 		del     bool
@@ -255,12 +255,12 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 	if storedTotal+deletedTotal > 0 {
 		s, err := app.store()
 		if err != nil {
-			return err
+			return commitResult{}, err
 		}
 		// Phase 2: keyring writes.
 		for _, op := range writes {
 			if err := s.Set(op.service, op.value); err != nil {
-				return partialCommitError("store", op.service, err,
+				return commitResult{}, partialCommitError("store", op.service, err,
 					storedApplied, storedTotal, deletedApplied, deletedTotal, 0, 0, false)
 			}
 			storedApplied++
@@ -275,7 +275,7 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 					// must not inflate the applied count.
 					continue
 				}
-				return partialCommitError("delete", op.service, err,
+				return commitResult{}, partialCommitError("delete", op.service, err,
 					storedApplied, storedTotal, deletedApplied, deletedTotal, 0, 0, false)
 			}
 			deletedApplied++
@@ -348,7 +348,7 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 	}
 	if renamedAny || len(forgotten) > 0 {
 		if err := app.State.Save(); err != nil {
-			return partialCommitError("save state for output changes", config.StatePath(app.Entry.ID), err,
+			return commitResult{}, partialCommitError("save state for output changes", config.StatePath(app.Entry.ID), err,
 				storedApplied, storedTotal, deletedApplied, deletedTotal, 0, 0, false)
 		}
 	}
@@ -359,6 +359,130 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 	// gets called. Phase 6's failure path below must not credit a save
 	// that never happened.
 	stateSaved := renamedAny || len(forgotten) > 0
+
+	// Phases 5a and 5b -- see applyManifestEdits.
+	applyManifestEdits(app.Manifest, staged)
+
+	// Phase 6: validate, then save the manifest.
+	if err := app.Manifest.Validate(); err != nil {
+		// The warning below must print regardless of whether this batch
+		// touched the keyring or the state file at all: a batch of pure
+		// manifest edits (an add-var with nothing else set on it, say) has
+		// no progress to report, but it can still carry other staged edits
+		// that are about to be lost right along with it. The bare error
+		// used to reach the caller unwarned on exactly that batch shape --
+		// the one Fix 3 was filed for.
+		if progress := commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal, renamedRecords, len(forgotten), stateSaved); progress != "" {
+			return commitResult{}, fmt.Errorf("%w\n  %s; the manifest was not saved\n"+
+				"  everything else staged this session is gone -- open trenvy ui again and redo it",
+				err, progress)
+		}
+		return commitResult{}, fmt.Errorf("%w\n  everything else staged this session is gone -- open trenvy ui again and redo it", err)
+	}
+
+	if err := manifest.Save(config.ManifestPath(app.Entry.ID), app.Manifest); err != nil {
+		// Fix 3 (Important, whole-branch review): this used to be a bare
+		// `return err`, the one exit in this function that did not wrap with
+		// partialCommitError -- including the Validate branch immediately
+		// above, which already does. A manifest directory that cannot be
+		// written to (0500, say) can fail here AFTER every keyring write,
+		// keyring delete and state save above has already landed for real,
+		// and the bare error told the user only "permission denied",
+		// dropping every fact about what had already happened -- exactly
+		// the loss commitProgress and partialCommitError exist to prevent
+		// everywhere else in this function.
+		return commitResult{}, partialCommitError("save manifest", config.ManifestPath(app.Entry.ID), err,
+			storedApplied, storedTotal, deletedApplied, deletedTotal, renamedRecords, len(forgotten), stateSaved)
+	}
+
+	res := commitResult{saved: len(staged)}
+	// Naming the file, not just the removed output: matches `trenvy output
+	// rm --force`'s own "left in place: %s/%s" verbatim, because a user who
+	// has learned that command's wording should not have to learn a second
+	// one here for the same fact.
+	for _, e := range forgotten {
+		res.leftInPlace = append(res.leftInPlace, e.Worktree+"/"+e.Path)
+	}
+	return res, nil
+}
+
+// commitResult is what a successful commit reports. It is returned rather
+// than printed because internal/manage calls commitStaged while its screen
+// owns stdout.
+type commitResult struct {
+	saved       int
+	leftInPlace []string // "<worktree>/<path>" of each removed output's file left on disk
+}
+
+// printCommitResult prints r the way `trenvy ui` always has.
+func printCommitResult(w io.Writer, r commitResult) {
+	if r.saved == 0 {
+		return
+	}
+	fmt.Fprintf(w, "saved %d changes\n", r.saved)
+	for _, p := range r.leftInPlace {
+		fmt.Fprintf(w, "  left in place: %s\n", p)
+	}
+}
+
+// invalidBatchError is a batch the manifest refuses, found before anything
+// was written. What the user has lost depends on the caller: the original
+// interface's session has already ended, the new one still holds every
+// change, so each caller words that part itself.
+type invalidBatchError struct{ err error }
+
+func (e *invalidBatchError) Error() string { return e.err.Error() + "\n  nothing was written" }
+func (e *invalidBatchError) Unwrap() error { return e.err }
+
+// prevalidate applies the manifest half of staged to a clone and validates
+// it, so a batch the manifest refuses is refused before its first keyring
+// write rather than after (spec 2026-09-30 §3).
+func prevalidate(m *manifest.Manifest, staged []ui.Change) error {
+	c, err := m.Clone()
+	if err != nil {
+		return err
+	}
+	applyAdditions(c, staged)
+	applyManifestEdits(c, staged)
+	if err := c.Validate(); err != nil {
+		return &invalidBatchError{err}
+	}
+	return nil
+}
+
+// applyAdditions is phase 1 (see commitStaged's doc): structural additions
+// only, each inserting a key that does not exist yet.
+func applyAdditions(m *manifest.Manifest, staged []ui.Change) {
+	// add-var and add-output only ever insert a key that does not exist yet,
+	// so applying them before anything else is always safe -- nothing here
+	// reads an added entry's OLD value, because there isn't one.
+	for _, c := range staged {
+		switch c.Kind {
+		case ui.ChangeAddVar:
+			if _, exists := m.Vars[c.Name]; !exists {
+				m.Vars[c.Name] = manifest.Var{}
+			}
+		case ui.ChangeAddOutput:
+			if m.Outputs == nil {
+				m.Outputs = map[string]manifest.Output{}
+			}
+			if _, exists := m.Outputs[c.Name]; !exists {
+				m.Outputs[c.Name] = manifest.Output{Format: c.Format, Path: c.Path}
+			}
+		}
+	}
+}
+
+// applyManifestEdits is phases 5a and 5b (see commitStaged's doc): every
+// manifest mutation after the structural additions, removals included,
+// with rename-output's manifest half strictly last.
+func applyManifestEdits(m *manifest.Manifest, staged []ui.Change) {
+	removedOutputNames := make(map[string]bool, len(staged))
+	for _, c := range staged {
+		if c.Kind == ui.ChangeRemoveOutput {
+			removedOutputNames[c.Name] = true
+		}
+	}
 
 	// deletedNames marks every variable this batch also deletes, so the
 	// set-value/set-secret cases below can refuse to read-modify-write a Var
@@ -399,14 +523,43 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 			// cell in the matrix must not change what every other profile
 			// resolves to, and Classify already reads Profiles[profile]
 			// before Value for exactly this reason.
-			v := app.Manifest.Vars[c.Name]
+			v := m.Vars[c.Name]
 			if v.Profiles == nil {
 				v.Profiles = map[string]string{}
 			}
 			v.Profiles[c.Profile] = c.Value
-			app.Manifest.Vars[c.Name] = v
+			m.Vars[c.Name] = v
+		case ui.ChangeSetShared:
+			if deletedNames[c.Name] {
+				continue
+			}
+			v := m.Vars[c.Name]
+			val := c.Value
+			v.Value = &val
+			m.Vars[c.Name] = v
+		case ui.ChangeUnsetValue:
+			if deletedNames[c.Name] {
+				continue
+			}
+			v := m.Vars[c.Name]
+			if c.Profile == "" {
+				v.Value = nil
+			} else {
+				delete(v.Profiles, c.Profile)
+				if len(v.Profiles) == 0 {
+					v.Profiles = nil
+				}
+			}
+			m.Vars[c.Name] = v
+		case ui.ChangeSetOptional:
+			if deletedNames[c.Name] {
+				continue
+			}
+			v := m.Vars[c.Name]
+			v.Optional = c.Value == "true"
+			m.Vars[c.Name] = v
 		case ui.ChangeDeleteVar:
-			delete(app.Manifest.Vars, c.Name)
+			delete(m.Vars, c.Name)
 		case ui.ChangePromoteSecret:
 			// The row-level record from s (see stagePromotion's doc), never
 			// ChangeSetSecret: a set-secret also arrives here from editing an
@@ -420,25 +573,25 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 			if deletedNames[c.Name] {
 				continue
 			}
-			v := app.Manifest.Vars[c.Name]
+			v := m.Vars[c.Name]
 			v.Secret = true
 			v.Value = nil
 			v.Profiles = nil
-			app.Manifest.Vars[c.Name] = v
+			m.Vars[c.Name] = v
 		case ui.ChangeRemoveOutput:
-			delete(app.Manifest.Outputs, c.Name)
+			delete(m.Outputs, c.Name)
 			// Mirrors `trenvy output rm`'s own clearedDefault: removing the
 			// output that held project.output must clear it, the same
 			// reversible-edit reasoning that command already documents --
 			// refusing until the user repoints would be ceremony here too.
-			if app.Manifest.Project.Output == c.Name {
-				app.Manifest.Project.Output = ""
+			if m.Project.Output == c.Name {
+				m.Project.Output = ""
 			}
 		case ui.ChangeDefaultOutput:
 			if removedOutputNames[c.Name] {
 				continue
 			}
-			app.Manifest.Project.Output = c.Name
+			m.Project.Output = c.Name
 		case ui.ChangeSetGlobs:
 			// Task 8's own kind (see commitStaged's doc): it did not exist
 			// when the six phases above it were built, so it lands here,
@@ -447,7 +600,7 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 			if removedOutputNames[c.Name] {
 				continue
 			}
-			o, ok := app.Manifest.Outputs[c.Name]
+			o, ok := m.Outputs[c.Name]
 			if !ok {
 				// Phase 1 already ran, and any staged rename for this
 				// identity runs strictly AFTER this whole loop, in phase
@@ -459,7 +612,7 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 			}
 			o.Include = c.Include
 			o.Exclude = c.Exclude
-			app.Manifest.Outputs[c.Name] = o
+			m.Outputs[c.Name] = o
 		}
 	}
 
@@ -478,7 +631,7 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 		if removedOutputNames[c.Name] {
 			continue
 		}
-		o, ok := app.Manifest.Outputs[c.Name]
+		o, ok := m.Outputs[c.Name]
 		if !ok {
 			// Phase 1 already ran, and phase 5a above never deletes a key
 			// under its OWN identity (only a rename or a removal does, and
@@ -487,8 +640,8 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 			// identity that never existed. Nothing to rename.
 			continue
 		}
-		delete(app.Manifest.Outputs, c.Name)
-		app.Manifest.Outputs[c.Value] = o
+		delete(m.Outputs, c.Name)
+		m.Outputs[c.Value] = o
 		// Mirrors `trenvy output rename`'s own coupling
 		// (internal/cli/output.go): a rename of the row holding
 		// project.output must repoint it, or Validate refuses every
@@ -498,52 +651,10 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) error {
 		// makes THIS order-independent too: a same-batch default-output
 		// staged for this identity in either keypress order already set
 		// Project.Output to c.Name by the time this runs.
-		if app.Manifest.Project.Output == c.Name {
-			app.Manifest.Project.Output = c.Value
+		if m.Project.Output == c.Name {
+			m.Project.Output = c.Value
 		}
 	}
-
-	// Phase 6: validate, then save the manifest.
-	if err := app.Manifest.Validate(); err != nil {
-		// The warning below must print regardless of whether this batch
-		// touched the keyring or the state file at all: a batch of pure
-		// manifest edits (an add-var with nothing else set on it, say) has
-		// no progress to report, but it can still carry other staged edits
-		// that are about to be lost right along with it. The bare error
-		// used to reach the caller unwarned on exactly that batch shape --
-		// the one Fix 3 was filed for.
-		if progress := commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal, renamedRecords, len(forgotten), stateSaved); progress != "" {
-			return fmt.Errorf("%w\n  %s; the manifest was not saved\n"+
-				"  everything else staged this session is gone -- open trenvy ui again and redo it",
-				err, progress)
-		}
-		return fmt.Errorf("%w\n  everything else staged this session is gone -- open trenvy ui again and redo it", err)
-	}
-
-	if err := manifest.Save(config.ManifestPath(app.Entry.ID), app.Manifest); err != nil {
-		// Fix 3 (Important, whole-branch review): this used to be a bare
-		// `return err`, the one exit in this function that did not wrap with
-		// partialCommitError -- including the Validate branch immediately
-		// above, which already does. A manifest directory that cannot be
-		// written to (0500, say) can fail here AFTER every keyring write,
-		// keyring delete and state save above has already landed for real,
-		// and the bare error told the user only "permission denied",
-		// dropping every fact about what had already happened -- exactly
-		// the loss commitProgress and partialCommitError exist to prevent
-		// everywhere else in this function.
-		return partialCommitError("save manifest", config.ManifestPath(app.Entry.ID), err,
-			storedApplied, storedTotal, deletedApplied, deletedTotal, renamedRecords, len(forgotten), stateSaved)
-	}
-
-	fmt.Fprintf(opts.Stdout, "saved %d changes\n", len(staged))
-	// Naming the file, not just the removed output: matches `trenvy output
-	// rm --force`'s own "left in place: %s/%s" verbatim, because a user who
-	// has learned that command's wording should not have to learn a second
-	// one here for the same fact.
-	for _, e := range forgotten {
-		fmt.Fprintf(opts.Stdout, "  left in place: %s/%s\n", e.Worktree, e.Path)
-	}
-	return nil
 }
 
 // commitProgress renders how far a commit got as "stored X of Y secrets,

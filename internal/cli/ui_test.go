@@ -1896,15 +1896,13 @@ func TestUiPartialFailureWhenManifestSaveFailsReportsProgress(t *testing.T) {
 	}
 }
 
-// Five Things #5's honesty requirement goes one step further than a state
-// save that fails outright: if the state save SUCCEEDS -- a rename's render
-// record really is repointed on disk -- and the manifest is then refused by
-// validation because of something else entirely in the same batch (an
-// illegal output format, say), the old blanket "everything staged this
-// session is gone" would be a lie about the one thing that is not gone. The
-// error must say the render record was already repointed, in the same
-// commitProgress shape the keyring counts already use.
-func TestUiPartialFailureNamesTheRepointedRecordWhenStateAlreadySavedButValidationFails(t *testing.T) {
+// A rename's render-record repoint used to be saved to the state file before
+// Validate refused the manifest for something else in the same batch (an
+// illegal output path, say), so the error had to say the record was already
+// repointed. commitStaged now validates the whole batch first (spec
+// 2026-09-30 §3): the state file is left untouched too, and the error says
+// nothing was written.
+func TestUiValidationFailureLeavesTheStateFileUntouched(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t)) // output "docker"
 	h.recordRender(t, "vpb", h.root, "docker", "src/.env")
@@ -1929,16 +1927,16 @@ func TestUiPartialFailureNamesTheRepointedRecordWhenStateAlreadySavedButValidati
 	if err == nil {
 		t.Fatal("ui succeeded with an illegal output path")
 	}
-	if !strings.Contains(err.Error(), "repointed 1 render record(s)") {
-		t.Errorf("error does not report the render record already repointed on disk: %v", err)
-	}
-	if !strings.Contains(err.Error(), "manifest was not saved") {
-		t.Errorf("error does not say the manifest is unsaved: %v", err)
+	if !strings.Contains(err.Error(), "nothing was written") {
+		t.Errorf("error does not say nothing was written: %v", err)
 	}
 
 	st := h.state(t, "vpb")
-	if _, ok := st.Find(h.root, "prod-env"); !ok {
-		t.Error("the state save that already succeeded must not be undone or reported as lost")
+	if _, ok := st.Find(h.root, "docker"); !ok {
+		t.Error("the render record was repointed for a batch the manifest refuses")
+	}
+	if _, ok := st.Find(h.root, "prod-env"); ok {
+		t.Error("the state file was saved for a batch the manifest refuses")
 	}
 	m, loadErr := manifest.Load(config.ManifestPath("vpb"))
 	if loadErr != nil {
@@ -2133,11 +2131,10 @@ secret = true
 
 // An add-var of a name that cannot pass Validate (no value, no profile
 // value, not secret, not optional -- exactly what a bare "a" leaves behind)
-// must be refused without saving the manifest. The set-secret staged
-// alongside it proves the point in Five Things #4: that keyring write has
-// already landed by the time Validate runs, and it is left in place rather
-// than rolled back, because it is the benign half of a refused commit.
-func TestUiAddVarFailingValidationRefusesTheManifestButLeavesTheBenignKeyringWrite(t *testing.T) {
+// must be refused with nothing written. The set-secret staged alongside it
+// used to land before Validate ran; commitStaged now validates the whole
+// batch first (spec 2026-09-30 §3), so the keyring is left untouched too.
+func TestUiAddVarFailingValidationWritesNothing(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
 
@@ -2169,19 +2166,18 @@ func TestUiAddVarFailingValidationRefusesTheManifestButLeavesTheBenignKeyringWri
 		t.Error("the invalid manifest was saved anyway")
 	}
 
-	got, getErr := h.mem.Get("trenvy/vpb/dev/ALPHA_TOKEN")
-	if getErr != nil {
-		t.Fatalf("the benign keyring write should still be there: %v", getErr)
+	if ok, _ := h.mem.Has("trenvy/vpb/dev/ALPHA_TOKEN"); ok {
+		t.Error("the keyring write landed for a batch the manifest refuses")
 	}
-	if got != "new-secret-value" {
-		t.Errorf("stored secret = %q, want the write that already landed", got)
+	if !strings.Contains(err.Error(), "nothing was written") {
+		t.Errorf("error does not say nothing was written: %v", err)
 	}
 }
 
 // Fix 3: a validation failure must say the rest of the batch is lost even
 // when the batch touched no keyring op at all. Before the fix, the warning
 // only printed on the branch guarded by commitProgress() != "" --
-// TestUiAddVarFailingValidationRefusesTheManifestButLeavesTheBenignKeyringWrite
+// TestUiAddVarFailingValidationWritesNothing
 // above stages a keyring write alongside its invalid add-var, so it always
 // took that branch and never exercised the bare `return err` beneath it.
 // This one stages only a plain manifest edit (no keyring op at all)
