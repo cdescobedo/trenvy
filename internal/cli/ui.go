@@ -373,11 +373,11 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) (commitRes
 		// used to reach the caller unwarned on exactly that batch shape --
 		// the one Fix 3 was filed for.
 		if progress := commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal, renamedRecords, len(forgotten), stateSaved); progress != "" {
-			return commitResult{}, fmt.Errorf("%w\n  %s; the manifest was not saved\n"+
+			return commitResult{}, withLeftInPlace(fmt.Errorf("%w\n  %s; the manifest was not saved\n"+
 				"  everything else staged this session is gone -- open trenvy ui again and redo it",
-				err, progress)
+				err, progress), forgotten)
 		}
-		return commitResult{}, fmt.Errorf("%w\n  everything else staged this session is gone -- open trenvy ui again and redo it", err)
+		return commitResult{}, withLeftInPlace(fmt.Errorf("%w\n  everything else staged this session is gone -- open trenvy ui again and redo it", err), forgotten)
 	}
 
 	if err := manifest.Save(config.ManifestPath(app.Entry.ID), app.Manifest); err != nil {
@@ -391,8 +391,8 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) (commitRes
 		// dropping every fact about what had already happened -- exactly
 		// the loss commitProgress and partialCommitError exist to prevent
 		// everywhere else in this function.
-		return commitResult{}, partialCommitError("save manifest", config.ManifestPath(app.Entry.ID), err,
-			storedApplied, storedTotal, deletedApplied, deletedTotal, renamedRecords, len(forgotten), stateSaved)
+		return commitResult{}, withLeftInPlace(partialCommitError("save manifest", config.ManifestPath(app.Entry.ID), err,
+			storedApplied, storedTotal, deletedApplied, deletedTotal, renamedRecords, len(forgotten), stateSaved), forgotten)
 	}
 
 	res := commitResult{saved: len(staged)}
@@ -656,6 +656,33 @@ func applyManifestEdits(m *manifest.Manifest, staged []ui.Change) {
 		}
 	}
 }
+
+// withLeftInPlace names, in `trenvy output rm --force`'s own wording, every
+// file whose render record phase 4 already forgot, on a failure after that
+// save. A retry resolves a fresh state with nothing left to forget, so this
+// error is the only place those paths, which may carry secrets, are ever
+// named.
+func withLeftInPlace(err error, forgotten []config.RenderEntry) error {
+	if len(forgotten) == 0 {
+		return err
+	}
+	var b strings.Builder
+	b.WriteString(err.Error())
+	for _, e := range forgotten {
+		fmt.Fprintf(&b, "\n  left in place: %s/%s", e.Worktree, e.Path)
+	}
+	return &wrappedError{msg: b.String(), err: err}
+}
+
+// wrappedError carries a longer message than its cause while keeping the
+// cause reachable through errors.Is and errors.As.
+type wrappedError struct {
+	msg string
+	err error
+}
+
+func (e *wrappedError) Error() string { return e.msg }
+func (e *wrappedError) Unwrap() error { return e.err }
 
 // commitProgress renders how far a commit got as "stored X of Y secrets,
 // deleted A of B keyring items, repointed N render record(s), forgot M
