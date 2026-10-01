@@ -122,9 +122,9 @@ func newUiCmd(opts *Options) *cobra.Command {
 	return cmd
 }
 
-// commitStaged writes w's staged changes in phases 0 to 6, because Task 6's new
-// operations depend on each other in ways the four Change kinds Tasks 1-4
-// shipped never did:
+// commitStaged writes w's staged changes in phases 0 to 6, because Task 6's
+// new operations depend on each other in ways the four Change kinds Tasks
+// 1-4 shipped never did:
 //
 //  0. Validate the whole batch on a clone (prevalidate), so a batch the
 //     manifest refuses writes nothing at all.
