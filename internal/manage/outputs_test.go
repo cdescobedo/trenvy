@@ -106,6 +106,13 @@ func TestOutputsEmptyState(t *testing.T) {
 	if !strings.Contains(m.View(), "No outputs yet") {
 		t.Errorf("view:\n%s", m.View())
 	}
+	// The list pane is at its narrowest with no outputs: nothing is cut.
+	for _, w := range []int{40, 80, 120} {
+		v := sized(m, w, 24).View()
+		if !strings.Contains(v, "No outputs yet") || !strings.Contains(v, "a to add one") {
+			t.Errorf("at %d columns the empty state is cut:\n%s", w, v)
+		}
+	}
 }
 
 // Review Focus 5.

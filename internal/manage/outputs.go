@@ -259,7 +259,15 @@ func (m Model) outListBody(inner, height int) string {
 	t := m.th
 	ids := m.outputIDs()
 	if len(ids) == 0 {
-		return " " + t.Muted.Render("No outputs yet -- a to add one")
+		// Two lines, each wrapped: the pane is at its narrowest here, and
+		// the sentence on one line would not fit it.
+		var lines []string
+		for _, s := range []string{"No outputs yet", "a to add one"} {
+			for _, l := range wrap(s, max(1, inner-1)) {
+				lines = append(lines, " "+t.Muted.Render(l))
+			}
+		}
+		return strings.Join(lines, "\n")
 	}
 	nameW := max(4, inner-(outChrome-2))
 	cur := t.Accent.Render(">")

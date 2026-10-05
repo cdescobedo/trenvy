@@ -270,9 +270,8 @@ func TestOutputsScreenShowsEachOutputsFacts(t *testing.T) {
 }
 
 // A project with no outputs -- the normal shape for one that only feeds
-// exec and shell -- reads as a state that names how to add one. The list's
-// own "No outputs yet -- a to add one" is cut to "a to add on" by the
-// list pane's minimum width, so the key is read from the footer.
+// exec and shell -- reads as a state that names how to add one, uncut in
+// the list pane at its minimum width.
 func TestOutputsScreenEmptyState(t *testing.T) {
 	h := newHarness(t)
 	m, err := manifest.Parse([]byte(`
@@ -294,7 +293,7 @@ value = "http://+:8080"
 	if !strings.Contains(view, "No outputs yet") {
 		t.Errorf("empty outputs screen does not read as a state:\n%s", view)
 	}
-	if !strings.Contains(view, "a add") {
+	if !strings.Contains(view, "a to add one") {
 		t.Errorf("empty outputs screen does not name how to add one:\n%s", view)
 	}
 }
