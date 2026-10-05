@@ -345,23 +345,7 @@ func newProfileRmCmd(opts *Options) *cobra.Command {
 				}
 			}
 
-			// A fresh slice, not an in-place filter over the same backing
-			// array: this is the most destructive function in the package,
-			// and a fresh allocation is one less aliasing hazard for anyone
-			// auditing it later.
-			profiles := make([]string, 0, len(app.Manifest.Project.Profiles)-1)
-			for _, p := range app.Manifest.Project.Profiles {
-				if p != name {
-					profiles = append(profiles, p)
-				}
-			}
-			app.Manifest.Project.Profiles = profiles
-			for vn, v := range app.Manifest.Vars {
-				if _, ok := v.Profiles[name]; ok {
-					delete(v.Profiles, name)
-					app.Manifest.Vars[vn] = v
-				}
-			}
+			dropProfile(app.Manifest, name)
 			if err := app.Manifest.Validate(); err != nil {
 				return err
 			}
@@ -406,6 +390,30 @@ func requireDeclaredProfile(app *appContext, name string) error {
 	}
 	return fmt.Errorf("%w %q; declared profiles: %s",
 		resolve.ErrUnknownProfile, name, strings.Join(app.Manifest.Project.Profiles, ", "))
+}
+
+// dropProfile is the manifest half of removing profile name, shared by
+// `trenvy profile rm` and the interface's commit (phase 5c), so the two can
+// never leave different manifests for the same removal: name leaves
+// project.profiles and every variable's per-profile overrides.
+//
+// A fresh slice, not an in-place filter over the same backing array: this
+// is the most destructive edit in the package, and a fresh allocation is
+// one less aliasing hazard for anyone auditing it later.
+func dropProfile(m *manifest.Manifest, name string) {
+	profiles := make([]string, 0, len(m.Project.Profiles))
+	for _, p := range m.Project.Profiles {
+		if p != name {
+			profiles = append(profiles, p)
+		}
+	}
+	m.Project.Profiles = profiles
+	for vn, v := range m.Vars {
+		if _, ok := v.Profiles[name]; ok {
+			delete(v.Profiles, name)
+			m.Vars[vn] = v
+		}
+	}
 }
 
 // secretNames lists every secret variable, sorted, so a count or a loop over

@@ -52,7 +52,8 @@ func newUiCmd(opts *Options) *cobra.Command {
 //  3. Keyring deletes, after every write -- phase 1's own rule, carried
 //     forward unchanged: delete-var's item under every profile, and
 //     remove-profile's item for every secret variable. An item both name
-//     is deleted once, and one never stored (ErrNotFound) is not counted.
+//     is deleted once, and one never stored (ErrNotFound) is not counted
+//     as deleted.
 //
 //  4. The state file: a staged rename repoints that output's render
 //     records (State.RenameOutput); a staged removal or path edit forgets
@@ -194,16 +195,11 @@ func commitStaged(opts *Options, app *appContext, staged []session.Change) (comm
 			}
 		case session.ChangeRemoveProfile:
 			// Removing a profile removes its keyring item for every secret
-			// variable, the per-profile mirror of delete-var above. Sorted,
-			// so a partial failure names the same item on every run.
-			names := make([]string, 0, len(app.Manifest.Vars))
-			for name, v := range app.Manifest.Vars {
-				if v.Secret {
-					names = append(names, name)
-				}
-			}
-			sort.Strings(names)
-			for _, name := range names {
+			// variable, the per-profile mirror of delete-var above. The
+			// same secretNames `trenvy profile rm` deletes, so the two can
+			// never remove different items; sorted, so a partial failure
+			// names the same item on every run.
+			for _, name := range secretNames(app.Manifest) {
 				deletes = append(deletes, keyOp{
 					del:     true,
 					service: app.Cfg.Keyring.ServiceName(app.Manifest.Project.ID, c.Name, name),
@@ -276,7 +272,10 @@ func commitStaged(opts *Options, app *appContext, staged []session.Change) (comm
 		}
 	}
 
-	// Phase 4: the state file. Four kinds touch it.
+	// Phase 4: the state file. Six kinds touch it: rename-output,
+	// remove-output, set-output-path and set-output-format (render
+	// records, below), and remove-profile and use-profile (this machine's
+	// active profile, after them).
 	//
 	// A staged rename must repoint any render record under the output's
 	// OLD name, and that repointing must be saved to disk before the
@@ -320,11 +319,12 @@ func commitStaged(opts *Options, app *appContext, staged []session.Change) (comm
 	//
 	// RenameOutput, Forget and MarkStale only ever mutate app.State in
 	// memory; Save runs once, unconditionally, whenever a rename, a path
-	// or a format edit was staged, or a removal found records to forget --
-	// mirroring `output rename`'s own unconditional Save after
-	// RenameOutput: a project with no render records yet still deserves a
-	// state file that agrees with the manifest the moment one is ever
-	// recorded.
+	// or a format edit was staged, a removal found records to forget, or
+	// the active selection changed (set by a use-profile, or cleared by a
+	// remove-profile naming it) -- mirroring `output rename`'s own
+	// unconditional Save after RenameOutput: a project with no render
+	// records yet still deserves a state file that agrees with the
+	// manifest the moment one is ever recorded.
 	movedPaths := map[string]string{}
 	var reformatted []string
 	for _, c := range staged {
@@ -800,23 +800,11 @@ func applyManifestEdits(m *manifest.Manifest, staged []session.Change) {
 	}
 
 	// Phase 5c: profile removals, after every other edit, so a set-value on
-	// the removed profile (staged by hand) leaves no override behind.
+	// the removed profile (staged by hand) leaves no override behind. The
+	// edit itself is `trenvy profile rm`'s (dropProfile).
 	for _, c := range staged {
-		if c.Kind != session.ChangeRemoveProfile {
-			continue
-		}
-		kept := make([]string, 0, len(m.Project.Profiles))
-		for _, p := range m.Project.Profiles {
-			if p != c.Name {
-				kept = append(kept, p)
-			}
-		}
-		m.Project.Profiles = kept
-		for n, v := range m.Vars {
-			if _, ok := v.Profiles[c.Name]; ok {
-				delete(v.Profiles, c.Name)
-				m.Vars[n] = v
-			}
+		if c.Kind == session.ChangeRemoveProfile {
+			dropProfile(m, c.Name)
 		}
 	}
 }
