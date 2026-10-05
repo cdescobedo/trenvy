@@ -47,6 +47,8 @@ func runManage(opts *Options, app *appContext) error {
 		// Reveal can run while Reload swaps cur, so cur is only read or
 		// assigned under mu.
 		var mu sync.Mutex
+		// A project switch starts a fresh carry.
+		var carry leftCarry
 		current := func() *appContext {
 			mu.Lock()
 			defer mu.Unlock()
@@ -62,7 +64,7 @@ func runManage(opts *Options, app *appContext) error {
 				return s.Get(cur.Cfg.Keyring.ServiceName(cur.Manifest.Project.ID, profile, name))
 			},
 			Commit: func(cs []session.Change) (manage.CommitResult, error) {
-				return manageCommit(&quiet, current(), cs)
+				return carry.commit(&quiet, current(), cs)
 			},
 			// Reload re-reads the project from disk into a fresh appContext.
 			// commitStaged mutates cur.Manifest in memory, succeeding or not,
@@ -101,9 +103,27 @@ func manageCommit(opts *Options, app *appContext, cs []session.Change) (manage.C
 		if errors.As(err, &invalid) {
 			return manage.CommitResult{}, &refusedBatch{invalid.err}
 		}
-		return manage.CommitResult{}, err
+		return manage.CommitResult{LeftInPlace: res.leftInPlace}, err
 	}
 	return manage.CommitResult{Saved: res.saved, LeftInPlace: res.leftInPlace}, nil
+}
+
+// leftCarry carries the left-in-place paths a failed commit named to the
+// retry that succeeds. A failure after the state save forgets render
+// records, so the retry finds none to forget and would otherwise report no
+// files at all (phase 1 ledger, Task 4). Only Commit uses it, and the model
+// never runs two commits at once, so it needs no lock.
+type leftCarry struct{ pending []string }
+
+func (c *leftCarry) commit(opts *Options, app *appContext, cs []session.Change) (manage.CommitResult, error) {
+	res, err := manageCommit(opts, app, cs)
+	if err != nil {
+		c.pending = append(c.pending, res.LeftInPlace...)
+		return res, err
+	}
+	res.LeftInPlace = append(c.pending, res.LeftInPlace...)
+	c.pending = nil
+	return res, nil
 }
 
 // refusedBatch is a batch the manifest refuses, as the new interface

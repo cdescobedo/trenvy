@@ -463,3 +463,156 @@ func TestManageCommitMarksARefusedBatchAsNothingWritten(t *testing.T) {
 		t.Errorf("err = %v, want a failure that is not ErrNothingWritten", err)
 	}
 }
+
+const outputsManifest = `
+[project]
+id = "vpb"
+profiles = ["dev"]
+default_profile = "dev"
+output = "local"
+salt = "abc123"
+
+[outputs.local]
+format = "dotenv"
+path = ".env"
+
+[outputs.web]
+format = "json"
+path = "web.json"
+
+[vars.APP_URL]
+value = "x"
+`
+
+func newOutputsApp(t *testing.T) (*Options, *appContext) {
+	t.Helper()
+	t.Setenv("TRENVY_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	m, err := manifest.Parse([]byte(outputsManifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err := config.LoadRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Add(config.Entry{ID: "vpb", Root: root}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := manifest.Save(config.ManifestPath("vpb"), m); err != nil {
+		t.Fatal(err)
+	}
+	opts := &Options{Dir: root, Stdout: io.Discard, Stderr: io.Discard,
+		NewStore: func(*config.Config, string) (store.Store, error) { return store.NewMem(), nil }}
+	app, err := opts.resolveApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return opts, app
+}
+
+func TestCommitAppliesOutputFormatAndPath(t *testing.T) {
+	opts, app := newOutputsApp(t)
+	_, err := commitStaged(opts, app, []ui.Change{
+		{Kind: ui.ChangeSetOutputFormat, Name: "local", Value: "json"},
+		{Kind: ui.ChangeSetOutputPath, Name: "local", Value: "config/env.json"},
+		{Kind: ui.ChangeRenameOutput, Name: "local", Value: "root"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, ok := loadVPB(t).Outputs["root"]
+	if !ok || o.Format != "json" || o.Path != "config/env.json" {
+		t.Errorf("outputs = %+v, want root json config/env.json (edits applied under the identity, then renamed)", loadVPB(t).Outputs)
+	}
+}
+
+// Review Focus 2: a rename onto an existing output, or two onto one name,
+// is refused before anything is written -- phase 5b would otherwise
+// overwrite the other output silently.
+func TestCommitRefusesARenameOntoAnExistingOutput(t *testing.T) {
+	for name, batch := range map[string][]ui.Change{
+		"onto existing": {{Kind: ui.ChangeRenameOutput, Name: "local", Value: "web"}},
+		"two onto one": {
+			{Kind: ui.ChangeRenameOutput, Name: "local", Value: "shared"},
+			{Kind: ui.ChangeRenameOutput, Name: "web", Value: "shared"},
+		},
+		"onto an added": {
+			{Kind: ui.ChangeAddOutput, Name: "extra", Format: "dotenv", Path: "x.env"},
+			{Kind: ui.ChangeRenameOutput, Name: "local", Value: "extra"},
+		},
+	} {
+		opts, app := newOutputsApp(t)
+		_, err := commitStaged(opts, app, batch)
+		var ib *invalidBatchError
+		if !errors.As(err, &ib) {
+			t.Errorf("%s: err = %v, want an *invalidBatchError", name, err)
+			continue
+		}
+		if len(loadVPB(t).Outputs) != 2 {
+			t.Errorf("%s: the manifest changed", name)
+		}
+	}
+	// A swap is refused too: phase 5b renames one row at a time, so
+	// local->web would overwrite web before web->local ran, and one output
+	// would be lost (traced 2026-10-05). Rename through a third name.
+	opts, app := newOutputsApp(t)
+	_, err := commitStaged(opts, app, []ui.Change{
+		{Kind: ui.ChangeRenameOutput, Name: "local", Value: "web"},
+		{Kind: ui.ChangeRenameOutput, Name: "web", Value: "local"},
+	})
+	var ib *invalidBatchError
+	if !errors.As(err, &ib) {
+		t.Errorf("swap: err = %v, want an *invalidBatchError", err)
+	}
+}
+
+// Phase 1 ledger (Task 4, PHASE 2 MUST ADDRESS): a failure after the state
+// save forgets render records; the retry finds none to forget. The failed
+// attempt must hand back the left-in-place paths with its error, so the
+// caller can carry them to the retry's result.
+func TestCommitReturnsLeftInPlaceWithALateError(t *testing.T) {
+	opts, app := newOutputsApp(t)
+	app.State.Record(config.RenderEntry{Worktree: app.Worktree, Output: "web", Path: "web.json"})
+	if err := app.State.Save(); err != nil {
+		t.Fatal(err)
+	}
+	restore := lockDir(t, filepath.Dir(config.ManifestPath("vpb")))
+	defer restore()
+	res, err := commitStaged(opts, app, []ui.Change{{Kind: ui.ChangeRemoveOutput, Name: "web"}})
+	if err == nil {
+		t.Fatal("commit succeeded with the manifest directory locked")
+	}
+	if want := app.Worktree + "/web.json"; len(res.leftInPlace) != 1 || res.leftInPlace[0] != want {
+		t.Errorf("leftInPlace = %v, want [%s]", res.leftInPlace, want)
+	}
+}
+
+func TestLeftInPlaceSurvivesARetry(t *testing.T) {
+	opts, app := newOutputsApp(t)
+	app.State.Record(config.RenderEntry{Worktree: app.Worktree, Output: "web", Path: "web.json"})
+	if err := app.State.Save(); err != nil {
+		t.Fatal(err)
+	}
+	batch := []ui.Change{{Kind: ui.ChangeRemoveOutput, Name: "web"}}
+	var carry leftCarry
+	restore := lockDir(t, filepath.Dir(config.ManifestPath("vpb")))
+	if _, err := carry.commit(opts, app, batch); err == nil {
+		t.Fatal("first attempt succeeded with the manifest directory locked")
+	}
+	restore()
+	fresh, err := opts.resolveAppByID("vpb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := carry.commit(opts, fresh, batch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := app.Worktree + "/web.json"; len(res.LeftInPlace) != 1 || res.LeftInPlace[0] != want {
+		t.Errorf("retry LeftInPlace = %v, want [%s]", res.LeftInPlace, want)
+	}
+}

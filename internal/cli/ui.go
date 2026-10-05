@@ -198,7 +198,9 @@ func newUiCmd(opts *Options) *cobra.Command {
 //
 // commitStaged returns its result instead of printing it, because the new
 // interface calls it while it owns the terminal; printCommitResult prints
-// it the way `trenvy ui` always has.
+// it the way `trenvy ui` always has. A failure after the state save (phase
+// 6) still returns the left-in-place paths beside its error, because that
+// save forgot the render records and a retry would find none to name.
 //
 // Adding a kind (Task 8's set-globs) means adding one case to whichever
 // phase above it belongs in -- never restructuring the phases themselves.
@@ -381,6 +383,16 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) (commitRes
 	// that never happened.
 	stateSaved := renamedAny || len(forgotten) > 0
 
+	// Naming the file, not just the removed output: matches `trenvy output
+	// rm --force`'s own "left in place: %s/%s" verbatim, because a user who
+	// has learned that command's wording should not have to learn a second
+	// one here for the same fact. Computed here, once the state save has
+	// landed, so a later failure returns the same paths alongside its error.
+	left := commitResult{}
+	for _, e := range forgotten {
+		left.leftInPlace = append(left.leftInPlace, e.Worktree+"/"+e.Path)
+	}
+
 	// Phases 5a and 5b -- see applyManifestEdits.
 	applyManifestEdits(app.Manifest, staged)
 
@@ -394,10 +406,10 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) (commitRes
 		// used to reach the caller unwarned on exactly that batch shape --
 		// the one Fix 3 was filed for.
 		if progress := commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal, renamedRecords, len(forgotten), stateSaved); progress != "" {
-			return commitResult{}, withLeftInPlace(fmt.Errorf("%w\n  %s; the manifest was not saved",
+			return left, withLeftInPlace(fmt.Errorf("%w\n  %s; the manifest was not saved",
 				err, progress), forgotten)
 		}
-		return commitResult{}, withLeftInPlace(err, forgotten)
+		return left, withLeftInPlace(err, forgotten)
 	}
 
 	if err := manifest.Save(config.ManifestPath(app.Entry.ID), app.Manifest); err != nil {
@@ -411,19 +423,12 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) (commitRes
 		// dropping every fact about what had already happened -- exactly
 		// the loss commitProgress and partialCommitError exist to prevent
 		// everywhere else in this function.
-		return commitResult{}, withLeftInPlace(partialCommitError("save manifest", config.ManifestPath(app.Entry.ID), err,
+		return left, withLeftInPlace(partialCommitError("save manifest", config.ManifestPath(app.Entry.ID), err,
 			storedApplied, storedTotal, deletedApplied, deletedTotal, renamedRecords, len(forgotten), stateSaved), forgotten)
 	}
 
-	res := commitResult{saved: len(staged)}
-	// Naming the file, not just the removed output: matches `trenvy output
-	// rm --force`'s own "left in place: %s/%s" verbatim, because a user who
-	// has learned that command's wording should not have to learn a second
-	// one here for the same fact.
-	for _, e := range forgotten {
-		res.leftInPlace = append(res.leftInPlace, e.Worktree+"/"+e.Path)
-	}
-	return res, nil
+	left.saved = len(staged)
+	return left, nil
 }
 
 // commitResult is what a successful commit reports. It is returned rather
@@ -462,10 +467,44 @@ func prevalidate(m *manifest.Manifest, staged []ui.Change) error {
 	if err != nil {
 		return err
 	}
+	if err := renameCollision(m, staged); err != nil {
+		return &invalidBatchError{err}
+	}
 	applyAdditions(c, staged)
 	applyManifestEdits(c, staged)
 	if err := c.Validate(); err != nil {
 		return &invalidBatchError{err}
+	}
+	return nil
+}
+
+// renameCollision refuses a rename whose target is a name some output
+// holds now -- on disk or added this batch -- or another rename's target.
+// Phase 5b moves one row at a time with a map assignment, so landing on a
+// held name overwrites that output, and even a swap (a->b, b->a) loses one
+// of the two (traced 2026-10-05). Renaming through a free name is the way.
+func renameCollision(m *manifest.Manifest, staged []ui.Change) error {
+	held := map[string]bool{}
+	for name := range m.Outputs {
+		held[name] = true
+	}
+	for _, c := range staged {
+		if c.Kind == ui.ChangeAddOutput {
+			held[c.Name] = true
+		}
+	}
+	targets := map[string]string{}
+	for _, c := range staged {
+		if c.Kind != ui.ChangeRenameOutput {
+			continue
+		}
+		if held[c.Value] {
+			return fmt.Errorf("output %q: cannot rename %s onto it -- an output already has that name; rename through a free name", c.Value, c.Name)
+		}
+		if prev, ok := targets[c.Value]; ok {
+			return fmt.Errorf("output %q: %s and %s would both be renamed to it", c.Value, prev, c.Name)
+		}
+		targets[c.Value] = c.Name
 	}
 	return nil
 }
@@ -607,6 +646,22 @@ func applyManifestEdits(m *manifest.Manifest, staged []ui.Change) {
 				continue
 			}
 			m.Project.Output = c.Name
+		case ui.ChangeSetOutputFormat, ui.ChangeSetOutputPath:
+			// Keyed by identity, applied before 5b renames for the same
+			// reason set-globs is (see commitStaged's doc).
+			if removedOutputNames[c.Name] {
+				continue
+			}
+			o, ok := m.Outputs[c.Name]
+			if !ok {
+				continue
+			}
+			if c.Kind == ui.ChangeSetOutputFormat {
+				o.Format = c.Value
+			} else {
+				o.Path = c.Value
+			}
+			m.Outputs[c.Name] = o
 		case ui.ChangeSetGlobs:
 			// Task 8's own kind (see commitStaged's doc): it did not exist
 			// when the phases above it were built, so it lands here,
