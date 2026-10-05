@@ -400,3 +400,14 @@ func TestValidateRejectsAnOutputNameWithADot(t *testing.T) {
 		t.Errorf("error = %v, want it to name the bad output", err)
 	}
 }
+
+func TestCheckOutputPath(t *testing.T) {
+	if err := manifest.CheckOutputPath(".env"); err != nil {
+		t.Errorf(".env: %v", err)
+	}
+	for _, bad := range []string{"/etc/env", "../outside.env"} {
+		if err := manifest.CheckOutputPath(bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}

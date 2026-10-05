@@ -919,10 +919,7 @@ func matrixFromManifest(app *appContext) (*ui.Matrix, error) {
 // sync (twice, in one task) before classifyOutput existed.
 //
 // Whether a required variable is missing under the active profile is read
-// off mx itself (already built, and already exercised by internal/ui's own
-// tests) instead of re-deriving status.go's inline missing-count loop, which
-// is not itself a reusable function -- duplicating it here would be exactly
-// the second implementation the guard-reuse rule warns against.
+// off mx itself by anyMissing (status.go), the one place that loop lives.
 //
 // quick is always true here, unlike status's own default: detecting a keyring
 // change requires reading the secret's value, and ui opens eagerly on every
@@ -934,10 +931,10 @@ func matrixFromManifest(app *appContext) (*ui.Matrix, error) {
 //
 // Because quick is never the user's own choice here, this function treats
 // classifyOutput's outputQuickSkipped differently than status.go's own
-// describeOutput does -- see the case below.
+// describeOutput does -- see stateWord.
 // The bool return says whether at least one output's freshness could not be
 // determined here because doing so would require reading a secret's value
-// (the outputQuickSkipped case below) -- ui.Problems has no way to surface
+// (outputQuickSkipped, which stateWord maps to StateUnverified) -- ui.Problems has no way to surface
 // that itself, since flagging it there would recreate the exact permanent,
 // unfixable false alarm an earlier round of this fix removed. The caller
 // uses it to caveat the Overview's own healthy-state line, once, rather than
@@ -978,60 +975,19 @@ func matrixFromManifest(app *appContext) (*ui.Matrix, error) {
 // longer claim verified freshness for a case that was never actually
 // verified.
 func outputStates(opts *Options, app *appContext, mx *ui.Matrix) (map[string]string, bool) {
-	missing := false
-	for _, name := range mx.Names {
-		if mx.Cell(name, app.Profile.Name) == ui.CellMissing {
-			missing = true
-			break
-		}
-	}
+	missing := anyMissing(mx, app.Profile.Name)
 
 	unverified := false
 	states := make(map[string]string, len(app.Manifest.Outputs))
 	for name, o := range app.Manifest.Outputs {
-		switch st := classifyOutput(opts, app, name, o, missing, true); st {
-		case outputFresh:
-			states[name] = ui.StateFresh
-		case outputAbsent:
-			states[name] = ui.StateAbsent
-		case outputStale:
-			states[name] = ui.StateStale
-		case outputModified:
-			states[name] = ui.StateModified
-		case outputForeign:
-			states[name] = ui.StateForeign
-		case outputQuickSkipped:
-			// ui.StateUnverified, deliberately neither StateFresh (see this
-			// function's own doc above for why that claim was never actually
-			// earned) nor ui.StateUnknown (which ui.Problems flags -- see
-			// StateUnverified's own doc in internal/ui for why flagging this
-			// case would be a permanent, unfixable-from-inside alarm). `trenvy
-			// status` (no --quick) remains the command that actually reads
-			// the value and can tell fresh from STALE for real. The caller is
-			// also told via the bool return, so the Overview's healthy line
-			// can caveat this once rather than not at all.
-			states[name] = ui.StateUnverified
+		st := stateWord(classifyOutput(opts, app, name, o, missing, true))
+		states[name] = st
+		// StateUnverified is the one case that sets the caveat: see
+		// stateWord. The others either are verified or already surface as
+		// their own Problem, so the empty-list case this bool exists for
+		// cannot occur alongside them.
+		if st == ui.StateUnverified {
 			unverified = true
-		case outputSecretsMissing, outputErrored:
-			// Both mean "not resolved to an answer", for different reasons --
-			// a missing secret (a real, actionable gap: `trenvy secret set`
-			// clears it) or a read failure already logged to stderr.
-			// ui.Problems' Fix for StateUnknown names `trenvy status`, which
-			// is the right next step for both. Neither sets unverified: both
-			// already surface as their own Problem, so the empty-list case
-			// this bool exists for cannot occur alongside them.
-			states[name] = ui.StateUnknown
-		default:
-			// classifyOutput's outputState has exactly the cases above. A
-			// default that silently mapped an unhandled one to "" (or to
-			// StateFresh, or to StateUnknown) would make this exhaustiveness
-			// check pointless: a new case added there and forgotten here
-			// would either suppress a real problem or manufacture a
-			// permanent false one, and nothing would say which. Panicking is
-			// safe here specifically because the only way to reach it is a
-			// programming error in this same package, not anything a project
-			// or a user can trigger.
-			panic(fmt.Sprintf("ui: outputStates: unhandled output state %d for %q", st, name))
 		}
 	}
 	return states, unverified

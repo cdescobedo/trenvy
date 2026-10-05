@@ -14,6 +14,7 @@ import (
 	"github.com/cdescobedo/trenvy/internal/manifest"
 	"github.com/cdescobedo/trenvy/internal/render"
 	"github.com/cdescobedo/trenvy/internal/resolve"
+	"github.com/cdescobedo/trenvy/internal/session"
 	"github.com/cdescobedo/trenvy/internal/store"
 	"github.com/cdescobedo/trenvy/internal/style"
 )
@@ -275,4 +276,70 @@ func sortedOutputNames(m *manifest.Manifest) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// stateWord is the word the interface shows for st: `trenvy status`'s own
+// vocabulary (session.State*). Quick mode's skip is StateUnverified, a
+// missing secret or a read failure is StateUnknown.
+//
+// StateUnverified is deliberately neither StateFresh (the claim was never
+// earned: in quick mode wantSum is "", so a changed plain value or a glob
+// edit is indistinguishable from nothing changed) nor StateUnknown (which
+// ui.Problems flags -- see StateUnverified's own doc in internal/ui for why
+// flagging it would be a permanent, unfixable-from-inside alarm). `trenvy
+// status` (no --quick) remains the command that actually reads the value and
+// can tell fresh from STALE for real.
+//
+// outputSecretsMissing and outputErrored both mean "not resolved to an
+// answer", for different reasons -- a missing secret (a real, actionable gap:
+// `trenvy secret set` clears it) or a read failure already logged to stderr.
+//
+// There is no default: a switch that silently mapped an unhandled state to ""
+// (or to StateFresh, or to StateUnknown) would make this exhaustiveness check
+// pointless -- a case added to classifyOutput and forgotten here would
+// either suppress a real problem or manufacture a permanent false one, and
+// nothing would say which. Panicking is safe because the only way to reach it
+// is a programming error in this package, not anything a project or a user
+// can trigger.
+func stateWord(st outputState) string {
+	switch st {
+	case outputFresh:
+		return session.StateFresh
+	case outputAbsent:
+		return session.StateAbsent
+	case outputStale:
+		return session.StateStale
+	case outputModified:
+		return session.StateModified
+	case outputForeign:
+		return session.StateForeign
+	case outputQuickSkipped:
+		return session.StateUnverified
+	case outputSecretsMissing, outputErrored:
+		return session.StateUnknown
+	}
+	panic(fmt.Sprintf("stateWord: unhandled output state %d", st))
+}
+
+// checkOutput is Check now: one output's full, non-quick freshness, which
+// reads its secrets (and so may raise keyring prompts). That cost is why
+// the interface only does it on request.
+func checkOutput(opts *Options, app *appContext, name string) string {
+	mx, err := matrixFromManifest(app)
+	if err != nil {
+		return session.StateUnknown
+	}
+	return stateWord(classifyOutput(opts, app, name, app.Manifest.Outputs[name], anyMissing(mx, app.Profile.Name), false))
+}
+
+// anyMissing reports whether a required variable has no value under profile.
+// It reads the presence-aware matrix rather than re-deriving status.go's
+// inline missing-count loop, so freshness and the matrix cannot disagree.
+func anyMissing(mx *session.Matrix, profile string) bool {
+	for _, name := range mx.Names {
+		if mx.Cell(name, profile) == session.CellMissing {
+			return true
+		}
+	}
+	return false
 }

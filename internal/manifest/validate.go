@@ -115,6 +115,11 @@ func (m *Manifest) Validate() error {
 	return nil
 }
 
+// CheckOutputPath reports why p cannot be an output's path -- absolute, or
+// escaping the worktree -- or nil. It is Validate's own rule, exported so
+// the interface can say so while the path is typed.
+func CheckOutputPath(p string) error { return checkRelPath(p) }
+
 // checkRelPath rejects paths that are absolute or that escape the worktree.
 // An output path is always resolved against a worktree root, so neither is
 // meaningful and both are dangerous.
