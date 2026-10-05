@@ -28,8 +28,7 @@ type reviewOverlay struct {
 }
 
 type reviewLine struct {
-	index        int    // into staged.All()
-	kind         string // "var" or "output": variables list first
+	index        int // into staged.All()
 	group        string
 	mark, what   string
 	detail       string
@@ -78,7 +77,7 @@ func (m *Model) describe(i int, c session.Change) reviewLine {
 	if isOutputChange(c) {
 		return m.describeOutput(i, c)
 	}
-	l := reviewLine{index: i, kind: "var", group: c.Name, mark: "~"}
+	l := reviewLine{index: i, group: c.Name, mark: "~"}
 	base := m.snap.Matrix.Vars[c.Name]
 	switch c.Kind {
 	case session.ChangeAddVar:
@@ -137,14 +136,22 @@ func (m *Model) describe(i int, c session.Change) reviewLine {
 // describeOutput words an output change before -> after. A default-output
 // change sits in its target's group, since the target is what it names.
 func (m *Model) describeOutput(i int, c session.Change) reviewLine {
-	l := reviewLine{index: i, kind: "output", group: "output " + displayName(c.Name, m.outView(c.Name)), mark: "~"}
+	l := reviewLine{index: i, group: "output " + displayName(c.Name, m.outView(c.Name)), mark: "~"}
 	base := m.snap.Matrix.Outputs[c.Name]
 	switch c.Kind {
 	case session.ChangeAddOutput:
 		l.what, l.detail = "add output", "(none)  ->  "+c.Format+" "+display(c.Path)
 	case session.ChangeRemoveOutput:
 		l.mark, l.what, l.irreversible = "x", "remove output", true
-		l.detail = "its definition leaves the manifest; " + display(base.Path) + " stays on disk"
+		l.detail = "its definition leaves the manifest; not rendered here"
+		if m.renderedHere(c.Name) {
+			l.detail = "its definition leaves the manifest; " + display(base.Path) + " stays on disk"
+		}
+		// commitStaged clears project.output with it, as `output rm` does,
+		// unless another output is staged to be the default.
+		if other, ok := m.staged.DefaultOutput(); c.Name == m.snap.DefaultOutput && (!ok || other == c.Name) {
+			l.detail += "; it is the default; there will be none"
+		}
 	case session.ChangeRenameOutput:
 		l.what, l.detail = "rename", c.Name+"  ->  "+c.Value
 	case session.ChangeDefaultOutput:

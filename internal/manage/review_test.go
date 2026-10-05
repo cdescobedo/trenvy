@@ -365,10 +365,32 @@ func TestReviewDescribesEveryOutputKind(t *testing.T) {
 	m = press(m, "left", "j", "d")           // web removed
 	m = press(m, "w")
 	v := m.View()
-	for _, want := range []string{"add output", "(none)  ->  dotenv api.env", "format", "dotenv  ->  json", "remove output", "web.json stays on disk"} {
+	for _, want := range []string{"add output", "(none)  ->  dotenv api.env", "format", "dotenv  ->  json", "remove output", "not rendered here"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("review lacks %q:\n%s", want, v)
 		}
+	}
+	// web was never rendered here (M4).
+	if strings.Contains(v, "stays on disk") {
+		t.Errorf("the review says a file web never rendered stays on disk:\n%s", v)
+	}
+}
+
+// M4: removing an output rendered here says its file stays on disk, and
+// removing the default says there will be none.
+func TestReviewOfRemovingTheRenderedDefault(t *testing.T) {
+	m := out(newModel(&fakeDeps{}), "d", "w") // local: fresh, the default
+	// The detail wraps; nothing is drawn beside the panel on these rows.
+	v := strings.Join(strings.Fields(strings.ReplaceAll(m.View(), "│", " ")), " ")
+	for _, want := range []string{".env stays on disk", "it is the default; there will be none"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("review lacks %q:\n%s", want, v)
+		}
+	}
+	// With web staged as the default, removing local leaves one.
+	m = out(newModel(&fakeDeps{}), "j", ".", "enter", "k", "d", "w")
+	if v := m.View(); !strings.Contains(v, "remove output") || strings.Contains(v, "there will be none") {
+		t.Errorf("review:\n%s", v)
 	}
 }
 
