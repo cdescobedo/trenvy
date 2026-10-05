@@ -35,6 +35,16 @@ const (
 	ChangeSetGlobs      = "set-globs"
 )
 
+// Profile kinds (spec §5). Name is the profile; no other field is used.
+// default-profile and use-profile each hold one slot, as default-output
+// does. use-profile writes this machine's state file, not the manifest.
+const (
+	ChangeAddProfile     = "add-profile"
+	ChangeRemoveProfile  = "remove-profile"
+	ChangeDefaultProfile = "default-profile"
+	ChangeUseProfile     = "use-profile"
+)
+
 // Change is one uncommitted edit, held in the model until w writes it to the
 // manifest, the state file or the keyring (Task 6). Profile says which
 // column a set-value or set-secret belongs to; a value written to the wrong

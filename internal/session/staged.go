@@ -26,8 +26,9 @@ func slot(c Change) string {
 		return "value\x00" + c.Name + "\x00" + c.Profile
 	case ChangeSetSecret:
 		return "secret\x00" + c.Name + "\x00" + c.Profile
-	case ChangeDefaultOutput:
-		// One project, one default: a new default replaces the last.
+	case ChangeDefaultOutput, ChangeDefaultProfile, ChangeUseProfile:
+		// One project, one default (and one active selection): a new one
+		// replaces the last.
 		return c.Kind
 	}
 	return c.Kind + "\x00" + c.Name
@@ -46,10 +47,24 @@ func isOutputKind(kind string) bool {
 	return false
 }
 
-// Add stages c. Variable kinds and output kinds are two namespaces: they
-// share Change.Name, an output may be named like a variable, and each rule
-// below looks only at its own kind. default-output occupies a single slot,
-// so staging a new default replaces the previous one.
+// isProfileKind reports whether kind changes a profile. Profile changes are
+// a third namespace beside variables and outputs.
+func isProfileKind(kind string) bool {
+	switch kind {
+	case ChangeAddProfile, ChangeRemoveProfile, ChangeDefaultProfile, ChangeUseProfile:
+		return true
+	}
+	return false
+}
+
+// isVarKind is everything that is neither an output nor a profile change.
+func isVarKind(kind string) bool { return !isOutputKind(kind) && !isProfileKind(kind) }
+
+// Add stages c. Variable kinds, output kinds and profile kinds are three
+// namespaces: they share Change.Name, an output or a profile may be named
+// like a variable, and each rule below looks only at its own kind.
+// default-output, default-profile and use-profile each occupy a single
+// slot, so staging a new one replaces the previous one.
 //
 // The invariant: a delete-var is never staged beside another change on the
 // same name, so commit never receives both. Two rules hold it:
@@ -63,6 +78,10 @@ func isOutputKind(kind string) bool {
 // keyring items and the delete would then remove the manifest entry that
 // names them. Outputs follow the same two rules with remove-output.
 func (s *Staged) Add(c Change) {
+	if isProfileKind(c.Kind) {
+		s.addProfile(c)
+		return
+	}
 	if isOutputKind(c.Kind) {
 		s.addOutput(c)
 		return
@@ -92,6 +111,23 @@ func (s *Staged) addOutput(c Change) {
 		}
 	} else {
 		s.DropKind(ChangeRemoveOutput, c.Name)
+	}
+	s.put(c)
+}
+
+// addProfile is Add for profile kinds, with the rules outputs follow, plus
+// one of its own: removing a profile also drops every value staged on its
+// cells (ruling 2 of the phase 3 plan), the way deleting a variable drops
+// its edits.
+func (s *Staged) addProfile(c Change) {
+	if c.Kind == ChangeRemoveProfile {
+		added := s.Has(ChangeAddProfile, c.Name)
+		s.DropOnProfile(c.Name)
+		if added {
+			return
+		}
+	} else {
+		s.DropKind(ChangeRemoveProfile, c.Name)
 	}
 	s.put(c)
 }
@@ -128,7 +164,7 @@ func (s Staged) Has(kind, name string) bool {
 func (s Staged) On(name string) []Change {
 	var out []Change
 	for _, c := range s.list {
-		if c.Name == name && !isOutputKind(c.Kind) {
+		if c.Name == name && isVarKind(c.Kind) {
 			out = append(out, c)
 		}
 	}
@@ -174,9 +210,11 @@ func dependsOn(dep, on Change) bool {
 	}
 	switch on.Kind {
 	case ChangeAddVar:
-		return !isOutputKind(dep.Kind)
+		return isVarKind(dep.Kind)
 	case ChangeAddOutput:
 		return isOutputKind(dep.Kind)
+	case ChangeAddProfile:
+		return isProfileKind(dep.Kind)
 	case ChangePromoteSecret:
 		return dep.Kind == ChangeSetSecret
 	}
@@ -221,7 +259,7 @@ func (s *Staged) remove(match func(Change) bool) []Change {
 
 // DropOn removes every change on the variable name.
 func (s *Staged) DropOn(name string) []Change {
-	return s.remove(func(c Change) bool { return c.Name == name && !isOutputKind(c.Kind) })
+	return s.remove(func(c Change) bool { return c.Name == name && isVarKind(c.Kind) })
 }
 
 // DropCell removes the value and secret changes on one cell.
@@ -395,4 +433,89 @@ func PromotionChanges(name string, v manifest.Var, profiles []string) []Change {
 		out = append(out, Change{Kind: ChangeSetSecret, Name: name, Profile: p, Value: value})
 	}
 	return append(out, Change{Kind: ChangePromoteSecret, Name: name})
+}
+
+// OnProfile returns every profile change staged on p.
+func (s Staged) OnProfile(p string) []Change {
+	var out []Change
+	for _, c := range s.list {
+		if c.Name == p && isProfileKind(c.Kind) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// CellsOn returns every value or secret change staged on profile p's cells.
+func (s Staged) CellsOn(p string) []Change {
+	var out []Change
+	for _, c := range s.list {
+		if p != "" && c.Profile == p && isCellKind(c.Kind) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// DropOnProfile removes every change on p: its profile changes, a default
+// or active selection pointing at it, and the values staged on its cells.
+func (s *Staged) DropOnProfile(p string) []Change {
+	return s.remove(func(c Change) bool {
+		return (c.Name == p && isProfileKind(c.Kind)) || (p != "" && c.Profile == p && isCellKind(c.Kind))
+	})
+}
+
+// AddedProfiles returns every profile added this session, in staged order:
+// a new profile goes at the end of the manifest's list, the order it will
+// have once saved.
+func (s Staged) AddedProfiles() []string {
+	var out []string
+	for _, c := range s.list {
+		if c.Kind == ChangeAddProfile {
+			out = append(out, c.Name)
+		}
+	}
+	return out
+}
+
+func (s Staged) single(kind string) (string, bool) {
+	for _, c := range s.list {
+		if c.Kind == kind {
+			return c.Name, true
+		}
+	}
+	return "", false
+}
+
+// DefaultProfile names the profile a staged default-profile points at.
+func (s Staged) DefaultProfile() (string, bool) { return s.single(ChangeDefaultProfile) }
+
+// UseProfile names the profile a staged use-profile points at.
+func (s Staged) UseProfile() (string, bool) { return s.single(ChangeUseProfile) }
+
+// ProfileView is one profile as it will read once the staged changes land.
+type ProfileView struct {
+	Added, Removed bool
+	Default        bool // the manifest's default_profile after save
+	Active         bool // this machine's selection after save
+}
+
+// ProfileView applies the staged changes to p. A removed profile is never
+// active: the commit clears a selection naming it.
+func (s Staged) ProfileView(p, diskDefault, diskActive string) ProfileView {
+	v := ProfileView{Added: s.Has(ChangeAddProfile, p), Removed: s.Has(ChangeRemoveProfile, p)}
+	if d, ok := s.DefaultProfile(); ok {
+		v.Default = d == p
+	} else {
+		v.Default = diskDefault == p
+	}
+	if u, ok := s.UseProfile(); ok {
+		v.Active = u == p
+	} else {
+		v.Active = diskActive == p
+	}
+	if v.Removed {
+		v.Active = false
+	}
+	return v
 }
