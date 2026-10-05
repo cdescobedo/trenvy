@@ -193,6 +193,47 @@ func TestUseOnThisMachineSaysWhenOutranked(t *testing.T) {
 	}
 }
 
+// messageText is the message line(s) above the footer, wrapping undone.
+func messageText(v string) string {
+	lines := strings.Split(v, "\n")
+	return collapsed(strings.Join(lines[len(lines)-3:len(lines)-1], "\n"))
+}
+
+// Each refusal fits the two message lines at 60 columns, nothing cut.
+func TestRefusalsFitTwoMessageLinesAt60(t *testing.T) {
+	at60 := func(snap manage.Snapshot) manage.Model {
+		return sized(manage.New(snap, (&fakeDeps{}).deps(), noTheme()), 60, 24)
+	}
+	onProd := fixture()
+	onProd.Profile, onProd.Source = "prod", "--profile"
+	outranked := fixture()
+	outranked.Source = "--profile"
+	one := fixtureManifest()
+	one.Project.Profiles = []string{"dev"}
+	one.Vars["APP_MODE"] = manifestVar("development")
+	only := fixtureManifest()
+	only.Vars["ONLY_PROD"] = manifest.Var{Profiles: map[string]string{"prod": "x"}}
+	stored := map[string]map[string]bool{"API_TOKEN": {"dev": true, "prod": true}}
+	cases := []struct {
+		snap manage.Snapshot
+		keys []string
+		want string
+	}{
+		{fixture(), []string{"3", "d"}, "dev is the default -- make another the default first"},
+		{onProd, []string{"3", "j", "j", "d"}, "this session is on prod -- remove it from a session on another profile: trenvy -p <other> ui"},
+		{snapshotOf(one, nil), []string{"3", "d"}, "dev is the last profile -- a project needs at least one"},
+		{snapshotOf(only, stored), []string{"3", "j", "j", "d"}, "removing prod would leave ONLY_PROD with no value -- give it a shared value first"},
+		{fixture(), []string{"3", ".", "j", "j", "enter"}, "a profile's name is part of its keyring item names -- rename is not supported"},
+		{outranked, []string{"3", "j", "j", ".", "enter"}, "prod will be active here, but --profile still outranks it -- u on it to undo"},
+	}
+	for _, c := range cases {
+		v := press(at60(c.snap), c.keys...).View()
+		if got := messageText(v); !strings.Contains(got, c.want) || strings.Contains(got, "…") {
+			t.Errorf("%v: message = %q, want %q whole:\n%s", c.keys, got, c.want, v)
+		}
+	}
+}
+
 func TestUseIsDisabledOnAnUnsavedProfile(t *testing.T) {
 	m := press(typeText(press(newModel(&fakeDeps{}), "3", "a"), "qa"), "enter")
 	m = press(m, ".", "enter")

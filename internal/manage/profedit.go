@@ -60,7 +60,7 @@ func (m Model) removeRefusal(p string) string {
 	case kept <= 1:
 		return p + " is the last profile -- a project needs at least one"
 	case v.Default:
-		return p + " is the default -- make another profile the default first (. then Make default)"
+		return p + " is the default -- make another the default first"
 	case p == m.snap.Profile:
 		return "this session is on " + p + " -- remove it from a session on another profile: trenvy -p <other> ui"
 	}
@@ -88,7 +88,11 @@ func (m Model) removeRefusal(p string) string {
 	}
 	if len(orphans) > 0 {
 		sort.Strings(orphans)
-		return "removing " + p + " would leave " + strings.Join(orphans, ", ") + " with no value -- give them a shared value first"
+		them := "them"
+		if len(orphans) == 1 {
+			them = "it"
+		}
+		return "removing " + p + " would leave " + strings.Join(orphans, ", ") + " with no value -- give " + them + " a shared value first"
 	}
 	return ""
 }
@@ -176,7 +180,7 @@ func (m *Model) useProfile(p string) {
 	m.staged.Add(session.Change{Kind: session.ChangeUseProfile, Name: p})
 	text := p + " will be this machine's active profile -- u on it to undo"
 	if o := m.outranked(); o != "" {
-		text = p + " will be this machine's active profile, but " + o + " still outranks it here"
+		text = p + " will be active here, but " + o + " still outranks it -- u on it to undo"
 	}
 	m.msg = message{text, false}
 }
@@ -219,7 +223,7 @@ func (m *Model) profMenu() overlay {
 		}
 		items = append(items, use, def, menuItem{
 			label:    "Rename",
-			disabled: "a profile's name is part of every keyring item stored under it -- renaming would mean moving each secret, which is not supported",
+			disabled: "a profile's name is part of its keyring item names -- rename is not supported",
 		})
 	}
 	return &menuOverlay{title: "More", items: append(items, m.commonMenuItems()...)}
