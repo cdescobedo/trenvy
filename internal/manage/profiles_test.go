@@ -51,6 +51,18 @@ func TestProfileDetailCountsOverridesSecretsAndMissing(t *testing.T) {
 	}
 }
 
+// A variable staged for deletion is not missing anywhere: it will not
+// exist after save.
+func TestADeletedVariableIsNotMissing(t *testing.T) {
+	v := press(newModel(&fakeDeps{}), "d", "3", "j").View() // delete API_TOKEN, then staging
+	if strings.Contains(v, "1 missing") {
+		t.Errorf("the list still counts API_TOKEN as missing:\n%s", v)
+	}
+	if row := lineWith(t, v, "missing"); !strings.Contains(row, "missing     none") {
+		t.Errorf("staging's missing line = %q, want none:\n%s", row, v)
+	}
+}
+
 func TestActiveTagFollowsTheSnapshot(t *testing.T) {
 	snap := fixture()
 	snap.Active = "prod"

@@ -57,11 +57,12 @@ func (m Model) profView(p string) session.ProfileView {
 }
 
 // missingFor is every variable with no value under p, by the snapshot's
-// problems, less those a staged value will fill.
+// problems, less those a staged value will fill and those staged for
+// deletion.
 func (m Model) missingFor(p string) []string {
 	var out []string
 	for _, pr := range m.snap.Problems {
-		if pr.Kind == "missing" && pr.Profile == p && !m.valueStaged(pr.Name, p) {
+		if pr.Kind == "missing" && pr.Profile == p && !m.valueStaged(pr.Name, p) && !m.varView(pr.Name).Deleted {
 			out = append(out, pr.Name)
 		}
 	}
