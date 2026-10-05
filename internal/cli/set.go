@@ -94,7 +94,7 @@ func newSetCmd(opts *Options) *cobra.Command {
 
 func newSecretCmd(opts *Options) *cobra.Command {
 	cmd := newGroupCmd("secret", "Manage secret values in the keyring")
-	cmd.AddCommand(newSecretSetCmd(opts), newSecretRmCmd(opts))
+	cmd.AddCommand(newSecretSetCmd(opts), newSecretRmCmd(opts), newSecretDemoteCmd(opts))
 	return cmd
 }
 
@@ -240,6 +240,118 @@ func newSecretRmCmd(opts *Options) *cobra.Command {
 	}
 	c.Flags().BoolVar(&yes, "yes", false, "do not ask for confirmation")
 	return c
+}
+
+// newSecretDemoteCmd turns a secret back into a plain variable. Making a
+// variable secret is otherwise one-way, so this is the way back.
+//
+// It acts on every declared profile, not the active one: a variable has one
+// kind, so leaving any profile's keyring item behind would strand a value
+// nothing references. The manifest is saved before any keyring item is
+// deleted, so a failure partway leaves every value safe in the manifest; the
+// worst case is unreferenced keyring items, which the error counts.
+func newSecretDemoteCmd(opts *Options) *cobra.Command {
+	var yes bool
+
+	c := &cobra.Command{
+		Use:               "demote <NAME>",
+		Short:             "Turn a secret back into a plain variable, moving its values into the manifest",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: opts.completeVarNames(isSecret),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			app, err := opts.resolveApp()
+			if err != nil {
+				return err
+			}
+			name := args[0]
+			v := app.Manifest.Vars[name]
+			if !v.Secret {
+				return fmt.Errorf("%s is not a secret", name)
+			}
+
+			s, err := app.store()
+			if err != nil {
+				return err
+			}
+			// Get, not Has: the values are the point. This is the one place
+			// outside an explicit reveal that reads secrets, and it may raise
+			// one keyring prompt per profile. Values are never printed.
+			profiles := app.Manifest.Project.Profiles
+			values := map[string]string{}
+			var found []string
+			for _, p := range profiles {
+				val, err := s.Get(app.Cfg.Keyring.ServiceName(app.Entry.ID, p, name))
+				if err != nil {
+					if errors.Is(err, store.ErrNotFound) {
+						continue
+					}
+					return err
+				}
+				values[p] = val
+				found = append(found, p)
+			}
+			if len(found) == 0 && !v.Optional {
+				return fmt.Errorf(
+					"nothing stored for %s under any profile -- store one with: trenvy -p %s secret set %s, or remove it with: trenvy unset %s",
+					name, app.Profile.Name, name, name)
+			}
+
+			if !yes {
+				ok, err := confirm(opts, fmt.Sprintf(
+					"Demote %s? Its values move out of the keyring into the manifest in plain text (%s), and those keyring items are deleted.",
+					name, strings.Join(found, ", ")))
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return errors.New("aborted")
+				}
+			}
+
+			v.Secret = false
+			v.Value, v.Profiles = nil, nil
+			if len(found) > 0 && len(found) == len(profiles) && allEqual(values) {
+				shared := values[found[0]]
+				v.Value = &shared
+			} else if len(found) > 0 {
+				v.Profiles = values
+			}
+			app.Manifest.Vars[name] = v
+			if err := app.Manifest.Validate(); err != nil {
+				return err
+			}
+			if err := manifest.Save(config.ManifestPath(app.Entry.ID), app.Manifest); err != nil {
+				return err
+			}
+
+			done := 0
+			for _, p := range found {
+				svc := app.Cfg.Keyring.ServiceName(app.Entry.ID, p, name)
+				if err := s.Delete(svc); err != nil && !errors.Is(err, store.ErrNotFound) {
+					return fmt.Errorf("delete %s: %w\n  deleted %d of %d keyring items; the manifest already holds the values in plain text -- the rest are unreferenced and can be removed in your keyring's own tool",
+						svc, err, done, len(found))
+				}
+				done++
+			}
+			fmt.Fprintf(opts.Stdout, "demoted %s: %d plain values (%s), deleted %d keyring items\n",
+				name, len(found), strings.Join(found, ", "), done)
+			return nil
+		},
+	}
+	c.Flags().BoolVar(&yes, "yes", false, "do not ask for confirmation")
+	return c
+}
+
+func allEqual(values map[string]string) bool {
+	first, set := "", false
+	for _, val := range values {
+		if !set {
+			first, set = val, true
+		} else if val != first {
+			return false
+		}
+	}
+	return true
 }
 
 func newUnsetCmd(opts *Options) *cobra.Command {

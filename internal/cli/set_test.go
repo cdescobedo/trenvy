@@ -615,3 +615,113 @@ func TestSetDoesNotWarnWhenTheDotenvOutputExcludesTheName(t *testing.T) {
 		t.Errorf("the output excludes it, so it cannot reach the file:\n%s", w)
 	}
 }
+
+func twoProfileSecretManifest(t *testing.T) *manifest.Manifest {
+	t.Helper()
+	m, err := manifest.Parse([]byte(`
+[project]
+id = "vpb"
+profiles = ["dev", "prod"]
+default_profile = "dev"
+output = "docker"
+salt = "abc123"
+
+[outputs.docker]
+format = "dotenv"
+path = "src/.env"
+include = ["*"]
+
+[vars.TOKEN]
+secret = true
+
+[vars.PLAIN]
+value = "plain"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// failOnDeleteStore fails the Delete of exactly one service name and leaves
+// every other operation to the embedded store.
+type failOnDeleteStore struct {
+	*store.Mem
+	failOn string
+}
+
+func (f failOnDeleteStore) Delete(service string) error {
+	if service == f.failOn {
+		return errors.New("keyring is locked")
+	}
+	return f.Mem.Delete(service)
+}
+
+func TestSecretDemoteWritesEqualValuesAsShared(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", twoProfileSecretManifest(t))
+	h.mem.Set("trenvy/vpb/dev/TOKEN", "same")
+	h.mem.Set("trenvy/vpb/prod/TOKEN", "same")
+	if err := h.run("secret", "demote", "TOKEN", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	v := h.manifest(t, "vpb").Vars["TOKEN"]
+	if v.Secret || v.Value == nil || *v.Value != "same" || len(v.Profiles) != 0 {
+		t.Errorf("TOKEN = %+v", v)
+	}
+	for _, p := range []string{"dev", "prod"} {
+		if ok, _ := h.mem.Has("trenvy/vpb/" + p + "/TOKEN"); ok {
+			t.Errorf("%s keyring item survived", p)
+		}
+	}
+	if strings.Contains(h.out.String(), "same") {
+		t.Errorf("printed a value: %q", h.out.String())
+	}
+}
+
+func TestSecretDemoteKeepsDifferingValuesPerProfile(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", twoProfileSecretManifest(t))
+	h.mem.Set("trenvy/vpb/dev/TOKEN", "d")
+	h.mem.Set("trenvy/vpb/prod/TOKEN", "p")
+	if err := h.run("secret", "demote", "TOKEN", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	v := h.manifest(t, "vpb").Vars["TOKEN"]
+	if v.Value != nil || v.Profiles["dev"] != "d" || v.Profiles["prod"] != "p" {
+		t.Errorf("TOKEN = %+v", v)
+	}
+}
+
+func TestSecretDemoteRefusals(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", twoProfileSecretManifest(t))
+	if err := h.run("secret", "demote", "PLAIN", "--yes"); err == nil || !strings.Contains(err.Error(), "not a secret") {
+		t.Errorf("plain: %v", err)
+	}
+	if err := h.run("secret", "demote", "TOKEN", "--yes"); err == nil || !strings.Contains(err.Error(), "nothing stored") {
+		t.Errorf("empty: %v", err)
+	}
+	if !h.manifest(t, "vpb").Vars["TOKEN"].Secret {
+		t.Error("a refused demote changed the manifest")
+	}
+}
+
+func TestSecretDemoteSavesTheManifestBeforeDeleting(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", twoProfileSecretManifest(t))
+	h.mem.Set("trenvy/vpb/dev/TOKEN", "d")
+	h.opts.NewStore = func(*config.Config, string) (store.Store, error) {
+		return failOnDeleteStore{Mem: h.mem, failOn: "trenvy/vpb/dev/TOKEN"}, nil
+	}
+	err := h.run("secret", "demote", "TOKEN", "--yes")
+	if err == nil {
+		t.Fatal("demote succeeded with a failing delete")
+	}
+	if v := h.manifest(t, "vpb").Vars["TOKEN"]; v.Secret || v.Profiles["dev"] != "d" && (v.Value == nil || *v.Value != "d") {
+		t.Errorf("the value was not saved before the failing delete: %+v", v)
+	}
+	if !strings.Contains(err.Error(), "deleted 0 of 1") {
+		t.Errorf("error does not say how far it got: %v", err)
+	}
+}

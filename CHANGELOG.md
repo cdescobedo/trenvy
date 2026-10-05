@@ -53,6 +53,12 @@ the command surface may still move under you.
 
 ### Added
 
+- **`trenvy secret demote <NAME>`** turns a secret back into a plain
+  variable across every profile: it reads each profile's keyring value,
+  writes the values into the manifest in plain text, then deletes the
+  keyring items. Before, only `trenvy edit` could do this, and only for the
+  active profile, leaving the other profiles' keyring items behind.
+
 - **Profiles.** A project declares `profiles` and a `default_profile` in its
   manifest. The active profile comes from `--profile`/`-p`, then
   `TRENVY_PROFILE`, then this machine's active selection (`trenvy profile
