@@ -710,7 +710,7 @@ func TestSecretDemoteRefusals(t *testing.T) {
 func TestSecretDemoteSavesTheManifestBeforeDeleting(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", twoProfileSecretManifest(t))
-	h.mem.Set("trenvy/vpb/dev/TOKEN", "d")
+	h.mem.Set("trenvy/vpb/dev/TOKEN", "s3cr3t-dev")
 	h.opts.NewStore = func(*config.Config, string) (store.Store, error) {
 		return failOnDeleteStore{Mem: h.mem, failOn: "trenvy/vpb/dev/TOKEN"}, nil
 	}
@@ -718,10 +718,10 @@ func TestSecretDemoteSavesTheManifestBeforeDeleting(t *testing.T) {
 	if err == nil {
 		t.Fatal("demote succeeded with a failing delete")
 	}
-	if v := h.manifest(t, "vpb").Vars["TOKEN"]; v.Secret || v.Profiles["dev"] != "d" && (v.Value == nil || *v.Value != "d") {
+	if v := h.manifest(t, "vpb").Vars["TOKEN"]; v.Secret || v.Profiles["dev"] != "s3cr3t-dev" && (v.Value == nil || *v.Value != "s3cr3t-dev") {
 		t.Errorf("the value was not saved before the failing delete: %+v", v)
 	}
-	if strings.Contains(err.Error(), "\"d\"") || strings.HasSuffix(err.Error(), " d") {
+	if strings.Contains(err.Error(), "s3cr3t-dev") {
 		t.Errorf("error prints a value: %v", err)
 	}
 	if !strings.Contains(err.Error(), "deleted 0 of 1") {
@@ -799,7 +799,7 @@ func TestSecretDemoteOfAnOptionalSecretWithNothingStoredSaysSo(t *testing.T) {
 func TestSecretDemoteDeclinedChangesNothing(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", twoProfileSecretManifest(t))
-	h.mem.Set("trenvy/vpb/dev/TOKEN", "d")
+	h.mem.Set("trenvy/vpb/dev/TOKEN", "s3cr3t-dev")
 	h.opts.Stdin = strings.NewReader("n\n")
 	err := h.run("secret", "demote", "TOKEN")
 	if err == nil || err.Error() != "aborted" {
@@ -811,7 +811,7 @@ func TestSecretDemoteDeclinedChangesNothing(t *testing.T) {
 	if ok, _ := h.mem.Has("trenvy/vpb/dev/TOKEN"); !ok {
 		t.Error("keyring item deleted")
 	}
-	if strings.Contains(h.out.String()+h.errb.String(), "\"d\"") {
+	if strings.Contains(h.out.String()+h.errb.String(), "s3cr3t-dev") {
 		t.Error("printed a value")
 	}
 }

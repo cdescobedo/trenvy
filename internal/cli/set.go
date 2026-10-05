@@ -273,9 +273,9 @@ func newSecretDemoteCmd(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// Get, not Has: the values are the point. This is the one place
-			// outside an explicit reveal that reads secrets, and it may raise
-			// one keyring prompt per profile. Values are never printed.
+			// Get, not Has: the values are the point. This is one of the few
+			// places, beside an explicit reveal and Check now, that reads secrets,
+			// and it may raise one keyring prompt per profile. Values are never printed.
 			profiles := app.Manifest.Project.Profiles
 			values := map[string]string{}
 			var found []string
