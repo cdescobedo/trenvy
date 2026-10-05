@@ -240,3 +240,49 @@ func hasStaged(m manageModel, want string) bool {
 	}
 	return false
 }
+
+// Spec §4: the add-output fields are validated live. The problem shows
+// under the field while typing, before any enter, and goes once the value
+// is valid.
+func TestAddOutputShowsProblemsWhileTyping(t *testing.T) {
+	m := out(newModel(&fakeDeps{}), "a")
+	m = typeText(m, "local")
+	if !strings.Contains(m.View(), "already exists") {
+		t.Errorf("a taken name shows no problem before enter:\n%s", m.View())
+	}
+	m = press(m, "ctrl+u")
+	m = typeText(m, "api")
+	if v := m.View(); strings.Contains(v, "already exists") || strings.Contains(v, "letters, digits") {
+		t.Errorf("a valid name still shows a problem:\n%s", v)
+	}
+	m = press(m, "enter", "d", "ctrl+u")
+	m = typeText(m, "../x")
+	if !strings.Contains(m.View(), "escape the worktree") {
+		t.Errorf("a path escaping the worktree shows no problem before enter:\n%s", m.View())
+	}
+	m = press(m, "ctrl+u")
+	m = typeText(m, "x.env")
+	if strings.Contains(m.View(), "escape the worktree") {
+		t.Errorf("a valid path still shows a problem:\n%s", m.View())
+	}
+}
+
+// An edit to an output added this session folds into its addition, so
+// there is no row-level change for u to undo; the message says where the
+// undo is instead.
+func TestEditingAnAddedOutputSaysTheAdditionIsWhatUndoes(t *testing.T) {
+	m := out(newModel(&fakeDeps{ignored: map[string]bool{"api.env": true}}), "a")
+	m = typeText(m, "api")
+	m = press(m, "enter", "d")
+	m = typeText(m, "api.env")
+	m = press(m, "enter", "enter", "j", "enter", "ctrl+u") // api, detail, path row, edit
+	m = typeText(m, "x.env")
+	m = press(m, "enter")
+	if got := m.Staged(); len(got) != 1 || got[0].Kind != "add-output" || got[0].Path != "x.env" {
+		t.Fatalf("staged = %+v", got)
+	}
+	v := m.View()
+	if strings.Contains(v, "u to undo") || !strings.Contains(v, "undoes the whole addition") {
+		t.Errorf("message:\n%s", v)
+	}
+}

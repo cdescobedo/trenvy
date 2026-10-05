@@ -100,6 +100,9 @@ func (a *addOutputOverlay) afterIgnored(m *Model, msg ignoredMsg) bool {
 	}
 	a.warned = msg.path
 	why := "is not ignored by git -- render refuses to write it without --allow-tracked"
+	// guard.GitIgnored never returns an error: outside a repository, or
+	// with no git, it reports the path ignored (see Deps.Ignored). This
+	// branch keeps the Deps contract honest for an Ignored that can fail.
 	if msg.err != nil {
 		why = "could not be checked against .gitignore (" + msg.err.Error() + ")"
 	}
@@ -113,17 +116,47 @@ func (a *addOutputOverlay) stage(m *Model, path string) {
 	m.msg = message{"output " + a.name + " added -- u to undo", false}
 }
 
+// problem is what is wrong with the field's value right now, or "". The
+// panel shows it while typing (spec §4, "validated live"); enter refuses
+// the same values. An empty field shows nothing until enter.
+func (a *addOutputOverlay) problem(m *Model) string {
+	v := strings.TrimSpace(a.f.value())
+	if v == "" {
+		return ""
+	}
+	switch a.step {
+	case 0:
+		return m.outputNameProblem(v, "")
+	case 2:
+		if err := manifest.CheckOutputPath(v); err != nil {
+			return err.Error()
+		}
+	}
+	return ""
+}
+
+// fieldBody is the field and, under it, the current problem.
+func (a *addOutputOverlay) fieldBody(m *Model, w int) []string {
+	body := []string{" " + a.f.view(m.th)}
+	if p := a.problem(m); p != "" {
+		for _, l := range wrap(display(p), min(w, panelMax)-5) {
+			body = append(body, " "+m.th.Danger.Render(l))
+		}
+	}
+	return body
+}
+
 func (a *addOutputOverlay) view(m *Model, w, h int) string {
 	switch a.step {
 	case 0:
-		return m.panel("Add output -- name", []string{" " + a.f.view(m.th)}, w, h)
+		return m.panel("Add output -- name", a.fieldBody(m, w), w, h)
 	case 1:
 		return m.panel("Add "+a.name+" -- format", []string{
 			" " + m.th.Key.Render("d") + " " + m.th.Text.Render("dotenv: KEY=value lines"),
 			" " + m.th.Key.Render("j") + " " + m.th.Text.Render("json: one object"),
 		}, w, h)
 	}
-	return m.panel("Add "+a.name+" -- path in this worktree", []string{" " + a.f.view(m.th)}, w, h)
+	return m.panel("Add "+a.name+" -- path in this worktree", a.fieldBody(m, w), w, h)
 }
 
 func (a *addOutputOverlay) hints(*Model) []hint {
@@ -189,13 +222,22 @@ func (m *Model) undoOutputRow(id, rowKey string) {
 	m.msg = message{"undid " + id + "'s " + rowKey, false}
 }
 
+// fieldOutcome is what a format or path edit did, so the message never
+// claims a change that is not staged.
+type fieldOutcome int
+
+const (
+	fieldStaged fieldOutcome = iota // a row-level change, undone by u on the row
+	fieldOnDisk                     // back to the disk value: the change is dropped
+	fieldFolded                     // folded into the output's add-output
+)
+
 // stageOutputField stages a format or path edit, dropping it instead when
-// the value is what is already on disk. It says which it did, so the
-// message never claims a change that is not staged.
-func (m *Model) stageOutputField(id, kind, value, onDisk string) (staged bool) {
+// the value is what is already on disk.
+func (m *Model) stageOutputField(id, kind, value, onDisk string) fieldOutcome {
 	if !m.staged.Has(session.ChangeAddOutput, id) && value == onDisk {
 		m.staged.DropKind(kind, id)
-		return false
+		return fieldOnDisk
 	}
 	if m.staged.Has(session.ChangeAddOutput, id) {
 		// An addition carries its own format and path: re-stage it.
@@ -207,18 +249,21 @@ func (m *Model) stageOutputField(id, kind, value, onDisk string) (staged bool) {
 			p = value
 		}
 		m.staged.Add(session.Change{Kind: session.ChangeAddOutput, Name: id, Format: f, Path: p})
-		return true
+		return fieldFolded
 	}
 	m.staged.Add(session.Change{Kind: kind, Name: id, Value: value})
-	return true
+	return fieldStaged
 }
 
 // fieldStagedMsg is the message after a format or path edit.
-func fieldStagedMsg(id, field string, staged bool) message {
-	if staged {
-		return message{id + " " + field + " staged -- u to undo", false}
+func fieldStagedMsg(id, field string, o fieldOutcome) message {
+	switch o {
+	case fieldOnDisk:
+		return message{id + " " + field + " is back to what is on disk", false}
+	case fieldFolded:
+		return message{id + "'s " + field + " changed -- it is part of adding " + id + "; u on " + id + " in the list undoes the whole addition", false}
 	}
-	return message{id + " " + field + " is back to what is on disk", false}
+	return message{id + " " + field + " staged -- u to undo", false}
 }
 
 // beginOutputEdit is enter on a detail row.

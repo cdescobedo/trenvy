@@ -291,3 +291,26 @@ func TestUiNewAddOutputAsksGitWhetherThePathIsIgnored(t *testing.T) {
 		t.Errorf("outputs = %+v", got.Outputs)
 	}
 }
+
+// A worktree outside git has nothing git could commit, so GitIgnored counts
+// every path as ignored -- the same judgement render's guard makes -- and
+// adding an output there takes one enter, with no warning.
+func TestUiNewAddOutputOutsideGitNeedsNoWarning(t *testing.T) {
+	h := newHarness(t) // h.root is a fresh temp dir, not a repository
+	h.register("vpb", fixtureManifest(t))
+	var view string
+	h.opts.RunManage = func(m manage.Model) (manage.Model, error) {
+		m = drive(m, r("2"), r("a"), r("api"), enter, r("d"), enter)
+		view = m.View()
+		if got := m.Staged(); len(got) != 1 || got[0].Path != ".env" {
+			t.Errorf("one enter did not add the output: %+v", got)
+		}
+		return m, nil
+	}
+	if err := h.run("ui", "--new"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(view, "not ignored") || strings.Contains(view, "could not be checked") {
+		t.Errorf("warned outside git:\n%s", view)
+	}
+}

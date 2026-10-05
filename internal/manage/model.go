@@ -52,7 +52,9 @@ type Deps struct {
 	Commit func([]session.Change) (CommitResult, error)
 	Reload func() (Snapshot, error)
 	// Ignored reports whether git ignores path in this worktree, for the
-	// add-output warning (spec §4).
+	// add-output warning (spec §4). A worktree outside git, or no git at
+	// all, counts as ignored: render's guard judges it the same way
+	// (guard.GitIgnored), so there is nothing to warn about.
 	Ignored func(path string) (bool, error)
 }
 

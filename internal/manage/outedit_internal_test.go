@@ -31,9 +31,12 @@ func TestIgnoredAnswerForAnEditedPathIsDropped(t *testing.T) {
 	}
 }
 
-// A git failure warns the same way an unignored path does: shown, and a
-// second enter adds anyway.
-func TestIgnoredErrorWarnsAndAllowsAddingAnyway(t *testing.T) {
+// An Ignored that fails warns the way an unignored path does: shown, and a
+// second enter adds anyway. guard.GitIgnored itself never fails -- outside
+// a repository it reports ignored (TestUiNewAddOutputOutsideGitNeedsNoWarning
+// in internal/cli) -- so this covers the Deps contract, not "not a git
+// repository".
+func TestFailedIgnoredCheckWarnsAndAllowsAddingAnyway(t *testing.T) {
 	next, _ := pathStep("a.env").Update(ignoredMsg{path: "a.env", err: errors.New("git: not found")})
 	m := next.(Model)
 	if m.staged.Len() != 0 || !strings.Contains(m.msg.text, "could not be checked") || !strings.Contains(m.msg.text, "git: not found") {
