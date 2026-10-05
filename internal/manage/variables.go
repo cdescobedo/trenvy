@@ -604,7 +604,8 @@ func (m Model) detailBody(inner, height int) string {
 }
 
 // problemLine words a problem for the interface, with an in-app fix (spec
-// §2) -- never session.Problem.Fix, which names the old interface's keys.
+// §2) -- never session.Problem.Fix, which is worded for outside it: a
+// command, or how to reach the screen.
 func problemLine(p session.Problem, v manifest.Var) string {
 	switch p.Kind {
 	case "missing":

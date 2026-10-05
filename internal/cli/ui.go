@@ -74,9 +74,10 @@ func newUiCmd(opts *Options) *cobra.Command {
 //     is the fix for the second, closely related Fix-1-shaped bug a
 //     whole-branch review found: identity.Name never changes when a row is
 //     renamed (every other Change keys by the row's ORIGINAL identity),
-//     but the rename itself moves that key in app.Manifest.Outputs. Applying rename-output in the same
-//     single-pass loop as set-globs or default-output meant whichever the
-//     user happened to press FIRST decided whether the other's edit landed:
+//     but the rename itself moves that key in app.Manifest.Outputs.
+//     Applying rename-output in the same single-pass loop as set-globs or
+//     default-output meant whichever the user happened to press FIRST
+//     decided whether the other's edit landed:
 //     rename-then-edit-membership deleted the old key before set-globs ever
 //     looked it up, silently discarding the edit, while edit-then-rename
 //     worked -- two staged edits, opposite results, by keypress order alone.

@@ -142,7 +142,7 @@ func Problems(mx *Matrix, outputs map[string]string) []Problem {
 					Name:   name,
 					Detail: fmt.Sprintf("%s reaches no output", name),
 					Fix: fmt.Sprintf(
-						"Outputs tab (4): enter on an output, then space to include %s -- if it should reach a file",
+						"trenvy ui, Outputs (2): enter on an output, then space on %s -- if it should reach a file",
 						name),
 				})
 			}

@@ -80,8 +80,9 @@ terminal.
 Presence is loaded through `Has` only, never `Get`, the same rule `status` and
 the completion paths follow, so opening the interface never raises a keyring
 authorization prompt by itself. A secret is read only by an explicit reveal,
-by *Check now* on an output (its menu label says it reads secrets), and by
-`trenvy secret demote`.
+by *Render now* on an output (it is `trenvy render`, which resolves every
+value it writes), by *Check now* on an output (its menu label says it reads
+secrets), and by `trenvy secret demote`.
 
 `tui` is what is left of the first interactive view: one profile's variables
 as a flat table. Its only caller is `reviewImport` (`internal/cli/edit.go`), the
@@ -308,8 +309,9 @@ earlier one replaces it, so the review lists what will happen rather than every
 keypress that led there. `commitStaged` (`internal/cli/ui.go`) then applies the
 whole staged slice, in a fixed order that does not depend on the order the
 changes were staged in. First it validates the manifest half of the batch on a
-clone, so a batch the manifest refuses writes nothing at all; then it runs six
-phases:
+clone, so a batch the manifest refuses writes nothing at all -- and so does
+one that renames an output onto a held name, or leaves two outputs on one path
+(the rule `trenvy output add` enforces); then it runs six phases:
 
 1. **Structural additions.** A staged `add-var` or `add-output` inserts the
    new entry before anything else runs, so a row this same session also
@@ -321,11 +323,13 @@ phases:
    declared profile, not only the one active in this session, built through
    `Cfg.Keyring.ServiceName(project, p, name)` for each profile `p` in turn.
 4. **The state file.** A staged output rename repoints its render records to
-   the new name; a staged output removal forgets its render records in every
-   worktree that ever rendered it, and the commit later names each file the
-   removal leaves on disk. Both are saved to `state/<id>.toml` here, ahead of
-   the manifest edit in phase 5 — the same state-before-manifest order
-   `trenvy output rename` already uses on its own.
+   the new name; a staged output removal or path edit forgets its render
+   records in every worktree that ever rendered it, and the commit later names
+   each file left on disk; a staged format edit blanks its records' digests,
+   so the file in the old format reads `STALE` rather than fresh. All are
+   saved to `state/<id>.toml` here, ahead of the manifest edit in phase 5 —
+   the same state-before-manifest order `trenvy output rename` already uses
+   on its own.
 5. **Every remaining manifest edit and removal.** Value edits, optional
    flags, secret promotions (flipping `Secret` and clearing `Value`/`Profiles`), output
    defaults, output format and path edits, output removals and glob changes
@@ -351,8 +355,8 @@ ahead of the manifest, extending the keyring-first, state-before-manifest
 ordering above to the whole batch rather than one command's own write. A
 commit that fails partway through reports progress in the units of the phase
 it was in: secrets stored versus secrets deleted, or render records
-repointed versus forgotten, never folded into one count that could not say
-which kind stalled. Once a keyring write, a keyring delete or the state
+repointed, forgotten or marked stale, never folded into one count that could
+not say which kind stalled. Once a keyring write, a keyring delete or the state
 file's save has landed, it stays; there is no rollback across phases.
 
 Because the manifest is saved last and atomically, a failure leaves the manifest
@@ -366,8 +370,8 @@ returns `manage.ErrNothingWritten`, which the review reports as "nothing was
 written" instead of offering a retry that cannot succeed.
 
 `commitStaged` returns its result (the count saved, and the files left in place
-by output removals) instead of printing it, because stdout belongs to the
-interface while it runs.
+by output removals and path edits) instead of printing it, because stdout
+belongs to the interface while it runs.
 
 ## The render guards
 

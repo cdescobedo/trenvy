@@ -26,9 +26,9 @@ func checked(names ...string) map[string]bool {
 // produces, including the shape of the two edge cases that are load-bearing
 // rather than stylistic:
 //
-//   - "all checked" in ModeEverythingExcept must leave BOTH lists empty, not
+//   - "all checked" in GlobsEverythingExcept must leave BOTH lists empty, not
 //     write a redundant []string{} exclude.
-//   - "none checked" in ModeOnlyThese cannot be an empty include: an empty
+//   - "none checked" in GlobsOnlyThese cannot be an empty include: an empty
 //     include is resolve.selected's spelling for "everything", the opposite
 //     of what unchecking every box means. See the doc comment on WriteGlobs
 //     for what this writes instead and why.
@@ -200,8 +200,8 @@ func TestWriteGlobsModeSwitchPreservesSelection(t *testing.T) {
 	}
 
 	// The two futures do genuinely differ for a name neither checkbox set
-	// ever saw: ModeOnlyThese's D stays out (it was never checked),
-	// ModeEverythingExcept's D falls on the "everything" side (it was never
+	// ever saw: GlobsOnlyThese's D stays out (it was never checked),
+	// GlobsEverythingExcept's D falls on the "everything" side (it was never
 	// marked an exception). This is the intended difference the modes
 	// exist to express, not a bug -- asserted here so it isn't confused
 	// with the property above.

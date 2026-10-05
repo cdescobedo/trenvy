@@ -407,8 +407,8 @@ same session.
 
 Presence is loaded with `Has`, never `Get`, so opening it never raises a
 keyring authorization prompt. A secret's real value is read only when you ask:
-`v` on a value, *Check now* on an output, and `trenvy secret demote` outside
-the interface.
+`v` on a value, *Render now* and *Check now* on an output, and `trenvy secret
+demote` outside the interface.
 
 ### The layout
 
@@ -434,9 +434,10 @@ $ trenvy ui
 ```
 
 - **Header.** The project, then the profile in effect and where that choice
-  came from: `default` above, or `active`, `TRENVY_PROFILE` or `--profile`. On the right, the
-  problem count, and — once something is staged — the unsaved count with the
-  key that reviews it. Each appears only when it is non-zero.
+  came from: `default` above, or `active`, `TRENVY_PROFILE` or `--profile`.
+  On the right, the problem count, and — once something is staged — the
+  unsaved count with the key that reviews it. Each appears only when it is
+  non-zero.
 - **Screens.** **Variables** and **Outputs**, switched with `1` and `2`, or
   `tab` and `shift+tab`. Profiles are not a screen of this interface:
   `trenvy profile` does that job from the command line.
@@ -562,8 +563,17 @@ item *Stop including new variables* or *Include new variables automatically*
 flips it, without moving any checked box.
 
 `enter` on `format` or `path` edits it. `a` adds an output: name, then format,
-then path, and a path git does not ignore is warned about in the field before
-you confirm it. `d` marks an output for removal.
+then path. A dotenv output's path starts as `.env`, or as `<name>.env` when
+another output already renders to `.env`. A path another output renders to is
+refused, as `trenvy output add` refuses it, because one would overwrite the
+other's file. A path git does not ignore is warned about on the message line
+after the first `enter`; a second `enter` takes it anyway. Both checks apply
+to editing a path too. `d` marks an output for removal.
+
+Saving a path edit stops tracking the file at the old path: it stays on disk,
+and the save lists it, as removing an output does. Saving a format edit marks
+the rendered file `STALE`, because it is still in the old format; *Render now*
+rewrites it.
 
 `.` on an output offers *Make default*, *Rename*, the new-variables item,
 *Render now*, *Remove rendered file* and *Check now (reads secrets)*. The last three
@@ -610,7 +620,9 @@ would happen:
  enter save all   u drop this change   esc keep editing
 ```
 
-Changes are grouped by what they touch, and every line reads *before -> after*.
+Changes are grouped by what they touch, and a line that changes a value reads
+*before -> after*; the others say what happens, such as `store new value
+(keyring)` or `its values leave the manifest`.
 A plain value is shown in full. A secret's never is — its line says `store new
 value (keyring)`. Lines that cannot be undone after saving (a deleted
 variable, a variable turned into a secret) carry `!` and say so. Every line

@@ -215,8 +215,8 @@ func TestProblemsMembershipFixIsNotRender(t *testing.T) {
 	if strings.Contains(ps[0].Fix, "render") {
 		t.Errorf("Fix = %q, `trenvy render` fixes nothing here -- there is nothing to render it into", ps[0].Fix)
 	}
-	if !strings.Contains(ps[0].Fix, "Outputs tab") {
-		t.Errorf("Fix = %q, want it to point at the Outputs tab, the actual way to change membership", ps[0].Fix)
+	if !strings.Contains(ps[0].Fix, "Outputs (2)") {
+		t.Errorf("Fix = %q, want it to point at the Outputs screen, the actual way to change membership", ps[0].Fix)
 	}
 }
 
