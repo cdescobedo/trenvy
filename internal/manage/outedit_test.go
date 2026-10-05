@@ -172,10 +172,18 @@ func TestMembershipGridIncludesAddedVariablesAndUncheckingAllSelectsNone(t *test
 
 func TestSwitchingTheFutureModeKeepsTheBoxes(t *testing.T) {
 	m := out(newModel(&fakeDeps{}), ".") // local menu
+	// The item names what it does, not the state it would leave: local
+	// includes new variables now (web, only-these, does not).
+	if v := m.View(); !strings.Contains(v, "Stop including new variables") {
+		t.Errorf("local's menu:\n%s", v)
+	}
+	if v := out(newModel(&fakeDeps{}), "j", ".").View(); !strings.Contains(v, "Include new variables automatically") {
+		t.Errorf("web's menu:\n%s", v)
+	}
 	for i := 0; i < 2; i++ {
 		m = press(m, "j")
 	}
-	m = press(m, "enter") // "New variables: not included"
+	m = press(m, "enter") // "Stop including new variables"
 	if !strings.Contains(m.View(), "not included") {
 		t.Fatalf("mode did not switch:\n%s", m.View())
 	}

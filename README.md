@@ -558,14 +558,15 @@ secret means reading secrets, and opening the interface does not.
 toggles one, and a `~` marks a box you changed. The sentence above the grid says
 what a variable added *later* does — `new variables included automatically`
 or `new variables not included -- only the checked ones` — and the `.` menu
-item *New variables* flips it, without moving any checked box.
+item *Stop including new variables* or *Include new variables automatically*
+flips it, without moving any checked box.
 
 `enter` on `format` or `path` edits it. `a` adds an output: name, then format,
 then path, and a path git does not ignore is warned about in the field before
 you confirm it. `d` marks an output for removal.
 
-`.` on an output offers *Make default*, *Rename*, *New variables*, *Render
-now*, *Remove rendered file* and *Check now (reads secrets)*. The last three
+`.` on an output offers *Make default*, *Rename*, the new-variables item,
+*Render now*, *Remove rendered file* and *Check now (reads secrets)*. The last three
 act **immediately**, not staged, because they touch this worktree's file and
 not the manifest:
 

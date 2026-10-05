@@ -300,7 +300,7 @@ func TestUiRenderNowWritesTheFileAndReloadsItsState(t *testing.T) {
 	var rendered, checked string
 	h.opts.RunManage = func(m manage.Model) (manage.Model, error) {
 		// Outputs, the . menu, down to Render now (after Make default,
-		// Rename and the New variables item), enter.
+		// Rename and the new-variables item), enter.
 		m = drive(m, r("2"), r("."), r("j"), r("j"), r("j"), enter)
 		rendered = m.View()
 		// Reopen the menu: Check now is two items below Render now.

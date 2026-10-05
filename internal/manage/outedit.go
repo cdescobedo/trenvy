@@ -491,7 +491,7 @@ func (m *Model) switchGlobMode(id string) {
 }
 
 // outMenu is . on the Outputs screen. Render now, Remove rendered file and
-// Check now sit between "New variables" and "Project info".
+// Check now sit between the new-variables item and "Project info".
 func (m *Model) outMenu() overlay {
 	var items []menuItem
 	if id, ok := m.selectedOutput(); ok {
@@ -547,9 +547,11 @@ func (m *Model) outMenu() overlay {
 		if v.Removed {
 			rename.disabled = id + " is marked for removal"
 		}
-		future := "New variables: not included"
+		// Named for what choosing it does: the detail pane already says
+		// what new variables do now.
+		future := "Stop including new variables"
 		if session.InferGlobMode(v.Output.Include) == session.GlobsOnlyThese {
-			future = "New variables: included automatically"
+			future = "Include new variables automatically"
 		}
 		mode := menuItem{label: future, run: func(m *Model) tea.Cmd { m.switchGlobMode(id); return nil }}
 		if v.Removed {
