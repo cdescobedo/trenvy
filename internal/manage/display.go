@@ -29,6 +29,31 @@ func display(s string) string {
 	return b.String()
 }
 
+// errText is an error as one message line. A command's own refusal can
+// run over several lines (render's gitignore refusal is four), which the
+// message line would draw as \n escapes: the lines are joined with " -- "
+// instead, and a line ending in ":" runs on into the one it introduces.
+func errText(err error) string {
+	var b strings.Builder
+	prev := ""
+	for _, l := range strings.Split(err.Error(), "\n") {
+		l = strings.TrimSpace(l)
+		if l == "" {
+			continue
+		}
+		switch {
+		case prev == "":
+		case strings.HasSuffix(prev, ":"):
+			b.WriteString(" ")
+		default:
+			b.WriteString(" -- ")
+		}
+		b.WriteString(l)
+		prev = l
+	}
+	return b.String()
+}
+
 // plural is "1 problem" / "2 problems".
 func plural(n int, noun string) string {
 	if n == 1 {

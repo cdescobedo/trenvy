@@ -492,7 +492,7 @@ func (m Model) afterReload(msg reloadedMsg) (tea.Model, tea.Cmd) {
 		m.stale = true
 		// The recovery comes before the error, whose length is not ours to
 		// choose, so the message line never cuts it off.
-		text := "reload failed, press . then Reload from disk: " + msg.err.Error()
+		text := "reload failed, press . then Reload from disk: " + errText(msg.err)
 		// A save that landed set a plain message just before this reload;
 		// keep its first clause, or the failure reads as if nothing was
 		// saved. Not the file list: that has its own panel.

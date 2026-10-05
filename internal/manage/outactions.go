@@ -47,7 +47,7 @@ func (m *Model) runAction(label string, run func() (string, error)) tea.Cmd {
 func (m Model) afterAction(msg actionDoneMsg) (tea.Model, tea.Cmd) {
 	m.saving = false
 	if msg.err != nil {
-		m.msg = message{msg.err.Error(), true}
+		m.msg = message{errText(msg.err), true}
 		return m, nil
 	}
 	m.msg = message{msg.text, false}
@@ -59,7 +59,7 @@ func (m Model) afterAction(msg actionDoneMsg) (tea.Model, tea.Cmd) {
 func (m Model) afterChecked(msg checkedMsg) (tea.Model, tea.Cmd) {
 	m.saving = false
 	if msg.err != nil {
-		m.msg = message{"could not check " + msg.id + ": " + msg.err.Error(), true}
+		m.msg = message{"could not check " + msg.id + ": " + errText(msg.err), true}
 		return m, nil
 	}
 	m.outs.checked[msg.id] = msg.state

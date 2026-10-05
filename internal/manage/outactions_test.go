@@ -15,12 +15,17 @@ func TestRenderNowRunsAndReloads(t *testing.T) {
 	}
 }
 
-// Review Focus 3.
+// Review Focus 3. The refusal is render's own, four lines long
+// (internal/cli/render.go); it reads as one line, never as \n escapes.
 func TestRenderRefusalIsShownAndNothingIsWritten(t *testing.T) {
-	f := &fakeDeps{renderErr: errors.New(".env is not ignored by git")}
+	f := &fakeDeps{renderErr: errors.New(".env is not ignored by git\n  add to .gitignore:\n    .env\n  or re-run with --allow-tracked")}
 	m := pickMenu(t, out(newModel(f), "."), "Render now")
-	if !strings.Contains(m.View(), "not ignored by git") || m.Quitting() {
-		t.Errorf("view:\n%s", m.View())
+	v := m.View()
+	if !strings.Contains(v, "not ignored by git") || !strings.Contains(v, "--allow-tracked") || m.Quitting() {
+		t.Errorf("view:\n%s", v)
+	}
+	if strings.Contains(v, `\n`) {
+		t.Errorf("the refusal shows newline escapes:\n%s", v)
 	}
 	if f.reloads != 0 {
 		t.Errorf("a refused render reloaded (%d)", f.reloads)

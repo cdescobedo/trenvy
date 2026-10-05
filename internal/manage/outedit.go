@@ -95,7 +95,7 @@ func notIgnoredWarning(msg ignoredMsg, again string) message {
 	// with no git, it reports the path ignored (see Deps.Ignored). This
 	// branch keeps the Deps contract honest for an Ignored that can fail.
 	if msg.err != nil {
-		why = "could not be checked against .gitignore (" + msg.err.Error() + ")"
+		why = "could not be checked against .gitignore (" + errText(msg.err) + ")"
 	}
 	return message{msg.path + " " + why + " -- enter again to " + again, true}
 }

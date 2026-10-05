@@ -182,7 +182,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case revealFailedMsg:
-		m.msg = message{"could not reveal: " + msg.err.Error(), true}
+		m.msg = message{"could not reveal: " + errText(msg.err), true}
 		return m, nil
 	case committedMsg:
 		return m.afterCommit(msg)
