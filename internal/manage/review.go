@@ -207,12 +207,12 @@ func (m *Model) describePromotion(name string, base manifest.Var) (what, detail 
 		}
 	}
 	var into, lost []string
-	for _, p := range m.snap.Matrix.Profiles {
+	for _, p := range m.liveProfiles() {
 		if writes[p] {
 			into = append(into, p)
 		}
 	}
-	for _, pc := range session.PromotionChanges(name, base, m.snap.Matrix.Profiles) {
+	for _, pc := range session.PromotionChanges(name, base, m.liveProfiles()) {
 		if pc.Kind == session.ChangeSetSecret && !writes[pc.Profile] {
 			lost = append(lost, pc.Profile)
 		}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/cdescobedo/trenvy/internal/manage"
 	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/session"
 	"github.com/cdescobedo/trenvy/internal/style"
 )
 
@@ -205,5 +206,33 @@ func TestAStagedValueAnswersItsMissingProblem(t *testing.T) {
 	}
 	if got := strings.Join(staged(m), ","); got != "set-value:REQ:staging:y,set-shared:REQ::z" {
 		t.Errorf("staged = %s", got)
+	}
+}
+
+func TestEditingACellOnARemovedProfileIsRefused(t *testing.T) {
+	m := press(newModel(&fakeDeps{}), "3", "j", "d", "1") // staging removed; back to Variables
+	m = press(m, "j", "enter", "j", "j")                  // APP_MODE, staging row
+	if row := lineWith(t, m.View(), "staging"); !strings.Contains(row, "x removed") {
+		t.Errorf("staging row = %q, want x removed", row)
+	}
+	for _, k := range []string{"enter", "d"} {
+		after := press(m, k)
+		if len(after.Staged()) != 1 || !strings.Contains(after.View(), "staging is marked for removal") {
+			t.Errorf("%s on a removed profile's cell: staged %d, view:\n%s", k, len(after.Staged()), after.View())
+		}
+	}
+}
+
+func TestPromotionSkipsARemovedProfile(t *testing.T) {
+	m := press(newModel(&fakeDeps{}), "3", "j", "j", "d", "1") // prod removed
+	m = press(m, "j", "j", ".", "enter", "enter")              // DATABASE_URL, Make secret, confirm
+	var secrets []string
+	for _, c := range m.Staged() {
+		if c.Kind == session.ChangeSetSecret {
+			secrets = append(secrets, c.Profile)
+		}
+	}
+	if strings.Join(secrets, ",") != "dev,staging" {
+		t.Errorf("set-secret profiles = %v, want dev,staging (prod is being removed)", secrets)
 	}
 }

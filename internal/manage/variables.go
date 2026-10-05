@@ -209,6 +209,8 @@ func (m Model) variablesKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.vars.pane = paneList
 	case keyIs(k, "v"):
 		return m.toggleReveal(name, at)
+	case keyIs(k, "enter", "d") && at != "" && m.staged.Has(session.ChangeRemoveProfile, at):
+		m.msg = message{at + " is marked for removal -- d on it in Profiles to keep it", true}
 	case keyIs(k, "enter"):
 		return m.beginEdit(name, at)
 	case keyIs(k, "d"):
@@ -541,6 +543,9 @@ func (m Model) detailBody(inner, height int) string {
 			label += " " + t.Accent.Render("*")
 		}
 		value, annot := m.cellText(name, v, r)
+		if r.profile != "" && m.staged.Has(session.ChangeRemoveProfile, r.profile) {
+			annot = t.Staged.Render("x removed")
+		}
 		if len(m.staged.OnCell(name, r.profile)) > 0 && !v.NewSecret[r.profile] {
 			annot += " " + t.Staged.Render("~")
 		}
@@ -637,4 +642,16 @@ func stripStyles(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// liveProfiles is the snapshot's profiles less any staged for removal:
+// the ones a new value or a promotion can still land on.
+func (m Model) liveProfiles() []string {
+	var out []string
+	for _, p := range m.snap.Matrix.Profiles {
+		if !m.staged.Has(session.ChangeRemoveProfile, p) {
+			out = append(out, p)
+		}
+	}
+	return out
 }

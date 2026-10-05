@@ -183,7 +183,7 @@ func (m *Model) beginPromote(name string) {
 	}
 	v := m.varView(name)
 	stage := func(m *Model) tea.Cmd {
-		for _, c := range session.PromotionChanges(name, v.Var, m.snap.Matrix.Profiles) {
+		for _, c := range session.PromotionChanges(name, v.Var, m.liveProfiles()) {
 			m.staged.Add(c)
 		}
 		m.msg = message{name + " will become a secret -- u to undo", false}
@@ -198,7 +198,7 @@ func (m *Model) beginPromote(name string) {
 		text: fmt.Sprintf("%s becomes %s, one per declared profile -- changing one "+
 			"afterward will not change the others. There is no way back inside the "+
 			"interface; trenvy secret demote does it from the command line.",
-			name, plural(len(m.snap.Matrix.Profiles), "separate keyring item")),
+			name, plural(len(m.liveProfiles()), "separate keyring item")),
 		choices: []choice{{"enter", "promote", stage}},
 	})
 }
