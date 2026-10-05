@@ -616,9 +616,10 @@ variable's own `written to` line instead.
 `3` opens it. The list is every profile in the manifest, in its order, with
 two tags: `default` is the manifest's default profile and `active` is this
 machine's selection (the one `trenvy profile use` saves). A profile with
-required variables that have no value carries a `!`, and reads `N missing`
-where it has no tag to show; `~` marks one with staged changes and `x` one
-marked for removal.
+required variables that have no value carries a `!`, and its note ends
+in `N missing` after any tags (`default · active · 1 missing`), so the count
+is never hidden by a tag or a staged mark; `~` marks one with staged changes
+and `x` one marked for removal.
 
 The detail shows the profile's **overrides** (plain variables with a value of
 their own under it), its **secrets** stored out of the total, and the names
