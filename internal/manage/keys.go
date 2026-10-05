@@ -23,7 +23,7 @@ func footer(hs []hint) []hint {
 var verbs = []hint{
 	{"↑↓  j k", "move"},
 	{"←→  h l", "switch pane"},
-	{"1 2  tab", "switch screen"},
+	{"1 2  tab", "switch screen (shift+tab goes back)"},
 	{"enter", "the primary action on the selection"},
 	{"a", "add"},
 	{"d", "mark deleted, or remove a value (again to unmark)"},

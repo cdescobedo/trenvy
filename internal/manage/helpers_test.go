@@ -18,7 +18,7 @@ func manifestVar(v string) manifest.Var { return manifest.Var{Value: &v} }
 // key turns a readable name into the message a terminal sends.
 func key(s string) tea.KeyMsg {
 	named := map[string]tea.KeyType{
-		"enter": tea.KeyEnter, "esc": tea.KeyEsc, "tab": tea.KeyTab,
+		"enter": tea.KeyEnter, "esc": tea.KeyEsc, "tab": tea.KeyTab, "shift+tab": tea.KeyShiftTab,
 		"up": tea.KeyUp, "down": tea.KeyDown, "left": tea.KeyLeft, "right": tea.KeyRight,
 		"←": tea.KeyLeft, "→": tea.KeyRight, "backspace": tea.KeyBackspace,
 		"ctrl+c": tea.KeyCtrlC, "ctrl+u": tea.KeyCtrlU, "space": tea.KeySpace,

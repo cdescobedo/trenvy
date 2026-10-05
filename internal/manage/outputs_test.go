@@ -1,6 +1,7 @@
 package manage_test
 
 import (
+	"sort"
 	"strings"
 	"testing"
 
@@ -128,6 +129,60 @@ func TestOutputsLayoutNeverExceedsTheTerminal(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// TestOutputsLayoutNeverExceedsTheTerminal cannot see a cut: Theme.Pane
+// cuts every body line to fit, so a value drawn on one line still passes
+// it. Here the whole path must be on screen once wrapping is undone.
+func TestOutputValuesWrapRatherThanCut(t *testing.T) {
+	const long = "a-very-long-output-name-for-layout"
+	path := strings.Repeat("deep/", 20) + ".env"
+	mf := fixtureManifest()
+	mf.Outputs[long] = manifest.Output{Format: manifest.FormatDotenv, Path: path}
+	ids := make([]string, 0, len(mf.Outputs))
+	for id := range mf.Outputs {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	keys := []string{"2"}
+	for _, id := range ids {
+		if id == long {
+			break
+		}
+		keys = append(keys, "j")
+	}
+	keys = append(keys, "enter")
+	for _, w := range []int{40, 80} {
+		m := press(sized(manage.New(snapshotOf(mf, nil), (&fakeDeps{}).deps(), asciiTheme()), w, 24), keys...)
+		// Keep only the detail pane: at 80 columns it is right of the list.
+		var detail []string
+		for _, l := range strings.Split(m.View(), "\n") {
+			if i := strings.LastIndex(l, "││"); i >= 0 {
+				l = l[i:]
+			}
+			detail = append(detail, l)
+		}
+		flat := strings.NewReplacer("│", "", " ", "", "\n", "").Replace(strings.Join(detail, "\n"))
+		if !strings.Contains(flat, path) {
+			t.Errorf("w=%d: the full path is not on screen once wrapping is undone:\n%s", w, m.View())
+		}
+	}
+}
+
+// Switching screens keeps each screen's cursor where it was, whichever
+// switch key is used.
+func TestScreensKeepTheirCursorsAcrossASwitch(t *testing.T) {
+	v := press(newModel(&fakeDeps{}), "j", "2", "shift+tab").View() // APP_MODE
+	if !strings.Contains(v, "> APP_MODE") {
+		t.Errorf("Variables lost its cursor:\n%s", v)
+	}
+	v = press(newModel(&fakeDeps{}), "2", "j", "1", "tab").View() // web
+	if !strings.Contains(v, "> web") {
+		t.Errorf("Outputs lost its cursor:\n%s", v)
+	}
+	if v := press(newModel(&fakeDeps{}), "?").View(); !strings.Contains(v, "shift+tab") {
+		t.Errorf("? does not list shift+tab:\n%s", v)
 	}
 }
 
