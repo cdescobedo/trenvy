@@ -117,6 +117,34 @@ func TestRemoveMessageCountsDroppedValues(t *testing.T) {
 	}
 }
 
+// A removal drops a use or default staged on the profile, and says so.
+func TestRemoveMessageNamesADroppedUseOrDefault(t *testing.T) {
+	m := press(newModel(&fakeDeps{}), "3", "j", ".", "enter") // staging: Use on this machine
+	if u, ok := useOf(m); !ok || u != "staging" {
+		t.Fatalf("setup: use-profile = %q %v", u, ok)
+	}
+	m = press(m, "d")
+	if got := stagedKinds(m); len(got) != 1 || got[0] != "remove-profile:staging" {
+		t.Errorf("staged = %v, want only the removal", got)
+	}
+	if v := collapsed(m.View()); !strings.Contains(v, "staging marked for removal -- d again to keep it; its staged use on this machine dropped") {
+		t.Errorf("the message should say the staged use went:\n%s", m.View())
+	}
+	// An added profile made the default nets to nothing, default included.
+	m = press(typeText(press(newModel(&fakeDeps{}), "3", "a"), "qa"), "enter")
+	m = press(m, ".", "j", "enter") // qa: Make default
+	if got := stagedKinds(m); len(got) != 2 {
+		t.Fatalf("setup: staged = %v, want qa's add and default", got)
+	}
+	m = press(m, "d")
+	if len(m.Staged()) != 0 {
+		t.Errorf("staged = %v, want nothing", stagedKinds(m))
+	}
+	if v := collapsed(m.View()); !strings.Contains(v, "qa will not be added after all; its staged default dropped") {
+		t.Errorf("the message should say the staged default went:\n%s", m.View())
+	}
+}
+
 func TestUndoOnAProfileKeepsValuesOnItsCells(t *testing.T) {
 	m := press(newModel(&fakeDeps{}), "j", "enter", "j", "j", "j", "enter") // APP_MODE prod
 	m = press(typeText(m, "p2"), "enter")

@@ -61,6 +61,24 @@ func TestRemovingAProfileDropsItsStagedCells(t *testing.T) {
 	}
 }
 
+// Removing a profile clears a use or a default staged on it: neither may
+// name a profile the batch removes.
+func TestRemovingAProfileClearsAUseOrDefaultOnIt(t *testing.T) {
+	var s Staged
+	s.Add(Change{Kind: ChangeUseProfile, Name: "prod"})
+	s.Add(Change{Kind: ChangeDefaultProfile, Name: "prod"})
+	s.Add(Change{Kind: ChangeRemoveProfile, Name: "prod"})
+	if u, ok := s.UseProfile(); ok {
+		t.Errorf("UseProfile = %q after removing prod, want none", u)
+	}
+	if d, ok := s.DefaultProfile(); ok {
+		t.Errorf("DefaultProfile = %q after removing prod, want none", d)
+	}
+	if got := s.All(); len(got) != 1 || got[0].Kind != ChangeRemoveProfile {
+		t.Errorf("staged = %+v, want only the removal", got)
+	}
+}
+
 func TestRemovingAnAddedProfileNetsToNothing(t *testing.T) {
 	var s Staged
 	s.Add(Change{Kind: ChangeAddProfile, Name: "qa"})

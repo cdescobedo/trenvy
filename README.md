@@ -635,7 +635,8 @@ and `enter` on a missing name opens it in Variables, on that profile's row.
   the profile this session is on (use `trenvy -p <other> ui` to remove it),
   and when removing it would leave a required plain variable with no value.
   Values already staged on the profile's cells are dropped, with the count in
-  the message, and keeping the profile does not bring them back. On Variables
+  the message, and keeping the profile does not bring them back. A *Use on
+  this machine* staged on it is dropped too, and the message says so. On Variables
   the profile's cells read `x removed` and cannot be edited, and *Make
   secret* leaves it out.
 - Saving a removal **asks for the profile's name to be typed**, one profile at

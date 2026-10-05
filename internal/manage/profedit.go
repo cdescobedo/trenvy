@@ -108,17 +108,33 @@ func (m *Model) toggleRemoveProfile(p string) {
 		return
 	}
 	cells := len(m.staged.CellsOn(p))
+	selections := droppedSelections(m.staged.OnProfile(p))
 	m.staged.Add(session.Change{Kind: session.ChangeRemoveProfile, Name: p})
 	if v.Added {
 		m.profs.cursor = clamp(m.profs.cursor, 0, len(m.profileIDs())-1)
-		m.msg = message{p + " will not be added after all", false}
+		m.msg = message{p + " will not be added after all" + selections, false}
 		return
 	}
-	text := p + " marked for removal -- d again to keep it"
+	text := p + " marked for removal -- d again to keep it" + selections
 	if cells > 0 {
 		text += "; " + plural(cells, "staged value") + " on it dropped, and keeping it will not bring them back"
 	}
 	m.msg = message{text, false}
+}
+
+// droppedSelections words the use or default staged on a profile that a
+// removal drops with it, as a clause for the removal's message.
+func droppedSelections(cs []session.Change) string {
+	text := ""
+	for _, c := range cs {
+		switch c.Kind {
+		case session.ChangeUseProfile:
+			text += "; its staged use on this machine dropped"
+		case session.ChangeDefaultProfile:
+			text += "; its staged default dropped"
+		}
+	}
+	return text
 }
 
 // undoProfile drops the profile's own staged changes. Values staged on its
