@@ -1,6 +1,8 @@
 package cli_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -312,5 +314,43 @@ func TestUiNewAddOutputOutsideGitNeedsNoWarning(t *testing.T) {
 	}
 	if strings.Contains(view, "not ignored") || strings.Contains(view, "could not be checked") {
 		t.Errorf("warned outside git:\n%s", view)
+	}
+}
+
+// Render now through the real Deps: the file lands at 0600. The fixture's
+// output holds a secret, so the reload the action triggers reads it as
+// unverified (quick mode never reads secrets); Check now, which does, then
+// reads it fresh.
+func TestUiNewRenderNowWritesTheFileAndReloadsItsState(t *testing.T) {
+	h := newHarness(t)
+	h.gitInit("src/.env\n")
+	h.register("vpb", fixtureManifest(t))
+	h.mem.Seed("trenvy/vpb/dev/ALPHA_TOKEN", "k3y")
+	var rendered, checked string
+	h.opts.RunManage = func(m manage.Model) (manage.Model, error) {
+		// Outputs, the . menu, down to Render now (after Make default,
+		// Rename and the New variables item), enter.
+		m = drive(m, r("2"), r("."), r("j"), r("j"), r("j"), enter)
+		rendered = m.View()
+		// Reopen the menu: Check now is two items below Render now.
+		m = drive(m, r("."), r("j"), r("j"), r("j"), r("j"), r("j"), enter)
+		checked = m.View()
+		return drive(m, r("q")), nil
+	}
+	if err := h.run("ui", "--new"); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(filepath.Join(h.root, "src", ".env"))
+	if err != nil {
+		t.Fatalf("render now wrote nothing: %v\n%s", err, rendered)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Errorf("mode = %o, want 600", fi.Mode().Perm())
+	}
+	if !strings.Contains(rendered, "unverified") || strings.Contains(rendered, "not rendered") {
+		t.Errorf("state after the reload is not the quick-mode one:\n%s", rendered)
+	}
+	if !strings.Contains(checked, "docker checked: fresh") {
+		t.Errorf("Check now did not read the rendered file as fresh:\n%s", checked)
 	}
 }

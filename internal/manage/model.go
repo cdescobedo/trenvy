@@ -56,6 +56,13 @@ type Deps struct {
 	// all, counts as ignored: render's guard judges it the same way
 	// (guard.GitIgnored), so there is nothing to warn about.
 	Ignored func(path string) (bool, error)
+	// Render, Clean and Check act on the definition on disk, for one
+	// output. Render writes the file and returns the command's own line;
+	// Clean removes it ("removed X" / "no X here"); Check returns a
+	// session.State* word and reads every secret the output holds.
+	Render func(output string) (string, error)
+	Clean  func(output string) (string, error)
+	Check  func(output string) (string, error)
 }
 
 type message struct {
@@ -181,6 +188,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.afterCommit(msg)
 	case reloadedMsg:
 		return m.afterReload(msg)
+	case actionDoneMsg:
+		return m.afterAction(msg)
+	case checkedMsg:
+		return m.afterChecked(msg)
 	case ignoredMsg:
 		// Only the add-output panel still on its path step, with the same
 		// path, takes the answer; one for a path since edited is stale.

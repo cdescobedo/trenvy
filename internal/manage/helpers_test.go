@@ -69,6 +69,10 @@ type fakeDeps struct {
 	next      *manage.Snapshot // what Reload returns; nil means fixture()
 	reloadErr error
 	ignored   map[string]bool // path -> git ignores it; missing means not ignored
+
+	rendered, cleaned, checks  map[string]string // output -> what Render, Clean and Check return
+	renderErr                  error
+	renders, cleans, checksRun int
 }
 
 func (f *fakeDeps) deps() manage.Deps {
@@ -98,6 +102,18 @@ func (f *fakeDeps) deps() manage.Deps {
 			return fixture(), nil
 		},
 		Ignored: func(path string) (bool, error) { return f.ignored[path], nil },
+		Render: func(id string) (string, error) {
+			f.renders++
+			return f.rendered[id], f.renderErr
+		},
+		Clean: func(id string) (string, error) {
+			f.cleans++
+			return f.cleaned[id], nil
+		},
+		Check: func(id string) (string, error) {
+			f.checksRun++
+			return f.checks[id], nil
+		},
 	}
 }
 

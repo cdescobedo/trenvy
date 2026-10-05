@@ -81,6 +81,18 @@ func runManage(opts *Options, app *appContext) error {
 				return buildSnapshot(&quiet, next, projects)
 			},
 			Ignored: func(p string) (bool, error) { return guard.GitIgnored(current().Worktree, p) },
+			// Render and Clean mutate current().State in memory. The model
+			// always reloads after a successful action, and Reload builds a
+			// fresh appContext, so the mutated copy is never reused.
+			Render: func(id string) (string, error) {
+				rep, err := renderOutput(&quiet, current(), id, false, false)
+				if err != nil {
+					return "", err
+				}
+				return rep.String(), nil
+			},
+			Clean: func(id string) (string, error) { return cleanOutput(current(), id, false) },
+			Check: func(id string) (string, error) { return checkOutput(&quiet, current(), id), nil },
 		}
 		final, err := opts.RunManage(manage.New(snap, deps, th))
 		if err != nil {

@@ -364,8 +364,8 @@ func (m *Model) switchGlobMode(id string) {
 	m.stageGlobs(id, mode, checked)
 }
 
-// outMenu is . on the Outputs screen. Task 6 adds the three immediate
-// actions between "New variables" and "Project info".
+// outMenu is . on the Outputs screen. Render now, Remove rendered file and
+// Check now sit between "New variables" and "Project info".
 func (m *Model) outMenu() overlay {
 	var items []menuItem
 	if id, ok := m.selectedOutput(); ok {
@@ -430,6 +430,7 @@ func (m *Model) outMenu() overlay {
 			mode.disabled = id + " is marked for removal"
 		}
 		items = append(items, def, rename, mode)
+		items = append(items, m.actionItems(id)...)
 	}
 	return &menuOverlay{title: "More", items: append(items, m.commonMenuItems()...)}
 }
