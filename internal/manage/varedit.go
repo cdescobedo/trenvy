@@ -29,10 +29,11 @@ func (m *Model) selectName(name string) {
 	}
 }
 
-// inheritors lists the profiles that resolve to v's shared value.
+// inheritors lists the profiles that resolve to v's shared value, less
+// any marked for removal.
 func (m Model) inheritors(v manifest.Var) []string {
 	var out []string
-	for _, p := range m.snap.Matrix.Profiles {
+	for _, p := range m.liveProfiles() {
 		if _, ok := v.Profiles[p]; !ok {
 			out = append(out, p)
 		}

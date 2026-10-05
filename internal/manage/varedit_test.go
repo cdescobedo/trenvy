@@ -31,6 +31,14 @@ func TestEnterOnSharedEditsTheSharedValueAndNamesWhoInherits(t *testing.T) {
 	}
 }
 
+// A profile marked for removal inherits nothing after save, so the title
+// leaves it out.
+func TestSharedValueTitleLeavesOutARemovedProfile(t *testing.T) {
+	m := press(newModel(&fakeDeps{}), "3", "j", "d", "1", "j", "enter", "enter") // staging removed; APP_MODE shared
+	if v := m.View(); !strings.Contains(v, "used by dev") || strings.Contains(v, "used by dev, staging") {
+		t.Errorf("the title should name only dev:\n%s", v)
+	}
+}
 func TestEnterOnAProfileRowStagesAnOverride(t *testing.T) {
 	m := press(newModel(&fakeDeps{}), "j", "enter", "j", "j", "enter") // staging row
 	if v := m.View(); !strings.Contains(v, "Override for staging only") {
