@@ -13,7 +13,6 @@ import (
 	"github.com/cdescobedo/trenvy/internal/manage"
 	"github.com/cdescobedo/trenvy/internal/manifest"
 	"github.com/cdescobedo/trenvy/internal/store"
-	"github.com/cdescobedo/trenvy/internal/ui"
 )
 
 // drive plays keys into m, running each Cmd and feeding its message back,
@@ -58,7 +57,7 @@ func TestUiNewSavesAndStaysOpen(t *testing.T) {
 		}
 		return drive(m, r("q")), nil
 	}
-	if err := h.run("ui", "--new"); err != nil {
+	if err := h.run("ui"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(view, "saved 1 change") {
@@ -90,7 +89,7 @@ func TestUiNewReloadShowsDiskState(t *testing.T) {
 		}
 		return m, nil
 	}
-	if err := h.run("ui", "--new"); err != nil {
+	if err := h.run("ui"); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := h.mem.Get("trenvy/vpb/dev/ALPHA_TOKEN"); err != nil || got != "tok" {
@@ -98,7 +97,7 @@ func TestUiNewReloadShowsDiskState(t *testing.T) {
 	}
 }
 
-func TestUiNewRejectsABadThemeName(t *testing.T) {
+func TestUiRejectsABadThemeName(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
 	t.Setenv("TRENVY_THEME", "neon")
@@ -106,44 +105,16 @@ func TestUiNewRejectsABadThemeName(t *testing.T) {
 		t.Fatal("the interface started with an invalid TRENVY_THEME")
 		return m, nil
 	}
-	err := h.run("ui", "--new")
+	err := h.run("ui")
 	if err == nil || !strings.Contains(err.Error(), "TRENVY_THEME") {
 		t.Errorf("err = %v", err)
 	}
 }
 
-func TestUiNewFlagIsHidden(t *testing.T) {
-	h := newHarness(t)
-	if err := h.run("ui", "--help"); err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(h.out.String(), "--new") {
-		t.Errorf("--new shows in help:\n%s", h.out.String())
-	}
-}
-
-func TestUiWithoutNewStillRunsTheOldInterface(t *testing.T) {
-	h := newHarness(t)
-	h.register("vpb", fixtureManifest(t))
-	called := false
-	h.opts.RunManage = func(m manage.Model) (manage.Model, error) { t.Fatal("new UI ran"); return m, nil }
-	h.opts.RunUI = func(mo ui.Model, _ func(string, string) (string, error)) (ui.Model, error) {
-		called = true
-		return mo, nil
-	}
-	if err := h.run("ui"); err != nil {
-		t.Fatal(err)
-	}
-	if !called {
-		t.Error("plain ui did not reach RunUI")
-	}
-}
-
 // commitStaged's errors state facts only. "everything else staged this
-// session is gone" is true of the original interface, whose session has ended
-// by the time it commits, and false here, where the batch stays staged and
-// enter retries -- so it must not reach this interface.
-func TestUiNewCommitErrorDoesNotClaimTheSessionIsGone(t *testing.T) {
+// session is gone" is false here, where the batch stays staged and enter
+// retries -- so it must not reach the interface.
+func TestUiCommitErrorDoesNotClaimTheSessionIsGone(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
 	h.opts.NewStore = func(*config.Config, string) (store.Store, error) {
@@ -155,7 +126,7 @@ func TestUiNewCommitErrorDoesNotClaimTheSessionIsGone(t *testing.T) {
 		view = m.View()
 		return m, nil
 	}
-	if err := h.run("ui", "--new"); err != nil {
+	if err := h.run("ui"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(view, "keyring is locked") {
@@ -215,7 +186,7 @@ func TestUiNewOpensWithHasAndRevealsWithOneGet(t *testing.T) {
 		view = m.View()
 		return m, nil
 	}
-	if err := h.run("ui", "--new"); err != nil {
+	if err := h.run("ui"); err != nil {
 		t.Fatal(err)
 	}
 	if len(opened) == 0 {
@@ -246,7 +217,7 @@ func TestUiNewOutputsShowsDiskStateAndDefault(t *testing.T) {
 		view = m.View()
 		return m, nil
 	}
-	if err := h.run("ui", "--new"); err != nil {
+	if err := h.run("ui"); err != nil {
 		t.Fatal(err)
 	}
 	var row string
@@ -279,7 +250,7 @@ func TestUiNewAddOutputAsksGitWhetherThePathIsIgnored(t *testing.T) {
 		m = drive(m, tea.KeyMsg{Type: tea.KeyEsc}, r("a"), r("api"), enter, r("d"), r("api.env"), enter, r("w"), enter)
 		return drive(m, r("q")), nil
 	}
-	if err := h.run("ui", "--new"); err != nil {
+	if err := h.run("ui"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(warned, "tracked.env is not ignored by git") {
@@ -309,7 +280,7 @@ func TestUiNewAddOutputOutsideGitNeedsNoWarning(t *testing.T) {
 		}
 		return m, nil
 	}
-	if err := h.run("ui", "--new"); err != nil {
+	if err := h.run("ui"); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(view, "not ignored") || strings.Contains(view, "could not be checked") {
@@ -337,7 +308,7 @@ func TestUiNewRenderNowWritesTheFileAndReloadsItsState(t *testing.T) {
 		checked = m.View()
 		return drive(m, r("q")), nil
 	}
-	if err := h.run("ui", "--new"); err != nil {
+	if err := h.run("ui"); err != nil {
 		t.Fatal(err)
 	}
 	fi, err := os.Stat(filepath.Join(h.root, "src", ".env"))

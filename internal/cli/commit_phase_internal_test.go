@@ -7,8 +7,8 @@ import (
 
 	"github.com/cdescobedo/trenvy/internal/config"
 	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/session"
 	"github.com/cdescobedo/trenvy/internal/store"
-	"github.com/cdescobedo/trenvy/internal/ui"
 )
 
 // structuralWitnessStore watches, at the moment its own Set is called,
@@ -39,7 +39,7 @@ func (s *structuralWitnessStore) Set(service, value string) error {
 }
 
 // TestCommitStagedAppliesStructuralAdditionsBeforeKeyringWrites calls
-// commitStaged directly with a hand-built []ui.Change, exactly the seam
+// commitStaged directly with a hand-built []session.Change, exactly the seam
 // deletedNames' own doc already leans on ("a Change slice is a plain
 // exported value, and this function must not trust that every caller built
 // one the only way internal/ui's keys currently allow"). The slice lists
@@ -94,12 +94,12 @@ value = "http://+:8080"
 	}
 	witness.manifest = app.Manifest
 
-	staged := []ui.Change{
+	staged := []session.Change{
 		// A genuine promotion: the value first, per profile, then the
 		// row-level flip -- mirrors stagePromotion's own shape.
-		{Kind: ui.ChangeSetSecret, Name: "APP_URL", Profile: "dev", Value: "http://+:8080"},
-		{Kind: ui.ChangePromoteSecret, Name: "APP_URL"},
-		{Kind: ui.ChangeAddOutput, Name: "public", Format: "dotenv", Path: "public/.env"},
+		{Kind: session.ChangeSetSecret, Name: "APP_URL", Profile: "dev", Value: "http://+:8080"},
+		{Kind: session.ChangePromoteSecret, Name: "APP_URL"},
+		{Kind: session.ChangeAddOutput, Name: "public", Format: "dotenv", Path: "public/.env"},
 	}
 
 	if _, err := commitStaged(&opts, app, staged); err != nil {
@@ -114,7 +114,7 @@ value = "http://+:8080"
 // Fix 4 (Important, whole-branch review) taught internal/ui's own add-output
 // wizard to refuse an illegal format live, at zero cost -- so a real
 // `trenvy ui` session can no longer stage one. But commitStaged must still
-// refuse it too: a []ui.Change is a plain exported value (see this file's
+// refuse it too: a []session.Change is a plain exported value (see this file's
 // own doc above, and deletedNames' doc in ui.go), and nothing stops a
 // caller other than the wizard from building one directly. This is a
 // white-box test (package cli) precisely because black-box coverage of this
@@ -162,8 +162,8 @@ salt = "abc123"
 		t.Fatal(err)
 	}
 
-	staged := []ui.Change{
-		{Kind: ui.ChangeAddOutput, Name: "public", Format: "yaml", Path: "public/env.yaml"},
+	staged := []session.Change{
+		{Kind: session.ChangeAddOutput, Name: "public", Format: "yaml", Path: "public/env.yaml"},
 	}
 	_, err = commitStaged(&opts, app, staged)
 	if err == nil {

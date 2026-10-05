@@ -3,123 +3,29 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"io"
-	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/cdescobedo/trenvy/internal/config"
 	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/session"
 	"github.com/cdescobedo/trenvy/internal/store"
-	"github.com/cdescobedo/trenvy/internal/ui"
 )
 
 func newUiCmd(opts *Options) *cobra.Command {
-	var useNew bool
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "ui",
-		Short: "Manage this project's variables across every profile, interactively",
+		Short: "Manage this project's variables and outputs, interactively",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			app, err := opts.resolveApp()
 			if err != nil {
 				return err
 			}
-			if useNew {
-				return runManage(opts, app)
-			}
-
-			// Loaded once, outside the loop below: the switcher lists what was
-			// registered when the command started, and a registry change made
-			// from another session mid-session is only ever seen the next time
-			// `trenvy ui` runs, the same staleness every other command here
-			// already accepts for a config loaded once at the top of RunE.
-			reg, err := config.LoadRegistry()
-			if err != nil {
-				return err
-			}
-			projects := registryIDs(reg)
-
-			// One iteration per project the switcher sends the session to. Each
-			// one runs to completion (RunUI returns) before the next begins --
-			// the previous project's model has already ended by then, exactly
-			// like a quit, so there is never more than one live session.
-			for {
-				mx, err := matrixFromManifest(app)
-				if err != nil {
-					return err
-				}
-				states, unverified := outputStates(opts, app, mx)
-				ps := ui.Problems(mx, states)
-				// Header facts mirror status.go's, from the same places: app.Profile
-				// for the active profile and where it came from, config.ManifestPath
-				// and app.Worktree for the same manifest path and worktree status
-				// prints, ResolveBackendName for the same backend name status prints.
-				// Named fields, not positional args: Params exists precisely so these
-				// adjacent strings can't be transposed here and still compile.
-				m := ui.New(ui.Params{
-					Project:                   app.Entry.ID,
-					Profile:                   app.Profile.Name,
-					Source:                    app.Profile.Source,
-					ManifestPath:              config.ManifestPath(app.Entry.ID),
-					Worktree:                  app.Worktree,
-					Backend:                   store.ResolveBackendName(opts.Backend),
-					Matrix:                    mx,
-					Problems:                  ps,
-					OutputFreshnessUnverified: unverified,
-					Projects:                  projects,
-					Outputs:                   buildOutputRows(app.Manifest, states),
-					Styler:                    opts.Styler,
-				})
-
-				final, err := opts.RunUI(m, func(name, profile string) (string, error) {
-					s, err := app.store()
-					if err != nil {
-						return "", err
-					}
-					return s.Get(app.Cfg.Keyring.ServiceName(app.Manifest.Project.ID, profile, name))
-				})
-				if err != nil {
-					return err
-				}
-
-				// SwitchTo, not Saved(), is what the switcher reports -- a switch
-				// must never be mistaken for either a write (Saved() stays false)
-				// or a plain quit (which returns instead of looping again).
-				if id, ok := final.SwitchTo(); ok {
-					app, err = opts.resolveAppByID(id)
-					if err != nil {
-						return err
-					}
-					continue
-				}
-
-				if !final.Saved() {
-					fmt.Fprintln(opts.Stdout, "no changes written")
-					return nil
-				}
-				res, err := commitStaged(opts, app, final.Staged())
-				if err != nil {
-					// This session has already ended, so "open trenvy ui again" is
-					// never a resume: it is a fresh session that has to redo
-					// everything this run did not finish. commitStaged leaves that
-					// sentence out because it is false in the redesigned interface,
-					// where the batch stays staged and enter retries.
-					return fmt.Errorf("%w\n  everything else staged this session is gone -- open trenvy ui again and redo it", err)
-				}
-				printCommitResult(opts.Stdout, res)
-				return nil
-			}
+			return runManage(opts, app)
 		},
 	}
-	// --new opens the redesigned interface while it reaches parity with this
-	// one (spec 2026-09-30, "Phases and cutover"). Hidden, and not in the
-	// README or CHANGELOG, because phase 2 removes it by making the new
-	// interface the only one.
-	cmd.Flags().BoolVar(&useNew, "new", false, "open the redesigned interface")
-	_ = cmd.Flags().MarkHidden("new")
-	return cmd
 }
 
 // commitStaged writes w's staged changes in phases 0 to 6, because Task 6's
@@ -133,7 +39,7 @@ func newUiCmd(opts *Options) *cobra.Command {
 //     inserts. These run FIRST because nothing else may read an added
 //     entry's absence -- in particular, phase 5 below may stage a
 //     rename-output or remove-output for a row THIS SAME SESSION also
-//     added (outputIdentityNames includes a staged add-output's name, so
+//     added (a row added this session can be selected, so
 //     selecting and acting on it before w is a normal session), and that
 //     phase's mutation needs the key to already exist in the map.
 //
@@ -164,8 +70,7 @@ func newUiCmd(opts *Options) *cobra.Command {
 //     every case above -- never interleaved with them in staged order. This
 //     is the fix for the second, closely related Fix-1-shaped bug a
 //     whole-branch review found: identity.Name never changes when a row is
-//     renamed (every other Change keys by the row's ORIGINAL identity, see
-//     internal/ui's outputIdentityNames), but the rename itself moves that
+//     renamed (every other Change keys by the row's ORIGINAL identity), but the rename itself moves that
 //     key in app.Manifest.Outputs. Applying rename-output in the same
 //     single-pass loop as set-globs or default-output meant whichever the
 //     user happened to press FIRST decided whether the other's edit landed:
@@ -196,16 +101,15 @@ func newUiCmd(opts *Options) *cobra.Command {
 // exactly how much of THIS run already landed, so the message never claims
 // something gone that a retry would actually find already done.
 //
-// commitStaged returns its result instead of printing it, because the new
-// interface calls it while it owns the terminal; printCommitResult prints
-// it the way `trenvy ui` always has. A failure in phase 6, after the state
+// commitStaged returns its result instead of printing it, because the
+// interface calls it while it owns the terminal. A failure in phase 6, after the state
 // save (phase 4), still returns the left-in-place paths beside its error,
 // because that save forgot the render records and a retry would find none
 // to name.
 //
 // Adding a kind (Task 8's set-globs) means adding one case to whichever
 // phase above it belongs in -- never restructuring the phases themselves.
-func commitStaged(opts *Options, app *appContext, staged []ui.Change) (commitResult, error) {
+func commitStaged(opts *Options, app *appContext, staged []session.Change) (commitResult, error) {
 	if len(staged) == 0 {
 		return commitResult{}, nil
 	}
@@ -230,7 +134,7 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) (commitRes
 	deleted := deletedVarNames(staged)
 	for _, c := range staged {
 		switch c.Kind {
-		case ui.ChangeSetSecret:
+		case session.ChangeSetSecret:
 			if deleted[c.Name] {
 				continue
 			}
@@ -238,7 +142,7 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) (commitRes
 				service: app.Cfg.Keyring.ServiceName(app.Manifest.Project.ID, c.Profile, c.Name),
 				value:   c.Value,
 			})
-		case ui.ChangeDeleteVar:
+		case session.ChangeDeleteVar:
 			// Deleting a variable must remove its keyring item under EVERY
 			// declared profile, so this loop uses its own p when building
 			// each service name -- never app.service(c.Name), which binds
@@ -313,7 +217,7 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) (commitRes
 	// needs it.
 	removedOutputNames := make(map[string]bool, len(staged))
 	for _, c := range staged {
-		if c.Kind == ui.ChangeRemoveOutput {
+		if c.Kind == session.ChangeRemoveOutput {
 			removedOutputNames[c.Name] = true
 		}
 	}
@@ -356,7 +260,7 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) (commitRes
 	// agrees with the manifest the moment one is ever recorded.
 	renamedRecords, renamedAny := 0, false
 	for _, c := range staged {
-		if c.Kind == ui.ChangeRenameOutput {
+		if c.Kind == session.ChangeRenameOutput {
 			renamedRecords += app.State.RenameOutput(c.Name, c.Value)
 			renamedAny = true
 		}
@@ -441,21 +345,8 @@ type commitResult struct {
 	leftInPlace []string // "<worktree>/<path>" of each removed output's file left on disk; also set with a late error
 }
 
-// printCommitResult prints r the way `trenvy ui` always has.
-func printCommitResult(w io.Writer, r commitResult) {
-	if r.saved == 0 {
-		return
-	}
-	fmt.Fprintf(w, "saved %d changes\n", r.saved)
-	for _, p := range r.leftInPlace {
-		fmt.Fprintf(w, "  left in place: %s\n", p)
-	}
-}
-
 // invalidBatchError is a batch the manifest refuses, found before anything
-// was written. What the user has lost depends on the caller: the original
-// interface's session has already ended, the new one still holds every
-// change, so each caller words that part itself.
+// was written.
 type invalidBatchError struct{ err error }
 
 func (e *invalidBatchError) Error() string { return e.err.Error() + "\n  nothing was written" }
@@ -464,7 +355,7 @@ func (e *invalidBatchError) Unwrap() error { return e.err }
 // prevalidate applies the manifest half of staged to a clone and validates
 // it, so a batch the manifest refuses is refused before its first keyring
 // write rather than after (spec 2026-09-30 §3).
-func prevalidate(m *manifest.Manifest, staged []ui.Change) error {
+func prevalidate(m *manifest.Manifest, staged []session.Change) error {
 	c, err := m.Clone()
 	if err != nil {
 		return err
@@ -485,23 +376,23 @@ func prevalidate(m *manifest.Manifest, staged []ui.Change) error {
 // Phase 5b moves one row at a time with a map assignment, so landing on a
 // held name overwrites that output, and even a swap (a->b, b->a) loses one
 // of the two (traced 2026-10-05). Renaming through a free name is the way.
-func renameCollision(m *manifest.Manifest, staged []ui.Change) error {
+func renameCollision(m *manifest.Manifest, staged []session.Change) error {
 	held := map[string]bool{}
 	for name := range m.Outputs {
 		held[name] = true
 	}
 	for _, c := range staged {
-		if c.Kind == ui.ChangeAddOutput {
+		if c.Kind == session.ChangeAddOutput {
 			held[c.Name] = true
 		}
 	}
 	targets := map[string]string{}
 	for _, c := range staged {
-		if c.Kind != ui.ChangeRenameOutput {
+		if c.Kind != session.ChangeRenameOutput {
 			continue
 		}
 		// A rename back to the row's own name is a no-op in phase 5b, and
-		// the original interface stages exactly that.
+		// an older interface staged exactly that.
 		if c.Value == c.Name {
 			continue
 		}
@@ -518,17 +409,17 @@ func renameCollision(m *manifest.Manifest, staged []ui.Change) error {
 
 // applyAdditions is phase 1 (see commitStaged's doc): structural additions
 // only, each inserting a key that does not exist yet.
-func applyAdditions(m *manifest.Manifest, staged []ui.Change) {
+func applyAdditions(m *manifest.Manifest, staged []session.Change) {
 	// add-var and add-output only ever insert a key that does not exist yet,
 	// so applying them before anything else is always safe -- nothing here
 	// reads an added entry's OLD value, because there isn't one.
 	for _, c := range staged {
 		switch c.Kind {
-		case ui.ChangeAddVar:
+		case session.ChangeAddVar:
 			if _, exists := m.Vars[c.Name]; !exists {
 				m.Vars[c.Name] = manifest.Var{}
 			}
-		case ui.ChangeAddOutput:
+		case session.ChangeAddOutput:
 			if m.Outputs == nil {
 				m.Outputs = map[string]manifest.Output{}
 			}
@@ -542,10 +433,10 @@ func applyAdditions(m *manifest.Manifest, staged []ui.Change) {
 // applyManifestEdits is phases 5a and 5b (see commitStaged's doc): every
 // manifest mutation after the structural additions, removals included,
 // with rename-output's manifest half strictly last.
-func applyManifestEdits(m *manifest.Manifest, staged []ui.Change) {
+func applyManifestEdits(m *manifest.Manifest, staged []session.Change) {
 	removedOutputNames := make(map[string]bool, len(staged))
 	for _, c := range staged {
-		if c.Kind == ui.ChangeRemoveOutput {
+		if c.Kind == session.ChangeRemoveOutput {
 			removedOutputNames[c.Name] = true
 		}
 	}
@@ -557,13 +448,13 @@ func applyManifestEdits(m *manifest.Manifest, staged []ui.Change) {
 	// behind the Fix 1 bug: Vars[c.Name] on a name delete already handled
 	// returns a ZERO Var, and writing it back silently resurrects the
 	// variable with every profile but the one this change touches missing.
-	// internal/ui's own d and e now refuse to stage this combination in the
-	// first place (beginEdit cancels a pending delete; toggleDelete refuses
-	// a new one over a staged edit -- see their doc comments), so reaching
-	// this branch from a real `trenvy ui` session should not be possible.
-	// It stays here anyway: a Change slice is a plain exported value, and
-	// this function must not trust that every caller built one the only way
-	// internal/ui's keys currently allow.
+	// The interface refuses to stage this combination in the first place
+	// (beginEdit cancels a pending delete; toggleDelete refuses a new one
+	// over a staged edit -- see their doc comments in internal/manage), so
+	// reaching this branch from a real session should not be possible. It
+	// stays here anyway: a Change slice is a plain exported value, and this
+	// function must not trust that every caller built one the only way the
+	// interface's keys allow.
 	deletedNames := deletedVarNames(staged)
 
 	// Phase 5a: every remaining manifest mutation EXCEPT rename-output,
@@ -576,7 +467,7 @@ func applyManifestEdits(m *manifest.Manifest, staged []ui.Change) {
 	// loop with set-globs or default-output.
 	for _, c := range staged {
 		switch c.Kind {
-		case ui.ChangeSetValue:
+		case session.ChangeSetValue:
 			if deletedNames[c.Name] {
 				continue
 			}
@@ -590,7 +481,7 @@ func applyManifestEdits(m *manifest.Manifest, staged []ui.Change) {
 			}
 			v.Profiles[c.Profile] = c.Value
 			m.Vars[c.Name] = v
-		case ui.ChangeSetShared:
+		case session.ChangeSetShared:
 			if deletedNames[c.Name] {
 				continue
 			}
@@ -598,7 +489,7 @@ func applyManifestEdits(m *manifest.Manifest, staged []ui.Change) {
 			val := c.Value
 			v.Value = &val
 			m.Vars[c.Name] = v
-		case ui.ChangeUnsetValue:
+		case session.ChangeUnsetValue:
 			if deletedNames[c.Name] {
 				continue
 			}
@@ -612,16 +503,16 @@ func applyManifestEdits(m *manifest.Manifest, staged []ui.Change) {
 				}
 			}
 			m.Vars[c.Name] = v
-		case ui.ChangeSetOptional:
+		case session.ChangeSetOptional:
 			if deletedNames[c.Name] {
 				continue
 			}
 			v := m.Vars[c.Name]
 			v.Optional = c.Value == "true"
 			m.Vars[c.Name] = v
-		case ui.ChangeDeleteVar:
+		case session.ChangeDeleteVar:
 			delete(m.Vars, c.Name)
-		case ui.ChangePromoteSecret:
+		case session.ChangePromoteSecret:
 			// The row-level record from s (see stagePromotion's doc), never
 			// ChangeSetSecret: a set-secret also arrives here from editing an
 			// ALREADY-secret cell's value, which must not flip anything --
@@ -639,7 +530,7 @@ func applyManifestEdits(m *manifest.Manifest, staged []ui.Change) {
 			v.Value = nil
 			v.Profiles = nil
 			m.Vars[c.Name] = v
-		case ui.ChangeRemoveOutput:
+		case session.ChangeRemoveOutput:
 			delete(m.Outputs, c.Name)
 			// Mirrors `trenvy output rm`'s own clearedDefault: removing the
 			// output that held project.output must clear it, the same
@@ -648,12 +539,12 @@ func applyManifestEdits(m *manifest.Manifest, staged []ui.Change) {
 			if m.Project.Output == c.Name {
 				m.Project.Output = ""
 			}
-		case ui.ChangeDefaultOutput:
+		case session.ChangeDefaultOutput:
 			if removedOutputNames[c.Name] {
 				continue
 			}
 			m.Project.Output = c.Name
-		case ui.ChangeSetOutputFormat, ui.ChangeSetOutputPath:
+		case session.ChangeSetOutputFormat, session.ChangeSetOutputPath:
 			// Keyed by identity, applied before 5b renames for the same
 			// reason set-globs is (see commitStaged's doc).
 			if removedOutputNames[c.Name] {
@@ -663,13 +554,13 @@ func applyManifestEdits(m *manifest.Manifest, staged []ui.Change) {
 			if !ok {
 				continue
 			}
-			if c.Kind == ui.ChangeSetOutputFormat {
+			if c.Kind == session.ChangeSetOutputFormat {
 				o.Format = c.Value
 			} else {
 				o.Path = c.Value
 			}
 			m.Outputs[c.Name] = o
-		case ui.ChangeSetGlobs:
+		case session.ChangeSetGlobs:
 			// Task 8's own kind (see commitStaged's doc): it did not exist
 			// when the phases above it were built, so it lands here,
 			// in the manifest-edits phase, as one more case -- never a
@@ -698,11 +589,11 @@ func applyManifestEdits(m *manifest.Manifest, staged []ui.Change) {
 	// own doc for the whole-branch-review bug this ordering fixes. Running
 	// renames last, in their own pass, means set-globs and default-output
 	// above always looked up the row under its PRE-rename identity (the one
-	// every Change keys by; see internal/ui's outputIdentityNames), so
+	// every Change keys by), so
 	// whichever the user staged first no longer decides whether the other's
 	// edit survives.
 	for _, c := range staged {
-		if c.Kind != ui.ChangeRenameOutput {
+		if c.Kind != session.ChangeRenameOutput {
 			continue
 		}
 		if removedOutputNames[c.Name] {
@@ -735,10 +626,10 @@ func applyManifestEdits(m *manifest.Manifest, staged []ui.Change) {
 }
 
 // deletedVarNames is every variable staged deletes.
-func deletedVarNames(staged []ui.Change) map[string]bool {
+func deletedVarNames(staged []session.Change) map[string]bool {
 	out := make(map[string]bool, len(staged))
 	for _, c := range staged {
-		if c.Kind == ui.ChangeDeleteVar {
+		if c.Kind == session.ChangeDeleteVar {
 			out[c.Name] = true
 		}
 	}
@@ -800,14 +691,13 @@ func commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal, mo
 }
 
 // partialCommitError reports a keyring write, a keyring delete, or a state
-// save that failed partway through committing staged ui changes, in the
-// shape this codebase's other partial-failure errors (edit's applyRows,
-// unset, profile rm, project rm) all use: name the item, say how far the run
+// save that failed partway through committing staged changes, in the
+// shape this codebase's other partial-failure errors (unset, profile rm,
+// project rm) all use: name the item, say how far the run
 // got, and say the manifest was not saved.
 //
-// It states facts only. What the caller tells the user to do next depends on
-// the interface: the original one has ended its session by now and says to
-// redo it, the redesigned one keeps the batch staged for a retry.
+// It states facts only: the interface keeps the batch staged, so what the
+// user does next is retry, which the caller says.
 func partialCommitError(verb, service string, err error, storedApplied, storedTotal, deletedApplied, deletedTotal, movedRecords, forgottenRecords int, stateSaved bool) error {
 	return fmt.Errorf(
 		"%s %s: %w\n  %s; the manifest was not saved",
@@ -825,42 +715,6 @@ func registryIDs(reg *config.Registry) []string {
 	return ids
 }
 
-// buildOutputRows assembles the Outputs tab's rows: the same facts `trenvy
-// output list` prints (name, format, path, globs as prose via
-// ui.SelectsSummary) plus the render-freshness state outputStates already
-// computed above for Problems -- read out of that same states map, never
-// reclassified here. A second pass over app.Manifest.Outputs that decided
-// freshness on its own is exactly the duplicate computation this task was
-// warned against; this function only reshapes data outputStates already
-// produced.
-func buildOutputRows(m *manifest.Manifest, states map[string]string) []ui.OutputRow {
-	names := make([]string, 0, len(m.Outputs))
-	for name := range m.Outputs {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	rows := make([]ui.OutputRow, 0, len(names))
-	for _, name := range names {
-		o := m.Outputs[name]
-		rows = append(rows, ui.OutputRow{
-			Name:      name,
-			Format:    o.Format,
-			Path:      o.Path,
-			Selects:   ui.SelectsSummary(o),
-			State:     states[name],
-			IsDefault: name == m.Project.Output,
-			// Include/Exclude are the raw globs behind Selects' prose --
-			// Task 8's editor needs them to derive its opening checkbox
-			// state through resolve.Selects, never by parsing Selects
-			// itself.
-			Include: o.Include,
-			Exclude: o.Exclude,
-		})
-	}
-	return rows
-}
-
 // matrixFromManifest loads the presence-aware matrix behind the ui command.
 //
 // Presence must come from Has, never Get: a Get can raise a macOS
@@ -873,7 +727,7 @@ func buildOutputRows(m *manifest.Manifest, states map[string]string) []ui.Output
 // here would report the active profile's presence for every column instead
 // of each column's own (the same hazard set.go's profile-rm sweep and
 // profile.go's rm guard against).
-func matrixFromManifest(app *appContext) (*ui.Matrix, error) {
+func matrixFromManifest(app *appContext) (*session.Matrix, error) {
 	hasSecrets := false
 	for _, v := range app.Manifest.Vars {
 		if v.Secret {
@@ -882,7 +736,7 @@ func matrixFromManifest(app *appContext) (*ui.Matrix, error) {
 		}
 	}
 	if !hasSecrets {
-		return ui.NewMatrix(app.Manifest, nil), nil
+		return session.NewMatrix(app.Manifest, nil), nil
 	}
 
 	s, err := app.store()
@@ -906,75 +760,39 @@ func matrixFromManifest(app *appContext) (*ui.Matrix, error) {
 		stored[name] = row
 	}
 
-	return ui.NewMatrix(app.Manifest, stored), nil
+	return session.NewMatrix(app.Manifest, stored), nil
 }
 
-// outputStates computes each output's render-freshness label for the
-// Overview tab, reusing status.go's classifyOutput -- the same guard.Inspect
-// decision status.go's own describeOutput renders -- rather than a second
-// implementation of freshness that could disagree with it. It switches on
-// classifyOutput's typed outputState, never on describeOutput's rendered
-// prose: parsing "not rendered" or "unknown (--quick)" as if they were a
-// stable interface is exactly how this function and ui.Problems went out of
-// sync (twice, in one task) before classifyOutput existed.
+// outputStates computes each output's render-freshness word, reusing
+// status.go's classifyOutput -- the same guard.Inspect decision status.go's
+// describeOutput renders -- rather than a second implementation that could
+// disagree with it. It switches on classifyOutput's typed outputState (via
+// stateWord), never on describeOutput's prose: parsing "not rendered" or
+// "unknown (--quick)" as if they were a stable interface is how this
+// function and session.Problems once went out of sync, twice in one task.
 //
 // Whether a required variable is missing under the active profile is read
 // off mx itself by anyMissing (status.go), the one place that loop lives.
 //
 // quick is always true here, unlike status's own default: detecting a keyring
-// change requires reading the secret's value, and ui opens eagerly on every
-// launch, over every output, not on a deliberate ask the way `status`
-// (without --quick) is. Passing false here would mean the load path this
-// task is scoped to auditing for Get calls turns around and calls Get anyway,
-// once per secret an output references -- the exact prompt storm Has exists
-// to avoid.
+// change requires reading the secret's value, and the interface computes
+// this eagerly over every output, not on a deliberate ask the way `status`
+// (without --quick) is. Passing false would mean one Get, and so one
+// possible authorization prompt, per secret an output references on every
+// open. Check now (checkOutput) is the explicit, non-quick path.
 //
-// Because quick is never the user's own choice here, this function treats
-// classifyOutput's outputQuickSkipped differently than status.go's own
-// describeOutput does -- see stateWord.
-// The bool return says whether at least one output's freshness could not be
-// determined here because doing so would require reading a secret's value
-// (outputQuickSkipped, which stateWord maps to StateUnverified) -- ui.Problems has no way to surface
-// that itself, since flagging it there would recreate the exact permanent,
-// unfixable false alarm an earlier round of this fix removed. The caller
-// uses it to caveat the Overview's own healthy-state line, once, rather than
-// per output.
+// Because quick is never the user's own choice here, outputQuickSkipped is
+// not reported as fresh: stateWord maps it to session.StateUnverified, which
+// renders as "unverified". It was never verified -- quick mode cannot tell
+// "nothing changed" from "a value this output selects changed", because
+// render.Sum hashes every selected value, plain and secret, into one digest --
+// and flagging it as a problem instead would be a permanent alarm the user
+// cannot clear from inside. session.Problems treats StateUnverified as no
+// problem, the same as fresh and not rendered.
 //
-// Fix 2, round 2 (whole-branch review): outputQuickSkipped used to map to
-// ui.StateFresh below. That was accurate the day it was written -- at the
-// time, classifyOutput reached this case only after ruling out absent,
-// foreign and hand-edited, so the one thing an output selecting a secret
-// could still be hiding was the secret's OWN value rotating, and reporting
-// "fresh" for everything else observable was an honest simplification. A
-// later task then let a membership (glob) edit change what an output
-// selects, and neither that task nor the one after it revisited this
-// mapping. But the deeper problem predates that change: guard.Inspect's
-// wantSum is hardcoded "" in the quick branch specifically so it can never
-// equal a real recorded sum, which is what makes outputQuickSkipped
-// reachable at all -- and that same trick means quick mode was NEVER able to
-// tell "nothing changed" from "a plain value this output also selects
-// changed" either, because render.Sum hashes every selected value, secret
-// and plain, into one digest. An ordinary `trenvy set` of a plain value, or
-// a glob edit staged in this very tab, both land in this exact case and both
-// got the same false "fresh" claim. StateFresh was wrong the moment anything
-// but "genuinely nothing changed" could reach it -- which, on reflection,
-// was always.
-//
-// The fix is not to swap StateFresh for the flagged ui.StateUnknown either:
-// classifyOutput reaches outputQuickSkipped for EVERY secret-bearing output
-// that is not absent, foreign or hand-edited, on EVERY launch, because ui
-// never stops being quick -- flagging it would be exactly the permanent,
-// unfixable-from-inside alarm the original "fresh" choice existed to avoid,
-// just re-earned from the opposite direction. ui.StateUnverified is the
-// third option this tension actually calls for: it renders as literally
-// "unknown (--quick)", the same honest words `trenvy status --quick` already
-// prints for this exact case (so a user sees no new vocabulary switching
-// between the two), and ui.Problems treats it as no problem, the same as
-// StateFresh and StateAbsent, so the Overview stays clean. What changed is
-// only that the Outputs tab's own STATE column, and this bool's caveat, no
-// longer claim verified freshness for a case that was never actually
-// verified.
-func outputStates(opts *Options, app *appContext, mx *ui.Matrix) (map[string]string, bool) {
+// The bool return says whether at least one output came back unverified, so
+// the caller can caveat a healthy state once rather than per output.
+func outputStates(opts *Options, app *appContext, mx *session.Matrix) (map[string]string, bool) {
 	missing := anyMissing(mx, app.Profile.Name)
 
 	unverified := false
@@ -986,7 +804,7 @@ func outputStates(opts *Options, app *appContext, mx *ui.Matrix) (map[string]str
 		// stateWord. The others either are verified or already surface as
 		// their own Problem, so the empty-list case this bool exists for
 		// cannot occur alongside them.
-		if st == ui.StateUnverified {
+		if st == session.StateUnverified {
 			unverified = true
 		}
 	}

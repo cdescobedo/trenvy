@@ -11,7 +11,7 @@ import (
 
 // The tests in this file are the original interface's Overview, Outputs tab
 // and switcher tests (ui_test.go, ui_switch_test.go), carried over to the
-// new interface through `trenvy ui --new` before the original is deleted.
+// interface that replaced it.
 // The Overview is gone: its problem list is the header's "! N problems",
 // and its output facts are the Outputs screen's list and detail.
 
@@ -40,7 +40,7 @@ value = "http://+:8080"
 	return m
 }
 
-// screenAt opens `trenvy ui --new` and returns the view after keys.
+// screenAt opens `trenvy ui` and returns the view after keys.
 func screenAt(t *testing.T, h *harness, keys ...string) string {
 	t.Helper()
 	var view string
@@ -54,8 +54,8 @@ func screenAt(t *testing.T, h *harness, keys ...string) string {
 		view = m.View()
 		return m, nil
 	}
-	if err := h.run("ui", "--new"); err != nil {
-		t.Fatalf("ui --new: %v", err)
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
 	}
 	return view
 }
@@ -342,8 +342,8 @@ func TestUiNewSwitchesProjectsAndReloadsAgainstTheChosenOne(t *testing.T) {
 		second = drive(m).View()
 		return m, nil
 	}
-	if err := h.run("ui", "--new"); err != nil {
-		t.Fatalf("ui --new: %v", err)
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
 	}
 	if calls != 2 {
 		t.Fatalf("RunManage was called %d times, want 2 (once per project)", calls)
@@ -381,8 +381,8 @@ func TestUiNewSwitchesProjectsWithStagedChangesConfirmsAndDoesNotCommit(t *testi
 		}
 		return drive(m, enter), nil
 	}
-	if err := h.run("ui", "--new"); err != nil {
-		t.Fatalf("ui --new: %v", err)
+	if err := h.run("ui"); err != nil {
+		t.Fatalf("ui: %v", err)
 	}
 	if calls != 2 {
 		t.Fatalf("RunManage was called %d times, want 2", calls)

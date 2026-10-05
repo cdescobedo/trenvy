@@ -16,10 +16,9 @@ import (
 	"github.com/cdescobedo/trenvy/internal/style"
 )
 
-// runManage is `trenvy ui --new`: the redesigned interface (spec
-// 2026-09-30). Unlike the original, saving happens inside the session, so
-// commit and reload are handed to the model as Deps rather than run after
-// it returns.
+// runManage is `trenvy ui` and `trenvy edit`: the interface (spec
+// 2026-09-30). Saving happens inside the session, so commit and reload are
+// handed to the model as Deps rather than run after it returns.
 func runManage(opts *Options, app *appContext) error {
 	th, err := style.ThemeFor(lipgloss.NewRenderer(opts.Stdout), os.Getenv("TRENVY_THEME"))
 	if err != nil {
@@ -140,7 +139,7 @@ func (c *leftCarry) commit(opts *Options, app *appContext, cs []session.Change) 
 	return res, nil
 }
 
-// refusedBatch is a batch the manifest refuses, as the new interface
+// refusedBatch is a batch the manifest refuses, as the interface
 // receives it: the manifest's reason, matching manage.ErrNothingWritten so
 // the review knows a retry cannot succeed. invalidBatchError's own "nothing
 // was written" line is left out; the review words that with the next step.

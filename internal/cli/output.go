@@ -10,7 +10,7 @@ import (
 
 	"github.com/cdescobedo/trenvy/internal/config"
 	"github.com/cdescobedo/trenvy/internal/manifest"
-	"github.com/cdescobedo/trenvy/internal/ui"
+	"github.com/cdescobedo/trenvy/internal/session"
 )
 
 // newOutputCmd groups the commands that manage a project's outputs.
@@ -60,7 +60,7 @@ func newOutputListCmd(opts *Options) *cobra.Command {
 					marked = name + " *"
 				}
 				fmt.Fprintf(opts.Stdout, "%-12s %-8s %-32s %s\n",
-					marked, o.Format, o.Path, ui.SelectsSummary(o))
+					marked, o.Format, o.Path, session.SelectsSummary(o))
 			}
 			return nil
 		},

@@ -52,13 +52,9 @@ func Checked(include, exclude, names []string) map[string]bool {
 // whatever the include list says. Reporting only the include list would tell
 // a reader a variable reaches this file when resolve keeps it out.
 //
-// Lives here, not in internal/cli, because Task 4's Outputs tab needs the
-// exact same prose `trenvy output list` prints, and a second copy of this
-// rule is the specific mistake a phase-1 Critical came from: two places
-// computing one fact about outputs, free to disagree. internal/cli already
-// imports this package for Matrix, Problems and the State* constants; this
-// package imports nothing from internal/cli, so this is the only direction
-// the move can go without introducing an import cycle.
+// The Outputs screen and `trenvy output list` both print this prose, so the
+// rule has one home: two places computing one fact about outputs are free to
+// disagree.
 func SelectsSummary(o manifest.Output) string {
 	sel := "all"
 	if len(o.Include) > 0 && !(len(o.Include) == 1 && o.Include[0] == "*") {
@@ -77,13 +73,13 @@ func SelectsSummary(o manifest.Output) string {
 // the checkboxes say.
 //
 // mode picks which of two futures a variable that does not exist yet falls
-// into: under ModeEverythingExcept it is selected by default (the manifest
-// only ever names the exceptions); under ModeOnlyThese it is left out by
+// into: under GlobsEverythingExcept it is selected by default (the manifest
+// only ever names the exceptions); under GlobsOnlyThese it is left out by
 // default (the manifest only ever names the inclusions). The two modes are
 // NOT two different selections of the variables in all -- switching between
 // them for the same checked set must not move a single one of today's
 // variables in or out. See TestWriteGlobsModeSwitchPreservesSelection.
-// A mode value other than ModeOnlyThese is treated as ModeEverythingExcept,
+// A mode value other than GlobsOnlyThese is treated as GlobsEverythingExcept,
 // matching this vocabulary's own bias: resolve.selected already treats an
 // absent include as "everything" by default.
 //
@@ -96,7 +92,7 @@ func SelectsSummary(o manifest.Output) string {
 // deriveOutput in internal/cli/import.go); this function must never
 // reintroduce it.
 //
-// Unchecking every box under ModeOnlyThese cannot be written as an empty
+// Unchecking every box under GlobsOnlyThese cannot be written as an empty
 // include: an empty include is indistinguishable from an absent one, and an
 // absent one means everything -- the exact opposite of what the user just
 // expressed. There is no pattern in this vocabulary that means "nothing" the
@@ -122,7 +118,7 @@ func WriteGlobs(mode GlobMode, all []string, checked map[string]bool) (include, 
 		return include, exclude
 	}
 
-	// ModeEverythingExcept (and any other value, per the doc comment above).
+	// GlobsEverythingExcept (and any other value, per the doc comment above).
 	for _, name := range all {
 		if !checked[name] {
 			exclude = append(exclude, name)

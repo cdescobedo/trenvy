@@ -337,8 +337,8 @@ active selection instead of setting one.
 | `trenvy secret set <NAME>` | Store or rotate a secret in the keyring |
 | `trenvy secret rm <NAME>` | Delete a secret's value from the keyring, keeping the variable |
 | `trenvy unset <NAME>` | Remove a variable from the manifest and its secret from every profile's keyring |
-| `trenvy edit` | Edit this project's variables interactively |
-| `trenvy ui` | Manage this project's variables across every profile, interactively |
+| `trenvy edit` | Open the interactive interface (the same as trenvy ui) |
+| `trenvy ui` | Manage this project's variables and outputs, interactively |
 
 Flags: `import` takes `--output <name>`, `--no-output`, `--no-tui` and
 `--force`; `set` takes `--shared`; `show` takes `--reveal` and `--format

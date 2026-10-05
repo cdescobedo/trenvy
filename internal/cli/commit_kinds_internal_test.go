@@ -11,8 +11,8 @@ import (
 	"github.com/cdescobedo/trenvy/internal/config"
 	"github.com/cdescobedo/trenvy/internal/manage"
 	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/session"
 	"github.com/cdescobedo/trenvy/internal/store"
-	"github.com/cdescobedo/trenvy/internal/ui"
 )
 
 const kindsManifest = `
@@ -89,11 +89,11 @@ func loadVPB(t *testing.T) *manifest.Manifest {
 
 func TestCommitAppliesSharedUnsetAndOptional(t *testing.T) {
 	opts, app := newCommitApp(t, store.NewMem())
-	res, err := commitStaged(opts, app, []ui.Change{
-		{Kind: ui.ChangeSetShared, Name: "APP_MODE", Value: "dev-mode"},
-		{Kind: ui.ChangeUnsetValue, Name: "APP_MODE", Profile: "prod"},
-		{Kind: ui.ChangeUnsetValue, Name: "LOG_LEVEL"},
-		{Kind: ui.ChangeSetOptional, Name: "LOG_LEVEL", Value: "true"},
+	res, err := commitStaged(opts, app, []session.Change{
+		{Kind: session.ChangeSetShared, Name: "APP_MODE", Value: "dev-mode"},
+		{Kind: session.ChangeUnsetValue, Name: "APP_MODE", Profile: "prod"},
+		{Kind: session.ChangeUnsetValue, Name: "LOG_LEVEL"},
+		{Kind: session.ChangeSetOptional, Name: "LOG_LEVEL", Value: "true"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -116,9 +116,9 @@ func TestCommitAppliesSharedUnsetAndOptional(t *testing.T) {
 func TestCommitRefusesAnInvalidBatchBeforeTheKeyring(t *testing.T) {
 	mem := store.NewMem()
 	opts, app := newCommitApp(t, mem)
-	_, err := commitStaged(opts, app, []ui.Change{
-		{Kind: ui.ChangeSetSecret, Name: "TOKEN", Profile: "dev", Value: "s3cret"},
-		{Kind: ui.ChangeAddVar, Name: "EMPTY"}, // no value, not secret, not optional: invalid
+	_, err := commitStaged(opts, app, []session.Change{
+		{Kind: session.ChangeSetSecret, Name: "TOKEN", Profile: "dev", Value: "s3cret"},
+		{Kind: session.ChangeAddVar, Name: "EMPTY"}, // no value, not secret, not optional: invalid
 	})
 	var ib *invalidBatchError
 	if !errors.As(err, &ib) {
@@ -149,10 +149,10 @@ func (f *failOnce) Set(service, value string) error {
 func TestCommitRetryAfterAPartialFailureMatchesOneCleanCommit(t *testing.T) {
 	st := &failOnce{Mem: store.NewMem(), failOn: "trenvy/vpb/prod/TOKEN"}
 	opts, app := newCommitApp(t, st)
-	batch := []ui.Change{
-		{Kind: ui.ChangeSetSecret, Name: "TOKEN", Profile: "dev", Value: "d"},
-		{Kind: ui.ChangeSetSecret, Name: "TOKEN", Profile: "prod", Value: "p"},
-		{Kind: ui.ChangeSetShared, Name: "APP_MODE", Value: "x"},
+	batch := []session.Change{
+		{Kind: session.ChangeSetSecret, Name: "TOKEN", Profile: "dev", Value: "d"},
+		{Kind: session.ChangeSetSecret, Name: "TOKEN", Profile: "prod", Value: "p"},
+		{Kind: session.ChangeSetShared, Name: "APP_MODE", Value: "x"},
 	}
 	if _, err := commitStaged(opts, app, batch); err == nil {
 		t.Fatal("first commit succeeded; the store was set to fail")
@@ -230,9 +230,9 @@ func TestCommitRetryAfterAKeyringDeleteFailureMatchesOneCleanCommit(t *testing.T
 		}
 	}
 	opts, app := newCommitApp(t, st)
-	batch := []ui.Change{
-		{Kind: ui.ChangeDeleteVar, Name: "TOKEN"},
-		{Kind: ui.ChangeSetShared, Name: "APP_MODE", Value: "x"},
+	batch := []session.Change{
+		{Kind: session.ChangeDeleteVar, Name: "TOKEN"},
+		{Kind: session.ChangeSetShared, Name: "APP_MODE", Value: "x"},
 	}
 	if _, err := commitStaged(opts, app, batch); err == nil {
 		t.Fatal("first commit succeeded; the store was set to fail")
@@ -267,9 +267,9 @@ func TestCommitRetryAfterAKeyringDeleteFailureMatchesOneCleanCommit(t *testing.T
 func TestCommitRetryAfterAStateSaveFailureMatchesOneCleanCommit(t *testing.T) {
 	opts, app := newCommitAppFrom(t, store.NewMem(), kindsManifestWithOutput)
 	app = recordLocalRender(t, opts, app)
-	batch := []ui.Change{
-		{Kind: ui.ChangeRenameOutput, Name: "local", Value: "main"},
-		{Kind: ui.ChangeSetShared, Name: "APP_MODE", Value: "x"},
+	batch := []session.Change{
+		{Kind: session.ChangeRenameOutput, Name: "local", Value: "main"},
+		{Kind: session.ChangeSetShared, Name: "APP_MODE", Value: "x"},
 	}
 
 	restore := lockDir(t, filepath.Dir(config.StatePath("vpb")))
@@ -313,9 +313,9 @@ func TestCommitRetryAfterAStateSaveFailureMatchesOneCleanCommit(t *testing.T) {
 func TestCommitRetryAfterAManifestSaveFailureMatchesOneCleanCommit(t *testing.T) {
 	opts, app := newCommitAppFrom(t, store.NewMem(), kindsManifestWithOutput)
 	app = recordLocalRender(t, opts, app)
-	batch := []ui.Change{
-		{Kind: ui.ChangeRemoveOutput, Name: "local"},
-		{Kind: ui.ChangeSetShared, Name: "APP_MODE", Value: "x"},
+	batch := []session.Change{
+		{Kind: session.ChangeRemoveOutput, Name: "local"},
+		{Kind: session.ChangeSetShared, Name: "APP_MODE", Value: "x"},
 	}
 
 	restore := lockDir(t, filepath.Dir(config.ManifestPath("vpb")))
@@ -373,11 +373,11 @@ func (r *setRecorder) Set(service, value string) error {
 func TestCommitSkipsSecretWritesForADeletedVariable(t *testing.T) {
 	st := &setRecorder{Mem: store.NewMem()}
 	opts, app := newCommitApp(t, st)
-	_, err := commitStaged(opts, app, []ui.Change{
-		{Kind: ui.ChangeSetSecret, Name: "APP_MODE", Profile: "dev", Value: "development"},
-		{Kind: ui.ChangeSetSecret, Name: "APP_MODE", Profile: "prod", Value: "production"},
-		{Kind: ui.ChangePromoteSecret, Name: "APP_MODE"},
-		{Kind: ui.ChangeDeleteVar, Name: "APP_MODE"},
+	_, err := commitStaged(opts, app, []session.Change{
+		{Kind: session.ChangeSetSecret, Name: "APP_MODE", Profile: "dev", Value: "development"},
+		{Kind: session.ChangeSetSecret, Name: "APP_MODE", Profile: "prod", Value: "production"},
+		{Kind: session.ChangePromoteSecret, Name: "APP_MODE"},
+		{Kind: session.ChangeDeleteVar, Name: "APP_MODE"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -399,9 +399,9 @@ func TestCommitSkipsSecretWritesForADeletedVariable(t *testing.T) {
 func TestCommitRetryAfterARenameReachedTheStateFileMatchesOneCleanCommit(t *testing.T) {
 	opts, app := newCommitAppFrom(t, store.NewMem(), kindsManifestWithOutput)
 	app = recordLocalRender(t, opts, app)
-	batch := []ui.Change{
-		{Kind: ui.ChangeRenameOutput, Name: "local", Value: "main"},
-		{Kind: ui.ChangeSetShared, Name: "APP_MODE", Value: "x"},
+	batch := []session.Change{
+		{Kind: session.ChangeRenameOutput, Name: "local", Value: "main"},
+		{Kind: session.ChangeSetShared, Name: "APP_MODE", Value: "x"},
 	}
 
 	restore := lockDir(t, filepath.Dir(config.ManifestPath("vpb")))
@@ -447,7 +447,7 @@ func TestCommitRetryAfterARenameReachedTheStateFileMatchesOneCleanCommit(t *test
 // the review can test for -- and leave the words to the review.
 func TestManageCommitMarksARefusedBatchAsNothingWritten(t *testing.T) {
 	opts, app := newCommitApp(t, store.NewMem())
-	_, err := manageCommit(opts, app, []ui.Change{{Kind: ui.ChangeAddVar, Name: "EMPTY"}})
+	_, err := manageCommit(opts, app, []session.Change{{Kind: session.ChangeAddVar, Name: "EMPTY"}})
 	if !errors.Is(err, manage.ErrNothingWritten) {
 		t.Errorf("err = %v, want it to match manage.ErrNothingWritten", err)
 	}
@@ -458,7 +458,7 @@ func TestManageCommitMarksARefusedBatchAsNothingWritten(t *testing.T) {
 	// A keyring write that fails partway is not a refusal: a retry can land.
 	st := &failOnce{Mem: store.NewMem(), failOn: "trenvy/vpb/dev/TOKEN"}
 	opts, app = newCommitApp(t, st)
-	_, err = manageCommit(opts, app, []ui.Change{{Kind: ui.ChangeSetSecret, Name: "TOKEN", Profile: "dev", Value: "v"}})
+	_, err = manageCommit(opts, app, []session.Change{{Kind: session.ChangeSetSecret, Name: "TOKEN", Profile: "dev", Value: "v"}})
 	if err == nil || errors.Is(err, manage.ErrNothingWritten) {
 		t.Errorf("err = %v, want a failure that is not ErrNothingWritten", err)
 	}
@@ -516,10 +516,10 @@ func newOutputsApp(t *testing.T) (*Options, *appContext) {
 
 func TestCommitAppliesOutputFormatAndPath(t *testing.T) {
 	opts, app := newOutputsApp(t)
-	_, err := commitStaged(opts, app, []ui.Change{
-		{Kind: ui.ChangeSetOutputFormat, Name: "local", Value: "json"},
-		{Kind: ui.ChangeSetOutputPath, Name: "local", Value: "config/env.json"},
-		{Kind: ui.ChangeRenameOutput, Name: "local", Value: "root"},
+	_, err := commitStaged(opts, app, []session.Change{
+		{Kind: session.ChangeSetOutputFormat, Name: "local", Value: "json"},
+		{Kind: session.ChangeSetOutputPath, Name: "local", Value: "config/env.json"},
+		{Kind: session.ChangeRenameOutput, Name: "local", Value: "root"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -534,15 +534,15 @@ func TestCommitAppliesOutputFormatAndPath(t *testing.T) {
 // is refused before anything is written -- phase 5b would otherwise
 // overwrite the other output silently.
 func TestCommitRefusesARenameOntoAnExistingOutput(t *testing.T) {
-	for name, batch := range map[string][]ui.Change{
-		"onto existing": {{Kind: ui.ChangeRenameOutput, Name: "local", Value: "web"}},
+	for name, batch := range map[string][]session.Change{
+		"onto existing": {{Kind: session.ChangeRenameOutput, Name: "local", Value: "web"}},
 		"two onto one": {
-			{Kind: ui.ChangeRenameOutput, Name: "local", Value: "shared"},
-			{Kind: ui.ChangeRenameOutput, Name: "web", Value: "shared"},
+			{Kind: session.ChangeRenameOutput, Name: "local", Value: "shared"},
+			{Kind: session.ChangeRenameOutput, Name: "web", Value: "shared"},
 		},
 		"onto an added": {
-			{Kind: ui.ChangeAddOutput, Name: "extra", Format: "dotenv", Path: "x.env"},
-			{Kind: ui.ChangeRenameOutput, Name: "local", Value: "extra"},
+			{Kind: session.ChangeAddOutput, Name: "extra", Format: "dotenv", Path: "x.env"},
+			{Kind: session.ChangeRenameOutput, Name: "local", Value: "extra"},
 		},
 	} {
 		opts, app := newOutputsApp(t)
@@ -560,9 +560,9 @@ func TestCommitRefusesARenameOntoAnExistingOutput(t *testing.T) {
 	// local->web would overwrite web before web->local ran, and one output
 	// would be lost (traced 2026-10-05). Rename through a third name.
 	opts, app := newOutputsApp(t)
-	_, err := commitStaged(opts, app, []ui.Change{
-		{Kind: ui.ChangeRenameOutput, Name: "local", Value: "web"},
-		{Kind: ui.ChangeRenameOutput, Name: "web", Value: "local"},
+	_, err := commitStaged(opts, app, []session.Change{
+		{Kind: session.ChangeRenameOutput, Name: "local", Value: "web"},
+		{Kind: session.ChangeRenameOutput, Name: "web", Value: "local"},
 	})
 	var ib *invalidBatchError
 	if !errors.As(err, &ib) {
@@ -582,7 +582,7 @@ func TestCommitReturnsLeftInPlaceWithALateError(t *testing.T) {
 	}
 	restore := lockDir(t, filepath.Dir(config.ManifestPath("vpb")))
 	defer restore()
-	res, err := commitStaged(opts, app, []ui.Change{{Kind: ui.ChangeRemoveOutput, Name: "web"}})
+	res, err := commitStaged(opts, app, []session.Change{{Kind: session.ChangeRemoveOutput, Name: "web"}})
 	if err == nil {
 		t.Fatal("commit succeeded with the manifest directory locked")
 	}
@@ -597,7 +597,7 @@ func TestLeftInPlaceSurvivesARetry(t *testing.T) {
 	if err := app.State.Save(); err != nil {
 		t.Fatal(err)
 	}
-	batch := []ui.Change{{Kind: ui.ChangeRemoveOutput, Name: "web"}}
+	batch := []session.Change{{Kind: session.ChangeRemoveOutput, Name: "web"}}
 	var carry leftCarry
 	restore := lockDir(t, filepath.Dir(config.ManifestPath("vpb")))
 	if _, err := carry.commit(opts, app, batch); err == nil {
@@ -621,8 +621,8 @@ func TestLeftInPlaceSurvivesARetry(t *testing.T) {
 // treats it as a no-op, so the collision check must let it through.
 func TestCommitAllowsASelfRenameAndRenamingAnAddedOutput(t *testing.T) {
 	opts, app := newOutputsApp(t)
-	if _, err := commitStaged(opts, app, []ui.Change{
-		{Kind: ui.ChangeRenameOutput, Name: "local", Value: "local"},
+	if _, err := commitStaged(opts, app, []session.Change{
+		{Kind: session.ChangeRenameOutput, Name: "local", Value: "local"},
 	}); err != nil {
 		t.Fatalf("self-rename: %v", err)
 	}
@@ -631,9 +631,9 @@ func TestCommitAllowsASelfRenameAndRenamingAnAddedOutput(t *testing.T) {
 	}
 
 	opts, app = newOutputsApp(t)
-	if _, err := commitStaged(opts, app, []ui.Change{
-		{Kind: ui.ChangeAddOutput, Name: "extra", Format: "dotenv", Path: "x.env"},
-		{Kind: ui.ChangeRenameOutput, Name: "extra", Value: "free"},
+	if _, err := commitStaged(opts, app, []session.Change{
+		{Kind: session.ChangeAddOutput, Name: "extra", Format: "dotenv", Path: "x.env"},
+		{Kind: session.ChangeRenameOutput, Name: "extra", Value: "free"},
 	}); err != nil {
 		t.Fatalf("add then rename: %v", err)
 	}

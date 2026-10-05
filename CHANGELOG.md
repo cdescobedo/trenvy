@@ -51,6 +51,15 @@ the command surface may still move under you.
   rather than silently treated as a command to run. Choose the values with
   `--profile`.
 
+- **`trenvy ui` is the redesigned interface, and `trenvy edit` opens it too.**
+  Variables and Outputs are screens with a list and a detail pane that shows
+  real values; edits are staged, reviewed with `w`, and saved without leaving.
+  The Overview tab is gone: problems are marked where they are and counted in
+  the header, and project facts are under `.` → Project info. Keys are the same
+  on every screen (`?` lists them); `r`/`D`/`s` are replaced by the `.` menu.
+  `trenvy edit`'s single-profile table is gone; to turn a secret back into a
+  plain variable, use `trenvy secret demote`.
+
 ### Added
 
 - **`trenvy secret demote <NAME>`** turns a secret back into a plain
@@ -321,6 +330,7 @@ the command surface may still move under you.
 
 ### Changed
 
+- **`TRENVY_THEME=light|dark`** overrides the interface's light/dark detection.
 - **`trenvy ui` validates a whole batch before writing anything.** A batch
   the manifest would refuse -- a new variable with no value, say -- used to
   store its secrets in the keyring first and only then fail. Now it fails

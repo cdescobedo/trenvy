@@ -12,7 +12,6 @@ import (
 	"github.com/cdescobedo/trenvy/internal/manifest"
 	"github.com/cdescobedo/trenvy/internal/session"
 	"github.com/cdescobedo/trenvy/internal/store"
-	"github.com/cdescobedo/trenvy/internal/ui"
 )
 
 // The tests in this file are the original interface's commit tests
@@ -90,7 +89,7 @@ func loadState(t *testing.T) *config.State {
 	return s
 }
 
-func mustCommit(t *testing.T, opts *Options, app *appContext, batch []ui.Change) commitResult {
+func mustCommit(t *testing.T, opts *Options, app *appContext, batch []session.Change) commitResult {
 	t.Helper()
 	res, err := commitStaged(opts, app, batch)
 	if err != nil {
@@ -132,8 +131,8 @@ func assertDBURLKeptWithBothProfiles(t *testing.T, deletedMsg string) {
 func TestCommitDeleteThenEditPreservesTheUntouchedProfile(t *testing.T) {
 	opts, app := newCommitAppFrom(t, store.NewMem(), dbURLSource)
 	var s session.Staged
-	s.Add(ui.Change{Kind: ui.ChangeDeleteVar, Name: "DB_URL"})
-	s.Add(ui.Change{Kind: ui.ChangeSetValue, Name: "DB_URL", Profile: "prod", Value: "postgres://prod"})
+	s.Add(session.Change{Kind: session.ChangeDeleteVar, Name: "DB_URL"})
+	s.Add(session.Change{Kind: session.ChangeSetValue, Name: "DB_URL", Profile: "prod", Value: "postgres://prod"})
 	mustCommit(t, opts, app, s.All())
 	assertDBURLKeptWithBothProfiles(t, "DB_URL was deleted -- want it kept, with the edit cancelling the delete")
 }
@@ -145,8 +144,8 @@ func TestCommitDeleteThenEditPreservesTheUntouchedProfile(t *testing.T) {
 // session.Staged.Add -- which is its own rule, tested there.)
 func TestCommitEditThenDeletePreservesTheUntouchedProfile(t *testing.T) {
 	opts, app := newCommitAppFrom(t, store.NewMem(), dbURLSource)
-	mustCommit(t, opts, app, []ui.Change{
-		{Kind: ui.ChangeSetValue, Name: "DB_URL", Profile: "prod", Value: "postgres://prod"},
+	mustCommit(t, opts, app, []session.Change{
+		{Kind: session.ChangeSetValue, Name: "DB_URL", Profile: "prod", Value: "postgres://prod"},
 	})
 	assertDBURLKeptWithBothProfiles(t, "DB_URL was deleted -- want d refused over the staged edit")
 }
@@ -156,8 +155,8 @@ func TestCommitEditThenDeletePreservesTheUntouchedProfile(t *testing.T) {
 // resolves to.
 func TestCommitSetValueToManifest(t *testing.T) {
 	opts, app := newCommitAppFrom(t, store.NewMem(), portedFixture)
-	mustCommit(t, opts, app, []ui.Change{
-		{Kind: ui.ChangeSetValue, Name: "APP_URL", Profile: "dev", Value: "http://+:9999"},
+	mustCommit(t, opts, app, []session.Change{
+		{Kind: session.ChangeSetValue, Name: "APP_URL", Profile: "dev", Value: "http://+:9999"},
 	})
 	v := loadVPB(t).Vars["APP_URL"]
 	if got, ok := v.Profiles["dev"]; !ok || got != "http://+:9999" {
@@ -170,8 +169,8 @@ func TestCommitSetValueToManifest(t *testing.T) {
 func TestCommitSetSecretToKeyring(t *testing.T) {
 	mem := store.NewMem()
 	opts, app := newCommitAppFrom(t, mem, portedFixture)
-	mustCommit(t, opts, app, []ui.Change{
-		{Kind: ui.ChangeSetSecret, Name: "ALPHA_TOKEN", Profile: "dev", Value: "brand-new-secret"},
+	mustCommit(t, opts, app, []session.Change{
+		{Kind: session.ChangeSetSecret, Name: "ALPHA_TOKEN", Profile: "dev", Value: "brand-new-secret"},
 	})
 	got, err := mem.Get("trenvy/vpb/dev/ALPHA_TOKEN")
 	if err != nil {
@@ -191,7 +190,7 @@ func TestCommitSetSecretToKeyring(t *testing.T) {
 
 // promotionBatch is what s then y on APP_URL staged: one set-secret per
 // profile holding the shared value, then the promote-secret.
-func promotionBatch(app *appContext, name string) []ui.Change {
+func promotionBatch(app *appContext, name string) []session.Change {
 	return session.PromotionChanges(name, app.Manifest.Vars[name], app.Manifest.Project.Profiles)
 }
 
@@ -286,7 +285,7 @@ profiles = ["dev", "staging", "prod"]
 default_profile = "dev"
 salt = "abc123"
 `)
-	batch := []ui.Change{{Kind: ui.ChangeAddVar, Name: "FRESH_SECRET"}}
+	batch := []session.Change{{Kind: session.ChangeAddVar, Name: "FRESH_SECRET"}}
 	batch = append(batch, session.PromotionChanges("FRESH_SECRET", manifest.Var{}, app.Manifest.Project.Profiles)...)
 	if len(batch) != 2 {
 		t.Fatalf("setup: batch = %+v, want add-var and promote-secret only", batch)
@@ -320,7 +319,7 @@ func TestCommitDeleteVarAcrossEveryProfile(t *testing.T) {
 	mem.Seed("trenvy/vpb/staging/ALPHA_TOKEN", "s")
 	mem.Seed("trenvy/vpb/prod/ALPHA_TOKEN", "p")
 	opts, app := newCommitAppFrom(t, mem, portedFixtureThreeProfiles())
-	mustCommit(t, opts, app, []ui.Change{{Kind: ui.ChangeDeleteVar, Name: "ALPHA_TOKEN"}})
+	mustCommit(t, opts, app, []session.Change{{Kind: session.ChangeDeleteVar, Name: "ALPHA_TOKEN"}})
 
 	if _, ok := loadVPB(t).Vars["ALPHA_TOKEN"]; ok {
 		t.Error("the deleted variable is still in the manifest")
@@ -335,8 +334,8 @@ func TestCommitDeleteVarAcrossEveryProfile(t *testing.T) {
 
 func TestCommitAddOutput(t *testing.T) {
 	opts, app := newCommitAppFrom(t, store.NewMem(), portedFixture)
-	mustCommit(t, opts, app, []ui.Change{
-		{Kind: ui.ChangeAddOutput, Name: "public", Format: "json", Path: "public/env.json"},
+	mustCommit(t, opts, app, []session.Change{
+		{Kind: session.ChangeAddOutput, Name: "public", Format: "json", Path: "public/env.json"},
 	})
 	m := loadVPB(t)
 	o, ok := m.Outputs["public"]
@@ -368,7 +367,7 @@ func uncheckGlobs(t *testing.T, include []string, off string) (in, ex []string) 
 func TestCommitSetGlobs(t *testing.T) {
 	opts, app := newCommitAppFrom(t, store.NewMem(), portedFixture)
 	in, ex := uncheckGlobs(t, []string{"*"}, "APP_URL")
-	mustCommit(t, opts, app, []ui.Change{{Kind: ui.ChangeSetGlobs, Name: "docker", Include: in, Exclude: ex}})
+	mustCommit(t, opts, app, []session.Change{{Kind: session.ChangeSetGlobs, Name: "docker", Include: in, Exclude: ex}})
 
 	o, ok := loadVPB(t).Outputs["docker"]
 	if !ok {
@@ -391,9 +390,9 @@ func TestCommitSetGlobs(t *testing.T) {
 func TestCommitSetGlobsForAnAddedOutput(t *testing.T) {
 	opts, app := newCommitAppFrom(t, store.NewMem(), portedFixture)
 	in, ex := uncheckGlobs(t, nil, "ALPHA_TOKEN")
-	mustCommit(t, opts, app, []ui.Change{
-		{Kind: ui.ChangeAddOutput, Name: "public", Format: "dotenv", Path: "public/.env"},
-		{Kind: ui.ChangeSetGlobs, Name: "public", Include: in, Exclude: ex},
+	mustCommit(t, opts, app, []session.Change{
+		{Kind: session.ChangeAddOutput, Name: "public", Format: "dotenv", Path: "public/.env"},
+		{Kind: session.ChangeSetGlobs, Name: "public", Include: in, Exclude: ex},
 	})
 
 	o, ok := loadVPB(t).Outputs["public"]
@@ -410,10 +409,10 @@ func TestCommitSetGlobsForAnAddedOutput(t *testing.T) {
 
 // renameAndMembership is a rename of docker to prod-env and a membership
 // edit unchecking APP_URL, both keyed by docker's identity.
-func renameAndMembership(t *testing.T) (rename, globs ui.Change) {
+func renameAndMembership(t *testing.T) (rename, globs session.Change) {
 	in, ex := uncheckGlobs(t, []string{"*"}, "APP_URL")
-	return ui.Change{Kind: ui.ChangeRenameOutput, Name: "docker", Value: "prod-env"},
-		ui.Change{Kind: ui.ChangeSetGlobs, Name: "docker", Include: in, Exclude: ex}
+	return session.Change{Kind: session.ChangeRenameOutput, Name: "docker", Value: "prod-env"},
+		session.Change{Kind: session.ChangeSetGlobs, Name: "docker", Include: in, Exclude: ex}
 }
 
 // Fix 1 (whole-branch review): a rename and a membership edit on one row
@@ -422,7 +421,7 @@ func renameAndMembership(t *testing.T) (rename, globs ui.Change) {
 func TestCommitRenameThenMembershipBothLand(t *testing.T) {
 	opts, app := newCommitAppFrom(t, store.NewMem(), portedFixture)
 	rename, globs := renameAndMembership(t)
-	mustCommit(t, opts, app, []ui.Change{rename, globs})
+	mustCommit(t, opts, app, []session.Change{rename, globs})
 	assertRenameAndMembershipEditBothLanded(t)
 }
 
@@ -431,7 +430,7 @@ func TestCommitRenameThenMembershipBothLand(t *testing.T) {
 func TestCommitMembershipThenRenameBothLand(t *testing.T) {
 	opts, app := newCommitAppFrom(t, store.NewMem(), portedFixture)
 	rename, globs := renameAndMembership(t)
-	mustCommit(t, opts, app, []ui.Change{globs, rename})
+	mustCommit(t, opts, app, []session.Change{globs, rename})
 	assertRenameAndMembershipEditBothLanded(t)
 }
 
@@ -481,15 +480,15 @@ value = "http://+:8080"
 `
 
 var (
-	defaultDocker = ui.Change{Kind: ui.ChangeDefaultOutput, Name: "docker"}
-	renameDocker  = ui.Change{Kind: ui.ChangeRenameOutput, Name: "docker", Value: "prod-env"}
+	defaultDocker = session.Change{Kind: session.ChangeDefaultOutput, Name: "docker"}
+	renameDocker  = session.Change{Kind: session.ChangeRenameOutput, Name: "docker", Value: "prod-env"}
 )
 
 // The order that already worked before the fix, pinned so a change to
 // commitStaged cannot flip which order works.
 func TestCommitDefaultThenRenameBothLand(t *testing.T) {
 	opts, app := newCommitAppFrom(t, store.NewMem(), twoOutputsPublicDefault)
-	mustCommit(t, opts, app, []ui.Change{defaultDocker, renameDocker})
+	mustCommit(t, opts, app, []session.Change{defaultDocker, renameDocker})
 	assertDockerRenamedAndDefault(t)
 }
 
@@ -498,7 +497,7 @@ func TestCommitDefaultThenRenameBothLand(t *testing.T) {
 // order, it would point project.output at a name the rename just moved.
 func TestCommitRenameThenDefaultBothLand(t *testing.T) {
 	opts, app := newCommitAppFrom(t, store.NewMem(), twoOutputsPublicDefault)
-	mustCommit(t, opts, app, []ui.Change{renameDocker, defaultDocker})
+	mustCommit(t, opts, app, []session.Change{renameDocker, defaultDocker})
 	assertDockerRenamedAndDefault(t)
 }
 
@@ -523,7 +522,7 @@ func assertDockerRenamedAndDefault(t *testing.T) {
 // renamed row held it, as `trenvy output rename` does.
 func TestCommitRenameOutputMovesKeyAndDefault(t *testing.T) {
 	opts, app := newCommitAppFrom(t, store.NewMem(), portedFixture)
-	mustCommit(t, opts, app, []ui.Change{renameDocker})
+	mustCommit(t, opts, app, []session.Change{renameDocker})
 
 	m := loadVPB(t)
 	if _, gone := m.Outputs["docker"]; gone {
@@ -545,7 +544,7 @@ func TestCommitRenameOutputMovesKeyAndDefault(t *testing.T) {
 // `trenvy output rm` does.
 func TestCommitRemoveOutputClearsTheDefault(t *testing.T) {
 	opts, app := newCommitAppFrom(t, store.NewMem(), portedFixture)
-	mustCommit(t, opts, app, []ui.Change{{Kind: ui.ChangeRemoveOutput, Name: "docker"}})
+	mustCommit(t, opts, app, []session.Change{{Kind: session.ChangeRemoveOutput, Name: "docker"}})
 
 	m := loadVPB(t)
 	if _, ok := m.Outputs["docker"]; ok {
@@ -570,7 +569,7 @@ func TestCommitRemoveOutputForgetsRecordsAndNamesFiles(t *testing.T) {
 		config.RenderEntry{Worktree: worktreeA, Output: "docker", Path: "src/.env"},
 		config.RenderEntry{Worktree: worktreeB, Output: "docker", Path: "src/.env"})
 
-	res := mustCommit(t, opts, app, []ui.Change{{Kind: ui.ChangeRemoveOutput, Name: "docker"}})
+	res := mustCommit(t, opts, app, []session.Change{{Kind: session.ChangeRemoveOutput, Name: "docker"}})
 
 	st := loadState(t)
 	if _, ok := st.Find(worktreeA, "docker"); ok {
@@ -606,7 +605,7 @@ path = "src/.env"
 format = "json"
 path = "public/env.json"
 `)
-	mustCommit(t, opts, app, []ui.Change{{Kind: ui.ChangeDefaultOutput, Name: "public"}})
+	mustCommit(t, opts, app, []session.Change{{Kind: session.ChangeDefaultOutput, Name: "public"}})
 	if got := loadVPB(t).Project.Output; got != "public" {
 		t.Errorf("project.output = %q, want public", got)
 	}
@@ -630,9 +629,9 @@ secret = true
 
 // storeOneDeleteOther is what d on ALPHA_TOKEN then an edit of
 // SECOND_TOKEN staged.
-var storeOneDeleteOther = []ui.Change{
-	{Kind: ui.ChangeDeleteVar, Name: "ALPHA_TOKEN"},
-	{Kind: ui.ChangeSetSecret, Name: "SECOND_TOKEN", Profile: "dev", Value: "new-value"},
+var storeOneDeleteOther = []session.Change{
+	{Kind: session.ChangeDeleteVar, Name: "ALPHA_TOKEN"},
+	{Kind: session.ChangeSetSecret, Name: "SECOND_TOKEN", Profile: "dev", Value: "new-value"},
 }
 
 // Keyring writes before keyring deletes, checked on the store's own call
@@ -670,7 +669,7 @@ func TestCommitRenameOutputWritesStateBeforeManifest(t *testing.T) {
 	app = recordRenders(t, opts, app, config.RenderEntry{Worktree: app.Worktree, Output: "docker", Path: "src/.env"})
 
 	restore := lockDir(t, filepath.Join(config.Dir(), "projects"))
-	if _, err := commitStaged(opts, app, []ui.Change{renameDocker}); err == nil {
+	if _, err := commitStaged(opts, app, []session.Change{renameDocker}); err == nil {
 		t.Fatal("commit succeeded despite a read-only manifest directory")
 	}
 
@@ -699,12 +698,12 @@ profiles = ["dev"]
 default_profile = "dev"
 salt = "abc123"
 `
-	add := ui.Change{Kind: ui.ChangeAddOutput, Name: "temp", Format: "dotenv", Path: "temp/.env"}
-	remove := ui.Change{Kind: ui.ChangeRemoveOutput, Name: "temp"}
+	add := session.Change{Kind: session.ChangeAddOutput, Name: "temp", Format: "dotenv", Path: "temp/.env"}
+	remove := session.Change{Kind: session.ChangeRemoveOutput, Name: "temp"}
 
 	t.Run("as the original staged it", func(t *testing.T) {
 		opts, app := newCommitAppFrom(t, store.NewMem(), noOutputs)
-		mustCommit(t, opts, app, []ui.Change{add, remove})
+		mustCommit(t, opts, app, []session.Change{add, remove})
 		if _, ok := loadVPB(t).Outputs["temp"]; ok {
 			t.Error("an output added and removed in the same session was resurrected in the manifest")
 		}
@@ -730,8 +729,8 @@ salt = "abc123"
 // secretAndRename is an edit of ALPHA_TOKEN (a keyring write that lands
 // before any later failure) and a rename of docker (a legal batch, so
 // Validate passes).
-var secretAndRename = []ui.Change{
-	{Kind: ui.ChangeSetSecret, Name: "ALPHA_TOKEN", Profile: "dev", Value: "new-secret-value"},
+var secretAndRename = []session.Change{
+	{Kind: session.ChangeSetSecret, Name: "ALPHA_TOKEN", Profile: "dev", Value: "new-secret-value"},
 	renameDocker,
 }
 
@@ -809,9 +808,9 @@ func TestCommitValidationFailureLeavesStateUntouched(t *testing.T) {
 	opts, app := newCommitAppFrom(t, store.NewMem(), portedFixture)
 	app = recordRenders(t, opts, app, config.RenderEntry{Worktree: app.Worktree, Output: "docker", Path: "src/.env"})
 
-	_, err := commitStaged(opts, app, []ui.Change{
+	_, err := commitStaged(opts, app, []session.Change{
 		renameDocker,
-		{Kind: ui.ChangeAddOutput, Name: "bad", Format: "dotenv", Path: "../escape"},
+		{Kind: session.ChangeAddOutput, Name: "bad", Format: "dotenv", Path: "../escape"},
 	})
 	if err == nil {
 		t.Fatal("commit succeeded with an illegal output path")
@@ -843,7 +842,7 @@ func TestCommitPartialFailureReportsHowFarItGot(t *testing.T) {
 	st.Seed("trenvy/vpb/prod/ALPHA_TOKEN", "p")
 	opts, app := newCommitAppFrom(t, st, portedFixtureThreeProfiles())
 
-	_, err := commitStaged(opts, app, []ui.Change{{Kind: ui.ChangeDeleteVar, Name: "ALPHA_TOKEN"}})
+	_, err := commitStaged(opts, app, []session.Change{{Kind: session.ChangeDeleteVar, Name: "ALPHA_TOKEN"}})
 	if err == nil {
 		t.Fatal("commit succeeded despite a failing keyring delete")
 	}
@@ -911,9 +910,9 @@ func TestCommitAddVarFailingValidationWritesNothing(t *testing.T) {
 	mem := store.NewMem()
 	opts, app := newCommitAppFrom(t, mem, portedFixture)
 
-	_, err := commitStaged(opts, app, []ui.Change{
-		{Kind: ui.ChangeSetSecret, Name: "ALPHA_TOKEN", Profile: "dev", Value: "new-secret-value"},
-		{Kind: ui.ChangeAddVar, Name: "EMPTYVAR"},
+	_, err := commitStaged(opts, app, []session.Change{
+		{Kind: session.ChangeSetSecret, Name: "ALPHA_TOKEN", Profile: "dev", Value: "new-secret-value"},
+		{Kind: session.ChangeAddVar, Name: "EMPTYVAR"},
 	})
 	if err == nil {
 		t.Fatal("commit succeeded with an add-var that cannot validate")
@@ -942,8 +941,8 @@ func TestCommitKeyringWriteFailureReportsStoredNoneOfOne(t *testing.T) {
 	st := &failOnce{Mem: store.NewMem(), failOn: "trenvy/vpb/dev/ALPHA_TOKEN"}
 	opts, app := newCommitAppFrom(t, st, portedFixture)
 
-	_, err := commitStaged(opts, app, []ui.Change{
-		{Kind: ui.ChangeSetSecret, Name: "ALPHA_TOKEN", Profile: "dev", Value: "new-secret-value"},
+	_, err := commitStaged(opts, app, []session.Change{
+		{Kind: session.ChangeSetSecret, Name: "ALPHA_TOKEN", Profile: "dev", Value: "new-secret-value"},
 	})
 	if err == nil {
 		t.Fatal("commit succeeded despite a failing keyring write")

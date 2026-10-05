@@ -125,10 +125,10 @@ func newStatusCmd(opts *Options) *cobra.Command {
 // It exists because describeOutput's return value is prose for a terminal --
 // "not rendered", "unknown (--quick)" -- and a second consumer of the same
 // classification (ui.go's outputStates) parsing that prose as if it were a
-// stable machine interface is exactly how this package and internal/ui went
+// stable machine interface is exactly how this package and the interface went
 // out of sync twice in one task: once over "unknown (--quick)", which a
 // prefix match happened to catch, and once over "not rendered" vs
-// ui.Problems' "absent", which no prefix match would have. classifyOutput is
+// session.Problems' "absent", which no prefix match would have. classifyOutput is
 // the one place that decides; describeOutput and outputStates each render
 // that decision into their own vocabulary and never need to agree with each
 // other by spelling.
@@ -285,7 +285,7 @@ func sortedOutputNames(m *manifest.Manifest) []string {
 // StateUnverified is deliberately neither StateFresh (the claim was never
 // earned: in quick mode wantSum is "", so a changed plain value or a glob
 // edit is indistinguishable from nothing changed) nor StateUnknown (which
-// ui.Problems flags -- see StateUnverified's own doc in internal/ui for why
+// session.Problems flags -- see StateUnverified's own doc in internal/session for why
 // flagging it would be a permanent, unfixable-from-inside alarm). `trenvy
 // status` (no --quick) remains the command that actually reads the value and
 // can tell fresh from STALE for real.
