@@ -280,7 +280,7 @@ func newSecretDemoteCmd(opts *Options) *cobra.Command {
 			values := map[string]string{}
 			var found []string
 			for _, p := range profiles {
-				val, err := s.Get(app.Cfg.Keyring.ServiceName(app.Entry.ID, p, name))
+				val, err := s.Get(app.Cfg.Keyring.ServiceName(app.Manifest.Project.ID, p, name))
 				if err != nil {
 					if errors.Is(err, store.ErrNotFound) {
 						continue
@@ -297,9 +297,14 @@ func newSecretDemoteCmd(opts *Options) *cobra.Command {
 			}
 
 			if !yes {
-				ok, err := confirm(opts, fmt.Sprintf(
+				question := fmt.Sprintf(
 					"Demote %s? Its values move out of the keyring into the manifest in plain text (%s), and those keyring items are deleted.",
-					name, strings.Join(found, ", ")))
+					name, strings.Join(found, ", "))
+				if len(found) == 0 {
+					question = fmt.Sprintf(
+						"Demote %s? Nothing is stored (no values were stored under any profile), so it becomes an optional plain variable.", name)
+				}
+				ok, err := confirm(opts, question)
 				if err != nil {
 					return err
 				}
@@ -326,12 +331,21 @@ func newSecretDemoteCmd(opts *Options) *cobra.Command {
 
 			done := 0
 			for _, p := range found {
-				svc := app.Cfg.Keyring.ServiceName(app.Entry.ID, p, name)
-				if err := s.Delete(svc); err != nil && !errors.Is(err, store.ErrNotFound) {
+				svc := app.Cfg.Keyring.ServiceName(app.Manifest.Project.ID, p, name)
+				if err := s.Delete(svc); err != nil {
+					if errors.Is(err, store.ErrNotFound) {
+						// Already gone: not a failure, but not a deletion
+						// this command made, so it is not counted.
+						continue
+					}
 					return fmt.Errorf("delete %s: %w\n  deleted %d of %d keyring items; the manifest already holds the values in plain text -- the rest are unreferenced and can be removed in your keyring's own tool",
 						svc, err, done, len(found))
 				}
 				done++
+			}
+			if len(found) == 0 {
+				fmt.Fprintf(opts.Stdout, "demoted %s: no values were stored; it is now an optional plain variable\n", name)
+				return nil
 			}
 			fmt.Fprintf(opts.Stdout, "demoted %s: %d plain values (%s), deleted %d keyring items\n",
 				name, len(found), strings.Join(found, ", "), done)

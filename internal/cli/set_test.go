@@ -674,8 +674,8 @@ func TestSecretDemoteWritesEqualValuesAsShared(t *testing.T) {
 			t.Errorf("%s keyring item survived", p)
 		}
 	}
-	if strings.Contains(h.out.String(), "same") {
-		t.Errorf("printed a value: %q", h.out.String())
+	if got := h.out.String() + h.errb.String(); strings.Contains(got, "same") {
+		t.Errorf("printed a value: %q", got)
 	}
 }
 
@@ -721,7 +721,97 @@ func TestSecretDemoteSavesTheManifestBeforeDeleting(t *testing.T) {
 	if v := h.manifest(t, "vpb").Vars["TOKEN"]; v.Secret || v.Profiles["dev"] != "d" && (v.Value == nil || *v.Value != "d") {
 		t.Errorf("the value was not saved before the failing delete: %+v", v)
 	}
+	if strings.Contains(err.Error(), "\"d\"") || strings.HasSuffix(err.Error(), " d") {
+		t.Errorf("error prints a value: %v", err)
+	}
 	if !strings.Contains(err.Error(), "deleted 0 of 1") {
 		t.Errorf("error does not say how far it got: %v", err)
+	}
+}
+
+func TestSecretDemoteUsesTheManifestProjectIDForKeyringItems(t *testing.T) {
+	h := newHarness(t)
+	h.register("reg-id", twoProfileSecretManifest(t)) // manifest project.id is "vpb"
+	h.mem.Set("trenvy/vpb/dev/TOKEN", "d")
+	if err := h.run("secret", "demote", "TOKEN", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	if v := h.manifest(t, "reg-id").Vars["TOKEN"]; v.Secret || v.Profiles["dev"] != "d" {
+		t.Errorf("TOKEN = %+v", v)
+	}
+	if ok, _ := h.mem.Has("trenvy/vpb/dev/TOKEN"); ok {
+		t.Error("the item written under the manifest's project id survived")
+	}
+}
+
+// vanishingStore reports ErrNotFound for one service's Delete, as if the item
+// went away between the read and the delete.
+type vanishingStore struct {
+	*store.Mem
+	service string
+}
+
+func (f vanishingStore) Delete(service string) error {
+	if service == f.service {
+		return store.ErrNotFound
+	}
+	return f.Mem.Delete(service)
+}
+
+func TestSecretDemoteDoesNotCountAnItemThatWasAlreadyGone(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", twoProfileSecretManifest(t))
+	h.mem.Set("trenvy/vpb/dev/TOKEN", "d")
+	h.mem.Set("trenvy/vpb/prod/TOKEN", "p")
+	h.opts.NewStore = func(*config.Config, string) (store.Store, error) {
+		return vanishingStore{Mem: h.mem, service: "trenvy/vpb/prod/TOKEN"}, nil
+	}
+	if err := h.run("secret", "demote", "TOKEN", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(h.out.String(), "deleted 1 keyring items") {
+		t.Errorf("output = %q", h.out.String())
+	}
+}
+
+func TestSecretDemoteOfAnOptionalSecretWithNothingStoredSaysSo(t *testing.T) {
+	h := newHarness(t)
+	m := twoProfileSecretManifest(t)
+	v := m.Vars["TOKEN"]
+	v.Optional = true
+	m.Vars["TOKEN"] = v
+	h.register("vpb", m)
+	h.opts.Stdin = strings.NewReader("y\n")
+	if err := h.run("secret", "demote", "TOKEN"); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.errb.String(); strings.Contains(got, "()") || !strings.Contains(got, "no values were stored") {
+		t.Errorf("prompt = %q", got)
+	}
+	if got := h.out.String(); strings.Contains(got, "()") || !strings.Contains(got, "no values were stored") {
+		t.Errorf("output = %q", got)
+	}
+	if v := h.manifest(t, "vpb").Vars["TOKEN"]; v.Secret || !v.Optional {
+		t.Errorf("TOKEN = %+v", v)
+	}
+}
+
+func TestSecretDemoteDeclinedChangesNothing(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", twoProfileSecretManifest(t))
+	h.mem.Set("trenvy/vpb/dev/TOKEN", "d")
+	h.opts.Stdin = strings.NewReader("n\n")
+	err := h.run("secret", "demote", "TOKEN")
+	if err == nil || err.Error() != "aborted" {
+		t.Fatalf("err = %v", err)
+	}
+	if !h.manifest(t, "vpb").Vars["TOKEN"].Secret {
+		t.Error("manifest changed")
+	}
+	if ok, _ := h.mem.Has("trenvy/vpb/dev/TOKEN"); !ok {
+		t.Error("keyring item deleted")
+	}
+	if strings.Contains(h.out.String()+h.errb.String(), "\"d\"") {
+		t.Error("printed a value")
 	}
 }
