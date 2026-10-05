@@ -192,6 +192,68 @@ func TestCommitSkipsASecretWriteOnARemovedProfile(t *testing.T) {
 	}
 }
 
+// An item a delete-var and a remove-profile both name is deleted once.
+func TestCommitDeletesAnItemBothADeleteAndARemovalNameOnce(t *testing.T) {
+	mem := store.NewMem()
+	mem.Seed("trenvy/vpb/dev/TOKEN", "d")
+	mem.Seed("trenvy/vpb/prod/TOKEN", "p")
+	opts, app := newCommitApp(t, mem)
+	if _, err := commitStaged(opts, app, []session.Change{
+		{Kind: session.ChangeDeleteVar, Name: "TOKEN"},
+		{Kind: session.ChangeRemoveProfile, Name: "prod"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, c := range mem.Calls() {
+		if c == "Delete trenvy/vpb/prod/TOKEN" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("prod's TOKEN was deleted %d times, want once: %v", n, mem.Calls())
+	}
+	if ok, _ := mem.Has("trenvy/vpb/dev/TOKEN"); ok {
+		t.Error("dev's TOKEN survived the delete-var")
+	}
+}
+
+// "use q, remove p", with p this machine's selection, leaves q whichever
+// was staged first.
+func TestCommitUseOneAndRemoveTheActiveLeavesTheUsedOneInEitherOrder(t *testing.T) {
+	use := session.Change{Kind: session.ChangeUseProfile, Name: "dev"}
+	rm := session.Change{Kind: session.ChangeRemoveProfile, Name: "prod"}
+	for _, batch := range [][]session.Change{{use, rm}, {rm, use}} {
+		opts, app := newCommitApp(t, store.NewMem())
+		app.State.Active = "prod"
+		if err := app.State.Save(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := commitStaged(opts, app, batch); err != nil {
+			t.Fatalf("%v: %v", batch, err)
+		}
+		if st, _ := config.LoadState("vpb"); st.Active != "dev" {
+			t.Errorf("%s first: Active = %q, want dev", batch[0].Kind, st.Active)
+		}
+	}
+}
+
+// A set-value on a profile the batch removes, built by hand, leaves no
+// override behind, whichever was staged first.
+func TestCommitSetValueOnARemovedProfileLeavesNoOverride(t *testing.T) {
+	set := session.Change{Kind: session.ChangeSetValue, Name: "LOG_LEVEL", Profile: "prod", Value: "debug"}
+	rm := session.Change{Kind: session.ChangeRemoveProfile, Name: "prod"}
+	for _, batch := range [][]session.Change{{rm, set}, {set, rm}} {
+		opts, app := newCommitApp(t, store.NewMem())
+		if _, err := commitStaged(opts, app, batch); err != nil {
+			t.Fatalf("%s first: %v", batch[0].Kind, err)
+		}
+		if v := loadVPB(t).Vars["LOG_LEVEL"]; len(v.Profiles) != 0 {
+			t.Errorf("%s first: LOG_LEVEL overrides = %v, want none", batch[0].Kind, v.Profiles)
+		}
+	}
+}
+
 // Spec §3: a failed phase 3 delete, then a retry, ends where one clean
 // commit would.
 func TestCommitRetryAfterAKeyringDeleteFailureOnARemoveProfile(t *testing.T) {
