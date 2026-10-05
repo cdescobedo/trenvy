@@ -27,7 +27,7 @@ func (s screen) title() string {
 	return "Variables"
 }
 
-// switchScreen handles 1, 2, tab and shift+tab. It reports whether the key
+// switchScreen handles 1, 2, 3, tab and shift+tab. It reports whether the key
 // was a screen switch. Switching keeps each screen's cursor where it was.
 func (m *Model) switchScreen(k tea.KeyMsg) bool {
 	switch {

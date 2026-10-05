@@ -478,6 +478,8 @@ func (s Staged) AddedProfiles() []string {
 	return out
 }
 
+// single names the profile the one staged change of kind points at: kind
+// holds a single slot (see slot), so there is at most one.
 func (s Staged) single(kind string) (string, bool) {
 	for _, c := range s.list {
 		if c.Kind == kind {
