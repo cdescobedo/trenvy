@@ -70,10 +70,11 @@ func TestUiRemovesAProfileOnceItsNameIsTyped(t *testing.T) {
 func TestUiUseOnThisMachineMovesTheHeaderAfterSave(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", twoProfileManifest(t))
-	var view string
+	var view, profiles string
 	h.opts.RunManage = func(m manage.Model) (manage.Model, error) {
 		m = drive(m, r("3"), r("j"), r("."), enter, r("w"), enter)
 		view = m.View()
+		profiles = drive(m, r("3")).View()
 		return drive(m, r("q")), nil
 	}
 	if err := h.run("ui"); err != nil {
@@ -84,6 +85,17 @@ func TestUiUseOnThisMachineMovesTheHeaderAfterSave(t *testing.T) {
 	}
 	if head, _, _ := strings.Cut(view, "\n"); !strings.Contains(head, "prod (active)") {
 		t.Errorf("header after save = %q, want prod (active)", head)
+	}
+	// Snapshot.Active feeds the Profiles list's tag, not the header.
+	var row string
+	for _, line := range strings.Split(profiles, "\n") {
+		if left, _, found := strings.Cut(line, "││"); found && strings.Contains(left, "prod") {
+			row = left
+			break
+		}
+	}
+	if !strings.Contains(row, "active") {
+		t.Errorf("prod's Profiles row = %q, want it tagged active\n%s", row, profiles)
 	}
 }
 
