@@ -73,6 +73,20 @@ func TestRemovingAVariablesOnlyValueIsRefused(t *testing.T) {
 	}
 }
 
+// Two removals together: REQ's only values sit on staging and prod, so
+// once staging is marked, marking prod would leave REQ with none.
+func TestRemovingTheLastProfileHoldingAValueIsRefusedAcrossRemovals(t *testing.T) {
+	mf := fixtureManifest()
+	mf.Vars["REQ"] = manifest.Var{Profiles: map[string]string{"staging": "a", "prod": "b"}}
+	m := press(sized(manage.New(snapshotOf(mf, map[string]map[string]bool{"API_TOKEN": {"dev": true, "prod": true}}), (&fakeDeps{}).deps(), noTheme()), 100, 30), "3", "j", "d", "j", "d")
+	if got := stagedKinds(m); len(got) != 1 || got[0] != "remove-profile:staging" {
+		t.Errorf("staged = %v, want only staging's removal", got)
+	}
+	if v := m.View(); !strings.Contains(v, "would leave REQ with no value") {
+		t.Errorf("the refusal should name REQ:\n%s", v)
+	}
+}
+
 func TestRemoveProfileStagesAndDTogglesItBack(t *testing.T) {
 	m := press(newModel(&fakeDeps{}), "3", "j", "d") // staging
 	if got := stagedKinds(m); len(got) != 1 || got[0] != "remove-profile:staging" {

@@ -64,13 +64,25 @@ func (m Model) removeRefusal(p string) string {
 	case p == m.snap.Profile:
 		return "this session is on " + p + " -- remove it from a session on another profile: trenvy -p <other> ui"
 	}
+	// A required plain variable with no shared value keeps a value only
+	// through its overrides. Those on profiles already marked for removal
+	// do not count, so two removals together cannot orphan it either.
 	var orphans []string
 	for _, n := range m.allNames() {
 		vv := m.varView(n)
-		if vv.Deleted || vv.Var.Secret || vv.Var.Optional || vv.Var.Value != nil || len(vv.Var.Profiles) != 1 {
+		if vv.Deleted || vv.Var.Secret || vv.Var.Optional || vv.Var.Value != nil {
 			continue
 		}
-		if _, ok := vv.Var.Profiles[p]; ok {
+		if _, ok := vv.Var.Profiles[p]; !ok {
+			continue
+		}
+		left := 0
+		for q := range vv.Var.Profiles {
+			if q != p && !m.profView(q).Removed {
+				left++
+			}
+		}
+		if left == 0 {
 			orphans = append(orphans, n)
 		}
 	}
