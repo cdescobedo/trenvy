@@ -3,6 +3,8 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -365,10 +367,55 @@ func prevalidate(m *manifest.Manifest, staged []session.Change) error {
 	}
 	applyAdditions(c, staged)
 	applyManifestEdits(c, staged)
+	if err := pathCollision(m, c); err != nil {
+		return &invalidBatchError{err}
+	}
 	if err := c.Validate(); err != nil {
 		return &invalidBatchError{err}
 	}
 	return nil
+}
+
+// pathCollision refuses a batch that leaves two outputs on one path, the
+// rule `trenvy output add` enforces: rendering one overwrites the other's
+// file. after is before with the batch applied. Paths compare cleaned, so
+// "./.env" is ".env". A path two outputs already shared before the batch
+// (a hand-edited manifest) is not this batch's doing and does not block it.
+func pathCollision(before, after *manifest.Manifest) error {
+	had := outputsByPath(before)
+	now := outputsByPath(after)
+	paths := make([]string, 0, len(now))
+	for p := range now {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	for _, p := range paths {
+		names := now[p]
+		if len(names) < 2 || len(had[p]) >= 2 {
+			continue
+		}
+		// Name the output that held the path before, as `output add` does.
+		holder, moved := names[0], names[1]
+		if len(had[p]) == 1 && had[p][0] != holder {
+			holder, moved = had[p][0], holder
+		}
+		return fmt.Errorf("output %q already renders to %s; two outputs on one path overwrite each other",
+			holder, after.Outputs[moved].Path)
+	}
+	return nil
+}
+
+// outputsByPath groups m's output names by cleaned path, each group sorted.
+func outputsByPath(m *manifest.Manifest) map[string][]string {
+	by := map[string][]string{}
+	for name, o := range m.Outputs {
+		p := filepath.Clean(o.Path)
+		by[p] = append(by[p], name)
+	}
+	for _, names := range by {
+		sort.Strings(names)
+	}
+	return by
 }
 
 // renameCollision refuses a rename whose target is a name some output

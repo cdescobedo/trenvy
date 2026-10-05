@@ -12,7 +12,7 @@ func out(m manageModel, keys ...string) manageModel {
 func TestAddOutputWizardStagesOneAddition(t *testing.T) {
 	m := out(newModel(&fakeDeps{ignored: map[string]bool{"api.env": true}}), "a")
 	m = typeText(m, "api")
-	m = press(m, "enter", "d") // dotenv; path field opens with .env selected
+	m = press(m, "enter", "d") // dotenv; path field opens with api.env selected (local holds .env)
 	m = typeText(m, "api.env")
 	m = press(m, "enter")
 	if got := staged(m); len(got) != 1 || got[0] != "add-output:api::" {
@@ -29,7 +29,7 @@ func TestAddOutputWizardStagesOneAddition(t *testing.T) {
 func TestAddOutputWarnsWhenGitDoesNotIgnoreThePath(t *testing.T) {
 	m := out(newModel(&fakeDeps{ignored: map[string]bool{}}), "a")
 	m = typeText(m, "api")
-	m = press(m, "enter", "d", "enter") // keep .env; git does not ignore it
+	m = press(m, "enter", "d", "enter") // keep api.env; git does not ignore it
 	if len(m.Staged()) != 0 || !strings.Contains(m.View(), "not ignored by git") {
 		t.Fatalf("no warning: staged %v\n%s", staged(m), m.View())
 	}
@@ -105,7 +105,7 @@ func TestMakeDefault(t *testing.T) {
 }
 
 func TestEditFormatAndPathFromTheDetail(t *testing.T) {
-	m := out(newModel(&fakeDeps{}), "enter", "enter", "j") // format row -> choice j(son)
+	m := out(newModel(&fakeDeps{ignored: map[string]bool{"config/.env": true}}), "enter", "enter", "j") // format row -> choice j(son)
 	if got := staged(m); len(got) != 1 || got[0] != "set-output-format:local::json" {
 		t.Fatalf("staged = %v", got)
 	}
@@ -271,7 +271,7 @@ func TestAddOutputShowsProblemsWhileTyping(t *testing.T) {
 // there is no row-level change for u to undo; the message says where the
 // undo is instead.
 func TestEditingAnAddedOutputSaysTheAdditionIsWhatUndoes(t *testing.T) {
-	m := out(newModel(&fakeDeps{ignored: map[string]bool{"api.env": true}}), "a")
+	m := out(newModel(&fakeDeps{ignored: map[string]bool{"api.env": true, "x.env": true}}), "a")
 	m = typeText(m, "api")
 	m = press(m, "enter", "d")
 	m = typeText(m, "api.env")
@@ -284,5 +284,86 @@ func TestEditingAnAddedOutputSaysTheAdditionIsWhatUndoes(t *testing.T) {
 	v := m.View()
 	if strings.Contains(v, "u to undo") || !strings.Contains(v, "undoes the whole addition") {
 		t.Errorf("message:\n%s", v)
+	}
+}
+
+// Two outputs on one path overwrite each other's file, so `trenvy output
+// add` refuses it; the add panel refuses it too, live and on enter. A path
+// held only by an output marked for removal is free.
+func TestAddOutputRefusesAPathAnotherOutputRendersTo(t *testing.T) {
+	m := out(newModel(&fakeDeps{ignored: map[string]bool{".env": true}}), "a")
+	m = typeText(m, "api")
+	m = press(m, "enter", "d", "ctrl+u")
+	m = typeText(m, ".env")
+	if !strings.Contains(m.View(), `output "local" already renders to .env`) {
+		t.Errorf("a path local holds shows no problem before enter:\n%s", m.View())
+	}
+	m = press(m, "enter")
+	if len(m.Staged()) != 0 || !strings.Contains(m.View(), "overwrite each other") {
+		t.Errorf("a second output on .env was staged: %v\n%s", staged(m), m.View())
+	}
+
+	m = out(newModel(&fakeDeps{ignored: map[string]bool{".env": true}}), "d", "a") // local marked for removal
+	m = typeText(m, "api")
+	m = press(m, "enter", "d", "ctrl+u")
+	m = typeText(m, ".env")
+	m = press(m, "enter")
+	if !hasStaged(m, "add-output:api::") {
+		t.Errorf("the removed output's path was refused: %v\n%s", staged(m), m.View())
+	}
+}
+
+// The path row's edit refuses another output's path, the same as add.
+func TestPathEditRefusesAPathAnotherOutputRendersTo(t *testing.T) {
+	m := out(newModel(&fakeDeps{ignored: map[string]bool{".env": true}}), "j", "enter", "j", "enter", "ctrl+u") // web, path row
+	m = typeText(m, ".env")
+	if !strings.Contains(m.View(), `output "local" already renders to .env`) {
+		t.Errorf("a path local holds shows no problem before enter:\n%s", m.View())
+	}
+	m = press(m, "enter")
+	if len(m.Staged()) != 0 || !strings.Contains(m.View(), "overwrite each other") {
+		t.Errorf("web was moved onto local's path: %v\n%s", staged(m), m.View())
+	}
+}
+
+// A dotenv addition starts on .env only when no other output holds it.
+func TestAddDotenvPrefillsEnvOnlyWhenItIsFree(t *testing.T) {
+	ignored := map[string]bool{".env": true, "api.env": true}
+	m := out(newModel(&fakeDeps{ignored: ignored}), "a")
+	m = typeText(m, "api")
+	m = press(m, "enter", "d", "enter") // keep the pre-filled path
+	if got := m.Staged(); len(got) != 1 || got[0].Path != "api.env" {
+		t.Errorf("local holds .env, so the path should start as api.env: %+v", got)
+	}
+	m = out(newModel(&fakeDeps{ignored: ignored}), "d", "a") // local marked for removal
+	m = typeText(m, "api")
+	m = press(m, "enter", "d", "enter")
+	var path string
+	for _, c := range m.Staged() {
+		if c.Kind == "add-output" {
+			path = c.Path
+		}
+	}
+	if path != ".env" {
+		t.Errorf("with .env free the path should start as .env: %+v", m.Staged())
+	}
+}
+
+// The path edit warns about a path git does not ignore, as add does.
+func TestPathEditWarnsWhenGitDoesNotIgnoreThePath(t *testing.T) {
+	m := out(newModel(&fakeDeps{ignored: map[string]bool{}}), "enter", "j", "enter", "ctrl+u") // local, path row
+	m = typeText(m, "config/.env")
+	m = press(m, "enter")
+	if len(m.Staged()) != 0 || !strings.Contains(m.View(), "not ignored by git") {
+		t.Fatalf("no warning: staged %v\n%s", staged(m), m.View())
+	}
+	if m = press(m, "enter"); !hasStaged(m, "set-output-path:local::config/.env") {
+		t.Errorf("second enter did not stage anyway: %v", staged(m))
+	}
+
+	m = out(newModel(&fakeDeps{ignored: map[string]bool{"config/.env": true}}), "enter", "j", "enter", "ctrl+u")
+	m = typeText(m, "config/.env")
+	if m = press(m, "enter"); !hasStaged(m, "set-output-path:local::config/.env") {
+		t.Errorf("an ignored path was not staged on the first enter: %v\n%s", staged(m), m.View())
 	}
 }

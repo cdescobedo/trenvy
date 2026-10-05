@@ -86,7 +86,7 @@ type reloadedMsg struct {
 	err  error
 }
 
-// ignoredMsg is git's answer for the path an add-output names.
+// ignoredMsg is git's answer for the path an output's path field names.
 type ignoredMsg struct {
 	path    string
 	ignored bool
@@ -193,9 +193,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case checkedMsg:
 		return m.afterChecked(msg)
 	case ignoredMsg:
-		// Only the add-output panel still on its path step, with the same
-		// path, takes the answer; one for a path since edited is stale.
-		if a, ok := m.top().(*addOutputOverlay); ok && a.step == 2 && strings.TrimSpace(a.f.value()) == msg.path {
+		// Only a path field still showing the same path takes the answer;
+		// one for a path since edited is stale.
+		if a, ok := m.top().(pathAsker); ok && a.askedPath() == msg.path {
 			if a.afterIgnored(&m, msg) {
 				m.removeOverlay(len(m.overlays) - 1)
 			}

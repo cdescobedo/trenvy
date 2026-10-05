@@ -2,6 +2,7 @@ package manage
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -31,6 +32,82 @@ func (m Model) outputNameProblem(name, ignore string) string {
 		}
 	}
 	return ""
+}
+
+// outputPathTaken is why path cannot be an output's path, or "": another
+// output, not marked for removal, renders there after staged changes.
+// `trenvy output add` refuses the same thing, because rendering one would
+// overwrite the other's file. ignore is the output whose path is being
+// edited. Paths compare cleaned, as commitStaged's check does.
+func (m Model) outputPathTaken(path, ignore string) string {
+	for _, id := range m.outputIDs() {
+		v := m.outView(id)
+		if id == ignore || v.Removed {
+			continue
+		}
+		if filepath.Clean(v.Output.Path) == filepath.Clean(path) {
+			return fmt.Sprintf("output %q already renders to %s; two outputs on one path overwrite each other", id, path)
+		}
+	}
+	return ""
+}
+
+// pathEntered is enter on an output's path field. A path with a problem
+// is refused, with the problem on the message line. A path git ignores, or
+// one already warned about (warned), is accepted. Otherwise git is asked,
+// and its answer comes back as an ignoredMsg for the overlay's afterIgnored.
+func (m *Model) pathEntered(path, ignore, warned string) (ok bool, ask tea.Cmd) {
+	if err := manifest.CheckOutputPath(path); err != nil || path == "" {
+		m.msg = message{fmt.Sprintf("%q: an output's path must be relative to the worktree, inside it", path), true}
+		return false, nil
+	}
+	if p := m.outputPathTaken(path, ignore); p != "" {
+		m.msg = message{p, true}
+		return false, nil
+	}
+	if warned == path {
+		return true, nil
+	}
+	ignored := m.deps.Ignored
+	return false, func() tea.Msg {
+		ok, err := ignored(path)
+		return ignoredMsg{path, ok, err}
+	}
+}
+
+// pathLiveProblem is what is wrong with a path field's value while typing,
+// or "". An empty field shows nothing until enter.
+func (m Model) pathLiveProblem(path, ignore string) string {
+	if path == "" {
+		return ""
+	}
+	if err := manifest.CheckOutputPath(path); err != nil {
+		return err.Error()
+	}
+	return m.outputPathTaken(path, ignore)
+}
+
+// notIgnoredWarning words git's answer for a path it does not ignore; again
+// is what a second enter does ("add anyway").
+func notIgnoredWarning(msg ignoredMsg, again string) message {
+	why := "is not ignored by git -- render refuses to write it without --allow-tracked"
+	// guard.GitIgnored never returns an error: outside a repository, or
+	// with no git, it reports the path ignored (see Deps.Ignored). This
+	// branch keeps the Deps contract honest for an Ignored that can fail.
+	if msg.err != nil {
+		why = "could not be checked against .gitignore (" + msg.err.Error() + ")"
+	}
+	return message{msg.path + " " + why + " -- enter again to " + again, true}
+}
+
+// pathAsker is an overlay with an output path field waiting on git.
+type pathAsker interface {
+	// askedPath is the path in the field, or "" when the overlay is not on
+	// a path step: git's answer for any other path is stale.
+	askedPath() string
+	// afterIgnored takes git's answer, and reports whether the overlay is
+	// done.
+	afterIgnored(m *Model, msg ignoredMsg) bool
 }
 
 // addOutputOverlay is a on Outputs: name, then format, then path -- staged
@@ -65,7 +142,13 @@ func (a *addOutputOverlay) update(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
 	case 1:
 		switch {
 		case keyIs(k, "d"):
-			a.format, a.step, a.f = manifest.FormatDotenv, 2, newField(".env", false)
+			// .env is where import and most tools look, but only one output
+			// can render there.
+			path := ".env"
+			if m.outputPathTaken(path, "") != "" {
+				path = a.name + ".env"
+			}
+			a.format, a.step, a.f = manifest.FormatDotenv, 2, newField(path, false)
 		case keyIs(k, "j"):
 			a.format, a.step, a.f = manifest.FormatJSON, 2, newField(a.name+".json", false)
 		}
@@ -75,21 +158,20 @@ func (a *addOutputOverlay) update(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
 			return false, nil
 		}
 		path := strings.TrimSpace(a.f.value())
-		if err := manifest.CheckOutputPath(path); err != nil || path == "" {
-			m.msg = message{fmt.Sprintf("%q: an output's path must be relative to the worktree, inside it", path), true}
-			return false, nil
-		}
-		if a.warned == path {
+		ok, ask := m.pathEntered(path, "", a.warned)
+		if ok {
 			a.stage(m, path)
-			return true, nil
 		}
-		ignored := m.deps.Ignored
-		return false, func() tea.Msg {
-			ok, err := ignored(path)
-			return ignoredMsg{path, ok, err}
-		}
+		return ok, ask
 	}
 	return false, nil
+}
+
+func (a *addOutputOverlay) askedPath() string {
+	if a.step != 2 {
+		return ""
+	}
+	return strings.TrimSpace(a.f.value())
 }
 
 // afterIgnored finishes the path step once git has answered.
@@ -99,14 +181,7 @@ func (a *addOutputOverlay) afterIgnored(m *Model, msg ignoredMsg) bool {
 		return true
 	}
 	a.warned = msg.path
-	why := "is not ignored by git -- render refuses to write it without --allow-tracked"
-	// guard.GitIgnored never returns an error: outside a repository, or
-	// with no git, it reports the path ignored (see Deps.Ignored). This
-	// branch keeps the Deps contract honest for an Ignored that can fail.
-	if msg.err != nil {
-		why = "could not be checked against .gitignore (" + msg.err.Error() + ")"
-	}
-	m.msg = message{msg.path + " " + why + " -- enter again to add anyway", true}
+	m.msg = notIgnoredWarning(msg, "add anyway")
 	return false
 }
 
@@ -128,18 +203,21 @@ func (a *addOutputOverlay) problem(m *Model) string {
 	case 0:
 		return m.outputNameProblem(v, "")
 	case 2:
-		if err := manifest.CheckOutputPath(v); err != nil {
-			return err.Error()
-		}
+		return m.pathLiveProblem(v, "")
 	}
 	return ""
 }
 
 // fieldBody is the field and, under it, the current problem.
 func (a *addOutputOverlay) fieldBody(m *Model, w int) []string {
-	body := []string{" " + a.f.view(m.th, min(w, panelMax)-4)}
-	if p := a.problem(m); p != "" {
-		for _, l := range wrap(display(p), min(w, panelMax)-5) {
+	return fieldWithProblem(m, a.f, a.problem(m), w)
+}
+
+// fieldWithProblem is a panel body: f and, under it, problem if any.
+func fieldWithProblem(m *Model, f field, problem string, w int) []string {
+	body := []string{" " + f.view(m.th, min(w, panelMax)-4)}
+	if problem != "" {
+		for _, l := range wrap(display(problem), min(w, panelMax)-5) {
 			body = append(body, " "+m.th.Danger.Render(l))
 		}
 	}
@@ -291,19 +369,67 @@ func (m Model) beginOutputEdit(id, rowKey string) (tea.Model, tea.Cmd) {
 			choices: []choice{{"d", "dotenv", pick(manifest.FormatDotenv)}, {"j", "json", pick(manifest.FormatJSON)}},
 		})
 	case rowKey == "path":
-		m.push(&editOverlay{title: "Path for " + id + " in this worktree", f: newField(v.Output.Path, false), save: func(m *Model, p string) bool {
-			p = strings.TrimSpace(p)
-			if err := manifest.CheckOutputPath(p); err != nil || p == "" {
-				m.msg = message{fmt.Sprintf("%q: an output's path must be relative to the worktree, inside it", p), true}
-				return false
-			}
-			m.msg = fieldStagedMsg(id, "path", m.stageOutputField(id, session.ChangeSetOutputPath, p, base.Path))
-			return true
-		}})
+		m.push(&pathOverlay{id: id, onDisk: base.Path, f: newField(v.Output.Path, false)})
 	case strings.HasPrefix(rowKey, "var:"):
 		m.toggleMember(id, strings.TrimPrefix(rowKey, "var:"))
 	}
 	return m, nil
+}
+
+// pathOverlay is enter on an output's path row: the add panel's path step
+// for an output that exists, with the same live problems and the same
+// warning for a path git does not ignore.
+type pathOverlay struct {
+	id     string
+	onDisk string // the path in the manifest; going back to it drops the edit
+	f      field
+	warned string // the path the gitignore warning was shown for
+}
+
+func (p *pathOverlay) update(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
+	if k.Type != tea.KeyEnter {
+		p.f = p.f.update(k)
+		return false, nil
+	}
+	path := strings.TrimSpace(p.f.value())
+	if path == p.onDisk && !m.staged.Has(session.ChangeAddOutput, p.id) {
+		// Back to what is on disk: nothing new to check.
+		p.stage(m, path)
+		return true, nil
+	}
+	ok, ask := m.pathEntered(path, p.id, p.warned)
+	if ok {
+		p.stage(m, path)
+	}
+	return ok, ask
+}
+
+func (p *pathOverlay) askedPath() string { return strings.TrimSpace(p.f.value()) }
+
+func (p *pathOverlay) afterIgnored(m *Model, msg ignoredMsg) bool {
+	if msg.err == nil && msg.ignored {
+		p.stage(m, msg.path)
+		return true
+	}
+	p.warned = msg.path
+	m.msg = notIgnoredWarning(msg, "use it anyway")
+	return false
+}
+
+func (p *pathOverlay) stage(m *Model, path string) {
+	m.msg = fieldStagedMsg(p.id, "path", m.stageOutputField(p.id, session.ChangeSetOutputPath, path, p.onDisk))
+}
+
+func (p *pathOverlay) view(m *Model, w, h int) string {
+	problem := m.pathLiveProblem(strings.TrimSpace(p.f.value()), p.id)
+	return m.panel("Path for "+p.id+" in this worktree", fieldWithProblem(m, p.f, problem, w), w, h)
+}
+
+func (p *pathOverlay) hints(*Model) []hint {
+	if p.warned != "" && strings.TrimSpace(p.f.value()) == p.warned {
+		return []hint{{"enter", "use anyway"}, {"esc", "cancel"}}
+	}
+	return []hint{{"enter", "stage"}, {"ctrl+u", "clear"}, {"esc", "cancel"}}
 }
 
 // stageGlobs stages the globs for checked under mode, or drops the

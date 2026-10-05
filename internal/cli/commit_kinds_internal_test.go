@@ -645,3 +645,53 @@ func TestCommitAllowsASelfRenameAndRenamingAnAddedOutput(t *testing.T) {
 		t.Errorf("outputs = %+v, extra should be gone", outs)
 	}
 }
+
+// I1: two outputs on one path overwrite each other's file, which `trenvy
+// output add` refuses. A hand-built batch that would leave two outputs on
+// one path is refused before anything is written.
+func TestCommitRefusesTwoOutputsOnOnePath(t *testing.T) {
+	for name, batch := range map[string][]session.Change{
+		"added onto a held path":    {{Kind: session.ChangeAddOutput, Name: "dup", Format: "dotenv", Path: ".env"}},
+		"moved onto a held path":    {{Kind: session.ChangeSetOutputPath, Name: "web", Value: ".env"}},
+		"same file, other spelling": {{Kind: session.ChangeSetOutputPath, Name: "web", Value: "./.env"}},
+	} {
+		opts, app := newOutputsApp(t)
+		before, err := os.ReadFile(config.ManifestPath("vpb"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = commitStaged(opts, app, batch)
+		var ib *invalidBatchError
+		if !errors.As(err, &ib) || !strings.Contains(err.Error(), "overwrite each other") {
+			t.Errorf("%s: err = %v, want an *invalidBatchError naming the overwrite", name, err)
+		}
+		after, err := os.ReadFile(config.ManifestPath("vpb"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(after) != string(before) {
+			t.Errorf("%s: the manifest changed on disk", name)
+		}
+	}
+	// Two outputs that swap paths in one batch end on two paths.
+	opts, app := newOutputsApp(t)
+	if _, err := commitStaged(opts, app, []session.Change{
+		{Kind: session.ChangeSetOutputPath, Name: "local", Value: "web.json"},
+		{Kind: session.ChangeSetOutputPath, Name: "web", Value: ".env"},
+	}); err != nil {
+		t.Errorf("swap: %v", err)
+	}
+}
+
+// A manifest that already has two outputs on one path (edited by hand) is
+// not this batch's doing, so it does not block an unrelated save.
+func TestCommitAllowsAnUnrelatedSaveBesideAnExistingSharedPath(t *testing.T) {
+	opts, app := newCommitAppFrom(t, store.NewMem(), kindsManifestWithOutput+`
+[outputs.other]
+format = "dotenv"
+path = ".env"
+`)
+	if _, err := commitStaged(opts, app, []session.Change{{Kind: session.ChangeSetShared, Name: "APP_MODE", Value: "x"}}); err != nil {
+		t.Errorf("err = %v", err)
+	}
+}
