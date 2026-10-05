@@ -1,5 +1,7 @@
 package ui
 
+import "github.com/cdescobedo/trenvy/internal/session"
+
 // WriteGlobs turns one output's checkbox state into the Include/Exclude
 // globs manifest.Output carries, in the exact vocabulary
 // internal/resolve/values.go's selected already applies -- this function's
@@ -39,24 +41,9 @@ package ui
 // exactly the mistake ("*" can't reach a name with a slash) that produced
 // the bug the paragraph above describes.
 func WriteGlobs(mode Mode, all []string, checked map[string]bool) (include, exclude []string) {
+	m := session.GlobsEverythingExcept
 	if mode == ModeOnlyThese {
-		for _, name := range all {
-			if checked[name] {
-				include = append(include, name)
-			}
-		}
-		if len(include) == 0 && len(all) > 0 {
-			include = append([]string{}, all...)
-			exclude = append([]string{}, all...)
-		}
-		return include, exclude
+		m = session.GlobsOnlyThese
 	}
-
-	// ModeEverythingExcept (and any other value, per the doc comment above).
-	for _, name := range all {
-		if !checked[name] {
-			exclude = append(exclude, name)
-		}
-	}
-	return nil, exclude
+	return session.WriteGlobs(m, all, checked)
 }

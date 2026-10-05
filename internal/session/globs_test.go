@@ -1,4 +1,4 @@
-package ui_test
+package session_test
 
 import (
 	"reflect"
@@ -6,7 +6,7 @@ import (
 
 	"github.com/cdescobedo/trenvy/internal/manifest"
 	"github.com/cdescobedo/trenvy/internal/resolve"
-	"github.com/cdescobedo/trenvy/internal/ui"
+	"github.com/cdescobedo/trenvy/internal/session"
 )
 
 // checked builds the WriteGlobs checkbox map from the names that are on,
@@ -37,56 +37,56 @@ func TestWriteGlobsFields(t *testing.T) {
 
 	cases := []struct {
 		name        string
-		mode        ui.Mode
+		mode        session.GlobMode
 		checked     map[string]bool
 		wantInclude []string
 		wantExclude []string
 	}{
 		{
 			name:        "everything except, some unchecked",
-			mode:        ui.ModeEverythingExcept,
+			mode:        session.GlobsEverythingExcept,
 			checked:     checked("A", "C"),
 			wantInclude: nil,
 			wantExclude: []string{"B"},
 		},
 		{
 			name:        "everything except, all checked collapses to nothing excluded",
-			mode:        ui.ModeEverythingExcept,
+			mode:        session.GlobsEverythingExcept,
 			checked:     checked("A", "B", "C"),
 			wantInclude: nil,
 			wantExclude: nil,
 		},
 		{
 			name:        "everything except, none checked excludes everything known today",
-			mode:        ui.ModeEverythingExcept,
+			mode:        session.GlobsEverythingExcept,
 			checked:     checked(),
 			wantInclude: nil,
 			wantExclude: []string{"A", "B", "C"},
 		},
 		{
 			name:        "only these, some checked",
-			mode:        ui.ModeOnlyThese,
+			mode:        session.GlobsOnlyThese,
 			checked:     checked("A", "C"),
 			wantInclude: []string{"A", "C"},
 			wantExclude: nil,
 		},
 		{
 			name:        "only these, all checked",
-			mode:        ui.ModeOnlyThese,
+			mode:        session.GlobsOnlyThese,
 			checked:     checked("A", "B", "C"),
 			wantInclude: []string{"A", "B", "C"},
 			wantExclude: nil,
 		},
 		{
 			name:        "only these, none checked writes every known name as both included and excluded",
-			mode:        ui.ModeOnlyThese,
+			mode:        session.GlobsOnlyThese,
 			checked:     checked(),
 			wantInclude: []string{"A", "B", "C"},
 			wantExclude: []string{"A", "B", "C"},
 		},
 	}
 	for _, c := range cases {
-		gotInclude, gotExclude := ui.WriteGlobs(c.mode, all, c.checked)
+		gotInclude, gotExclude := session.WriteGlobs(c.mode, all, c.checked)
 		if !reflect.DeepEqual(gotInclude, c.wantInclude) {
 			t.Errorf("%s: include = %#v, want %#v", c.name, gotInclude, c.wantInclude)
 		}
@@ -135,37 +135,37 @@ func TestWriteGlobsSelectsThroughResolve(t *testing.T) {
 
 	cases := []struct {
 		name    string
-		mode    ui.Mode
+		mode    session.GlobMode
 		checked map[string]bool
 		want    map[string]bool // wanted resolve.Selects result per name in `all`
 	}{
 		{
 			name:    "everything except, some unchecked",
-			mode:    ui.ModeEverythingExcept,
+			mode:    session.GlobsEverythingExcept,
 			checked: checked("A", "C"),
 			want:    map[string]bool{"A": true, "B": false, "C": true},
 		},
 		{
 			name:    "everything except, all checked",
-			mode:    ui.ModeEverythingExcept,
+			mode:    session.GlobsEverythingExcept,
 			checked: checked("A", "B", "C"),
 			want:    map[string]bool{"A": true, "B": true, "C": true},
 		},
 		{
 			name:    "only these, some checked",
-			mode:    ui.ModeOnlyThese,
+			mode:    session.GlobsOnlyThese,
 			checked: checked("A", "C"),
 			want:    map[string]bool{"A": true, "B": false, "C": true},
 		},
 		{
 			name:    "only these, none checked selects nothing, not everything",
-			mode:    ui.ModeOnlyThese,
+			mode:    session.GlobsOnlyThese,
 			checked: checked(),
 			want:    map[string]bool{"A": false, "B": false, "C": false},
 		},
 	}
 	for _, c := range cases {
-		include, exclude := ui.WriteGlobs(c.mode, all, c.checked)
+		include, exclude := session.WriteGlobs(c.mode, all, c.checked)
 		got := selectsAll(t, include, exclude, all)
 		if !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s: resolve.Selects = %#v, want %#v (include=%#v exclude=%#v)",
@@ -183,8 +183,8 @@ func TestWriteGlobsModeSwitchPreservesSelection(t *testing.T) {
 	all := []string{"A", "B", "C"}
 	boxes := checked("A", "C") // B left unchecked
 
-	incOnly, excOnly := ui.WriteGlobs(ui.ModeOnlyThese, all, boxes)
-	incExcept, excExcept := ui.WriteGlobs(ui.ModeEverythingExcept, all, boxes)
+	incOnly, excOnly := session.WriteGlobs(session.GlobsOnlyThese, all, boxes)
+	incExcept, excExcept := session.WriteGlobs(session.GlobsEverythingExcept, all, boxes)
 
 	gotOnly := selectsAll(t, incOnly, excOnly, all)
 	gotExcept := selectsAll(t, incExcept, excExcept, all)

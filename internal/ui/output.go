@@ -1,9 +1,8 @@
 package ui
 
 import (
-	"strings"
-
 	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/session"
 )
 
 // OutputRow is one line of the Outputs tab: the same facts `trenvy output
@@ -48,13 +47,4 @@ type OutputRow struct {
 // imports this package for Matrix, Problems and the State* constants; this
 // package imports nothing from internal/cli, so this is the only direction
 // the move can go without introducing an import cycle.
-func SelectsSummary(o manifest.Output) string {
-	sel := "all"
-	if len(o.Include) > 0 && !(len(o.Include) == 1 && o.Include[0] == "*") {
-		sel = strings.Join(o.Include, ", ")
-	}
-	if len(o.Exclude) > 0 {
-		sel += " except " + strings.Join(o.Exclude, ", ")
-	}
-	return sel
-}
+func SelectsSummary(o manifest.Output) string { return session.SelectsSummary(o) }
