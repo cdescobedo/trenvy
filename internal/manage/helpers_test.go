@@ -148,7 +148,7 @@ func snapshotOf(m *manifest.Manifest, stored map[string]map[string]bool) manage.
 		Matrix: mx, Problems: session.Problems(mx, nil), OutputsFor: session.OutputsFor(mx),
 		OutputPaths:   map[string]string{"local": ".env", "web": "web.json"},
 		OutputStates:  map[string]string{"local": session.StateFresh, "web": session.StateAbsent},
-		DefaultOutput: "local", Projects: []string{"app", "other"},
+		DefaultOutput: "local", DefaultProfile: m.Project.DefaultProfile, Projects: []string{"app", "other"},
 	}
 }
 

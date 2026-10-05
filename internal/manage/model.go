@@ -30,6 +30,8 @@ type Snapshot struct {
 	OutputPaths                     map[string]string   // output -> its path
 	OutputStates                    map[string]string   // output -> a session.State* word (quick mode)
 	DefaultOutput                   string              // project.output on disk
+	DefaultProfile                  string              // the manifest's default_profile
+	Active                          string              // this machine's selection (state file); "" when none
 	Projects                        []string            // every registered project id
 }
 
@@ -105,6 +107,7 @@ type Model struct {
 	scr      screen
 	vars     variables
 	outs     outputs
+	profs    profiles
 	overlays []overlay
 	msg      message
 
@@ -124,7 +127,7 @@ type Model struct {
 }
 
 func New(snap Snapshot, deps Deps, th style.Theme) Model {
-	return Model{th: th, deps: deps, snap: snap, vars: newVariables(), outs: newOutputs()}
+	return Model{th: th, deps: deps, snap: snap, vars: newVariables(), outs: newOutputs(), profs: profiles{}}
 }
 
 func (m Model) Init() tea.Cmd { return nil }

@@ -511,12 +511,16 @@ func (m Model) afterReload(msg reloadedMsg) (tea.Model, tea.Cmd) {
 	}
 	keep, _ := m.selected()
 	keepOut, _ := m.selectedOutput()
+	keepProf, _ := m.selectedProfile()
 	m.stale, m.snap = false, msg.snap
 	if keep != "" {
 		m.selectName(keep)
 	}
 	if keepOut != "" {
 		m.selectOutput(keepOut)
+	}
+	if keepProf != "" {
+		m.selectProfile(keepProf)
 	}
 	m.outs.checked = map[string]string{}
 	return m, nil

@@ -7,19 +7,22 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// screen is one of the interface's screens (spec §1). Phase 2 has two;
-// the tab row shows only built screens, so Profiles appears with phase 3.
+// screen is one of the interface's screens (spec §1). Phase 3 builds all three.
 type screen int
 
 const (
 	scrVariables screen = iota
 	scrOutputs
+	scrProfiles
 	screenCount // sentinel: keep last
 )
 
 func (s screen) title() string {
-	if s == scrOutputs {
+	switch s {
+	case scrOutputs:
 		return "Outputs"
+	case scrProfiles:
+		return "Profiles"
 	}
 	return "Variables"
 }
@@ -32,6 +35,8 @@ func (m *Model) switchScreen(k tea.KeyMsg) bool {
 		m.scr = scrVariables
 	case keyIs(k, "2"):
 		m.scr = scrOutputs
+	case keyIs(k, "3"):
+		m.scr = scrProfiles
 	case keyIs(k, "tab"):
 		m.scr = (m.scr + 1) % screenCount
 	case keyIs(k, "shift+tab"):
@@ -59,22 +64,31 @@ func (m Model) viewTabs(w int) string {
 }
 
 func (m Model) screenKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.scr == scrOutputs {
+	switch m.scr {
+	case scrOutputs:
 		return m.outputsKey(k)
+	case scrProfiles:
+		return m.profilesKey(k)
 	}
 	return m.variablesKey(k)
 }
 
 func (m Model) screenView(w, h int) string {
-	if m.scr == scrOutputs {
+	switch m.scr {
+	case scrOutputs:
 		return m.viewOutputs(w, h)
+	case scrProfiles:
+		return m.viewProfiles(w, h)
 	}
 	return m.viewVariables(w, h)
 }
 
 func (m Model) screenHints() []hint {
-	if m.scr == scrOutputs {
+	switch m.scr {
+	case scrOutputs:
 		return m.outputsHints()
+	case scrProfiles:
+		return m.profilesHints()
 	}
 	return m.variablesHints()
 }

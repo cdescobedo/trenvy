@@ -15,7 +15,7 @@ import (
 func TestTabRowShowsBothScreensAndKeysSwitch(t *testing.T) {
 	m := newModel(&fakeDeps{})
 	tabs := strings.Split(m.View(), "\n")[1]
-	if !strings.Contains(tabs, "Variables") || !strings.Contains(tabs, "Outputs") || strings.Contains(tabs, "Profiles") {
+	if !strings.Contains(tabs, "Variables") || !strings.Contains(tabs, "Outputs") || !strings.Contains(tabs, "Profiles") {
 		t.Errorf("tab row = %q", tabs)
 	}
 	// "not rendered" is web's state word in the Outputs list; no
