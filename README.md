@@ -543,7 +543,7 @@ state, what new variables do, and the membership grid. The state is the word
 | state | gloss |
 |---|---|
 | `fresh` | up to date with the manifest |
-| `not rendered` | not rendered in this worktree |
+| `not rendered` | nothing written in this worktree yet |
 | `STALE` | out of date -- render to update it |
 | `MODIFIED` | edited by hand since the last render |
 | `FOREIGN` | a file trenvy did not write is at this path |

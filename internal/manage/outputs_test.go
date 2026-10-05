@@ -57,6 +57,11 @@ func TestOutputStateWordsAndGlosses(t *testing.T) {
 	if strings.Contains(v, "--quick") || !strings.Contains(v, "unverified") || !strings.Contains(v, "not checked") {
 		t.Errorf("view:\n%s", v)
 	}
+	// A gloss adds to its word rather than repeating it.
+	row := lineWith(t, press(m, "2", "j").View(), "state")
+	if strings.Count(row, "not rendered") != 1 || !strings.Contains(row, "nothing written in this worktree") {
+		t.Errorf("web's state row: %q", row)
+	}
 }
 
 // The cursor row and the others share one column grid: the cursor column

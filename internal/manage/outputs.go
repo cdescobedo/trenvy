@@ -85,7 +85,7 @@ func (m Model) outputState(id string, v session.OutputView) (word, gloss string,
 	case session.StateFresh:
 		return s, "up to date with the manifest", t.OK
 	case session.StateAbsent:
-		return s, "not rendered in this worktree", t.Muted
+		return s, "nothing written in this worktree yet", t.Muted
 	case session.StateStale:
 		return s, "out of date -- render to update it", t.Warn
 	case session.StateModified:
