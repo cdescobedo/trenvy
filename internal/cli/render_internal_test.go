@@ -9,6 +9,7 @@ import (
 
 	"github.com/cdescobedo/trenvy/internal/config"
 	"github.com/cdescobedo/trenvy/internal/session"
+	"github.com/cdescobedo/trenvy/internal/store"
 )
 
 // gitIgnoring makes dir a git repository that ignores the given paths,
@@ -219,4 +220,26 @@ func TestCommitRetryAfterAManifestSaveFailureOnAPathEdit(t *testing.T) {
 		t.Fatalf("retry: %v", err)
 	}
 	assertPathEditLanded(t, opts, app.Worktree, res.LeftInPlace)
+}
+
+// A format edit on an output that holds a secret reads STALE without
+// reading the secret: a blank Sum is a known mismatch, so quick mode need
+// not fall back to unverified.
+func TestQuickStateOfAReformattedSecretOutputIsStale(t *testing.T) {
+	mem := store.NewMem()
+	if err := mem.Set("trenvy/vpb/dev/TOKEN", "t0k"); err != nil {
+		t.Fatal(err)
+	}
+	opts, app := newCommitAppFrom(t, mem, kindsManifestWithOutput)
+	gitIgnoring(t, app.Worktree, ".env")
+	if _, err := renderOutput(opts, app, "local", false, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := commitStaged(opts, reresolve(t, opts), []session.Change{{Kind: session.ChangeSetOutputFormat, Name: "local", Value: "json"}}); err != nil {
+		t.Fatal(err)
+	}
+	app = reresolve(t, opts)
+	if got := stateWord(classifyOutput(opts, app, "local", app.Manifest.Outputs["local"], false, true)); got != session.StateStale {
+		t.Errorf("quick state = %q, want %q", got, session.StateStale)
+	}
 }

@@ -192,11 +192,13 @@ func classifyOutput(opts *Options, app *appContext, name string, o manifest.Outp
 			// output that had simply never been rendered (the ordinary state
 			// of a fresh clone) was indistinguishable from a genuinely stale
 			// one. Passing "" as wantSum mirrors the secretsMissing branch
-			// above: whether entry.Sum is a real digest or blank (a format
-			// edit blanks it, see State.MarkStale), the one case this cannot
-			// rule out (the file matches its own record, and only
-			// fresh-versus-stale remains) still correctly falls through to
-			// outputQuickSkipped below -- never to fresh.
+			// above: entry.Sum is never "" for a digest render computed, so
+			// the one case this cannot rule out (the file matches its own
+			// record, and only fresh-versus-stale remains) still correctly
+			// falls through to outputQuickSkipped below. A blank Sum is the
+			// exception: State.MarkStale set it (a format edit), and it
+			// matches no digest, so that file is stale without reading a
+			// secret.
 			st, err := guard.Inspect(abs, "", entry, have)
 			if err != nil {
 				fmt.Fprintf(opts.Stderr, "trenvy: status: %s: %v\n", name, err)
@@ -210,6 +212,9 @@ func classifyOutput(opts *Options, app *appContext, name string, o manifest.Outp
 			case guard.StatusModified:
 				return outputModified
 			default:
+				if entry.Sum == "" {
+					return outputStale
+				}
 				return outputQuickSkipped
 			}
 		}
