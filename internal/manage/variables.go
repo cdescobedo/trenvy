@@ -333,7 +333,7 @@ func (m Model) listBody(inner, height int, wide bool) string {
 	t := m.th
 	var head []string
 	if f, ok := m.top().(*filterOverlay); ok {
-		head = append(head, " "+t.Accent.Render("/ ")+f.f.view(t))
+		head = append(head, " "+t.Accent.Render("/ ")+f.f.view(t, inner-4))
 	} else if m.vars.filter != "" {
 		head = append(head, " "+t.Muted.Render("filter: ")+t.Text.Render(display(m.vars.filter)))
 	}

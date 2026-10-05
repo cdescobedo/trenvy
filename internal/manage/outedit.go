@@ -137,7 +137,7 @@ func (a *addOutputOverlay) problem(m *Model) string {
 
 // fieldBody is the field and, under it, the current problem.
 func (a *addOutputOverlay) fieldBody(m *Model, w int) []string {
-	body := []string{" " + a.f.view(m.th)}
+	body := []string{" " + a.f.view(m.th, min(w, panelMax)-4)}
 	if p := a.problem(m); p != "" {
 		for _, l := range wrap(display(p), min(w, panelMax)-5) {
 			body = append(body, " "+m.th.Danger.Render(l))

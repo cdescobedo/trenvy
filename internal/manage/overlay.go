@@ -251,7 +251,7 @@ func (e *editOverlay) update(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
 }
 
 func (e *editOverlay) view(m *Model, w, h int) string {
-	return m.panel(e.title, []string{" " + e.f.view(m.th)}, w, h)
+	return m.panel(e.title, []string{" " + e.f.view(m.th, min(w, panelMax)-4)}, w, h)
 }
 
 func (e *editOverlay) hints(*Model) []hint {
@@ -319,7 +319,7 @@ func (a *addOverlay) update(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
 func (a *addOverlay) view(m *Model, w, h int) string {
 	switch a.step {
 	case 0:
-		return m.panel("Add variable -- name", []string{" " + a.f.view(m.th)}, w, h)
+		return m.panel("Add variable -- name", []string{" " + a.f.view(m.th, min(w, panelMax)-4)}, w, h)
 	case 1:
 		return m.panel("Add "+a.name+" -- kind", []string{
 			" " + m.th.Key.Render("p") + " " + m.th.Text.Render("plain: one shared value, overridable per profile"),
@@ -330,7 +330,7 @@ func (a *addOverlay) view(m *Model, w, h int) string {
 	if a.secret {
 		title = "Add " + a.name + " -- value for " + m.snap.Profile
 	}
-	return m.panel(title, []string{" " + a.f.view(m.th)}, w, h)
+	return m.panel(title, []string{" " + a.f.view(m.th, min(w, panelMax)-4)}, w, h)
 }
 
 func (a *addOverlay) hints(*Model) []hint {

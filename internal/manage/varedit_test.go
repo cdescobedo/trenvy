@@ -285,3 +285,14 @@ func TestPromotionAndItsDropKeepTheDetailCursorOnItsProfile(t *testing.T) {
 		t.Errorf("after dropping the promotion the cursor should be on dev; got %q", cl)
 	}
 }
+
+func TestDeleteMessageDoesNotPromiseToRestoreDroppedEdits(t *testing.T) {
+	m := press(newModel(&fakeDeps{}), "j", "enter", "enter")
+	m = typeText(m, "x")
+	m = press(m, "enter", "left", "d")
+	// The status line wraps at 100 columns, so compare on words.
+	v := m.View()
+	if !strings.Contains(strings.Join(strings.Fields(v), " "), "the dropped changes are gone") {
+		t.Errorf("view:\n%s", v)
+	}
+}

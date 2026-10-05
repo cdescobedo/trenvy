@@ -5,6 +5,7 @@ import (
 	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/cdescobedo/trenvy/internal/style"
 )
@@ -118,17 +119,90 @@ func (f field) update(k tea.KeyMsg) field {
 	return f
 }
 
-// view draws the field. Both states read without colour: a selected value
-// is bracketed as well as highlighted, since the next key replaces it, and
-// otherwise a ▏ marks the cursor. A masked field draws a bullet per rune and
-// never the rune itself.
-func (f field) view(th style.Theme) string {
-	shown := f.runes
-	if f.masked {
-		shown = []rune(strings.Repeat("•", len(f.runes)))
+// cursorMargin is how many runes stay visible to the right of the cursor
+// while a long value scrolls under typing, so what comes next is in view.
+const cursorMargin = 4
+
+// view draws the field in at most width cells. Both states read without
+// colour: a selected value is bracketed as well as highlighted, since the
+// next key replaces it, and otherwise a ▏ marks the cursor. A masked field
+// draws a bullet per rune and never the rune itself.
+//
+// A value too long for width scrolls: the selected form shows the start of
+// the value, the editing form a window around the cursor, each cut side
+// marked with "…". Cells are measured with lipgloss.Width, so a wide rune
+// counts as two.
+func (f field) view(th style.Theme, width int) string {
+	cells := make([]string, len(f.runes))
+	for i, r := range f.runes {
+		if f.masked {
+			cells[i] = "•"
+		} else {
+			cells[i] = display(string(r))
+		}
 	}
 	if f.selected {
-		return th.Muted.Render("[") + th.Selected.Render(display(string(shown))) + th.Muted.Render("]")
+		return selectedView(th, cells, width)
 	}
-	return th.Text.Render(display(string(shown[:f.cursor]))) + th.Accent.Render("▏") + th.Text.Render(display(string(shown[f.cursor:])))
+	return editingView(th, cells, f.cursor, width)
+}
+
+func cellsWidth(cells []string) int {
+	n := 0
+	for _, c := range cells {
+		n += lipgloss.Width(c)
+	}
+	return n
+}
+
+// selectedView draws [value], or [start…] when the whole value will not fit.
+func selectedView(th style.Theme, cells []string, width int) string {
+	if cellsWidth(cells)+2 <= width {
+		return th.Muted.Render("[") + th.Selected.Render(strings.Join(cells, "")) + th.Muted.Render("]")
+	}
+	room, n, used := width-3, 0, 0
+	for n < len(cells) && used+lipgloss.Width(cells[n]) <= room {
+		used += lipgloss.Width(cells[n])
+		n++
+	}
+	return th.Muted.Render("[") + th.Selected.Render(strings.Join(cells[:n], "")) + th.Muted.Render("…]")
+}
+
+// editingView draws the cells with the cursor before cells[cursor], cutting
+// whichever sides do not fit.
+func editingView(th style.Theme, cells []string, cursor, width int) string {
+	n := len(cells)
+	// cost is the width of the window [start, end) with its cursor and the
+	// marker for each cut side.
+	cost := func(start, end int) int {
+		c := cellsWidth(cells[start:end]) + 1
+		if start > 0 {
+			c++
+		}
+		if end < n {
+			c++
+		}
+		return c
+	}
+	start, end := cursor, min(n, cursor+cursorMargin)
+	for end > cursor && cost(start, end) > width {
+		end--
+	}
+	for start > 0 && cost(start-1, end) <= width {
+		start--
+	}
+	for end < n && cost(start, end+1) <= width {
+		end++
+	}
+	var b strings.Builder
+	if start > 0 {
+		b.WriteString(th.Muted.Render("…"))
+	}
+	b.WriteString(th.Text.Render(strings.Join(cells[start:cursor], "")))
+	b.WriteString(th.Accent.Render("▏"))
+	b.WriteString(th.Text.Render(strings.Join(cells[cursor:end], "")))
+	if end < n {
+		b.WriteString(th.Muted.Render("…"))
+	}
+	return b.String()
 }

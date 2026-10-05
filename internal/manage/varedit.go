@@ -149,7 +149,10 @@ func (m *Model) toggleDelete(name string) {
 	}
 	text := name + " marked for deletion"
 	if others > 0 {
-		text += ", dropped " + plural(others, "staged change") + " on it"
+		// u drops the delete, not the edits Add discarded; say so, as
+		// toggleRemoveOutput does.
+		m.msg = message{text + ", dropped " + plural(others, "staged change") + " on it -- u restores the variable (the dropped changes are gone)", false}
+		return
 	}
 	m.msg = message{text + " -- u to undo", false}
 }

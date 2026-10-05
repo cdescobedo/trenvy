@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/cdescobedo/trenvy/internal/style"
 )
@@ -79,7 +80,7 @@ func TestFieldMultibyteRunes(t *testing.T) {
 // A masked field never draws what was typed.
 func TestMaskedFieldNeverDrawsItsValue(t *testing.T) {
 	f := newField("", true).update(runes("s3cret"))
-	v := f.view(style.Theme{})
+	v := f.view(style.Theme{}, 80)
 	if strings.Contains(v, "s3cret") || strings.Count(v, "•") != 6 {
 		t.Errorf("masked view = %q, want six bullets and no value", v)
 	}
@@ -112,18 +113,36 @@ func TestDisplayEscapesControlCharacters(t *testing.T) {
 // its cursor.
 func TestFieldStatesShowWithoutColour(t *testing.T) {
 	f := newField("development", false)
-	if v := f.view(style.Theme{}); v != "[development]" {
+	if v := f.view(style.Theme{}, 80); v != "[development]" {
 		t.Errorf("selected view = %q, want [development]", v)
 	}
 	f = f.update(kt(tea.KeyRight))
-	if v := f.view(style.Theme{}); v != "development▏" {
+	if v := f.view(style.Theme{}, 80); v != "development▏" {
 		t.Errorf("after right, view = %q, want the cursor at the end", v)
 	}
 	f = f.update(kt(tea.KeyHome))
-	if v := f.view(style.Theme{}); v != "▏development" {
+	if v := f.view(style.Theme{}, 80); v != "▏development" {
 		t.Errorf("after home, view = %q, want the cursor at the start", v)
 	}
-	if v := newField("", true).view(style.Theme{}); v != "▏" {
+	if v := newField("", true).view(style.Theme{}, 80); v != "▏" {
 		t.Errorf("empty field view = %q, want only the cursor", v)
+	}
+}
+
+func TestFieldViewFitsAndFollowsTheCursor(t *testing.T) {
+	long := "postgres://user:pass@" + strings.Repeat("host-segment.", 10) + "example.com:5432/app"
+	sel := newField(long, false).view(style.Theme{}, 40)
+	if w := lipgloss.Width(sel); w > 40 || !strings.HasSuffix(sel, "]") || !strings.HasPrefix(sel, "[") {
+		t.Errorf("selected view = %q (%d wide)", sel, lipgloss.Width(sel))
+	}
+	f := newField(long, false).update(kt(tea.KeyEnd))
+	v := f.view(style.Theme{}, 40)
+	if lipgloss.Width(v) > 40 || !strings.Contains(v, "/app▏") || !strings.HasPrefix(v, "…") {
+		t.Errorf("end view = %q", v)
+	}
+	f = f.update(kt(tea.KeyHome))
+	v = f.view(style.Theme{}, 40)
+	if lipgloss.Width(v) > 40 || !strings.HasPrefix(v, "▏postgres") || !strings.HasSuffix(v, "…") {
+		t.Errorf("home view = %q", v)
 	}
 }
