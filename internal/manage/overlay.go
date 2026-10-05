@@ -103,23 +103,31 @@ func (o *helpOverlay) layout(m *Model, w, h int) (body []string, rows, maxOff in
 			body = append(body, lipgloss.JoinHorizontal(lipgloss.Top, m.th.Key.Width(10).Render(k), d))
 		}
 	}
-	// Two borders, the title and the blank line under it.
-	rows = max(0, min(h, len(body)+4)-4)
-	// Scrolling needs a row for an indicator and one for the body. minHeight
-	// keeps rows above that; below it the pane simply cuts.
-	if len(body) <= rows || rows < 2 {
-		return body, rows, 0
-	}
-	// Scrolled to the end, the first row is "↑ more" and the rest is body.
-	return body, rows, max(0, len(body)-(rows-1))
+	rows, maxOff = scrollRows(len(body), h)
+	return body, rows, maxOff
 }
 
-func (o *helpOverlay) view(m *Model, w, h int) string {
-	body, rows, maxOff := o.layout(m, w, h)
-	if maxOff == 0 {
-		return m.panel("Keys", body, w, h)
+// scrollRows is how many body lines fit in a panel h tall, and the furthest
+// a body of n lines can scroll. Two borders, the title and the blank line
+// under it take four rows. Scrolling needs a row for an indicator and one
+// for the body; below that the pane simply cuts.
+func scrollRows(n, h int) (rows, maxOff int) {
+	rows = max(0, min(h, n+4)-4)
+	if n <= rows || rows < 2 {
+		return rows, 0
 	}
-	off := clamp(o.off, 0, maxOff) // a resize can shrink maxOff
+	// Scrolled to the end, the first row is "↑ more" and the rest is body.
+	return rows, max(0, n-(rows-1))
+}
+
+// scrollPanel draws body scrolled to off, with "↑ more" and "↓ more" rows
+// where there is more in that direction.
+func (m *Model) scrollPanel(title string, body []string, off, w, h int) string {
+	rows, maxOff := scrollRows(len(body), h)
+	if maxOff == 0 {
+		return m.panel(title, body, w, h)
+	}
+	off = clamp(off, 0, maxOff) // a resize can shrink maxOff
 	var shown []string
 	n := rows
 	if off > 0 {
@@ -137,7 +145,62 @@ func (o *helpOverlay) view(m *Model, w, h int) string {
 	if more {
 		shown = append(shown, m.th.Muted.Render("↓ more"))
 	}
-	return m.panel("Keys", shown, w, h)
+	return m.panel(title, shown, w, h)
+}
+
+func (o *helpOverlay) view(m *Model, w, h int) string {
+	body, _, _ := o.layout(m, w, h)
+	return m.scrollPanel("Keys", body, o.off, w, h)
+}
+
+// filesOverlay lists the files a save left on disk, each in full: a path
+// is the one thing here that must not be cut. It scrolls like help.
+type filesOverlay struct {
+	paths []string
+	off   int
+}
+
+func (o *filesOverlay) layout(m *Model, w int) []string {
+	inner := min(w, panelMax) - 4
+	var body []string
+	for _, p := range o.paths {
+		for i, part := range wrap(display(p), inner-2) {
+			pre := ""
+			if i > 0 {
+				pre = "  " // a path's continuation hangs under its start
+			}
+			body = append(body, pre+m.th.Text.Render(part))
+		}
+	}
+	body = append(body, "")
+	for _, part := range wrap("trenvy no longer tracks these. Delete them if you no longer need them.", inner) {
+		body = append(body, m.th.Muted.Render(part))
+	}
+	return body
+}
+
+func (o *filesOverlay) update(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
+	w, _ := m.size()
+	_, maxOff := scrollRows(len(o.layout(m, w)), m.bodyHeight())
+	switch {
+	case keyIs(k, "j", "down"):
+		o.off = clamp(o.off+1, 0, maxOff)
+	case keyIs(k, "k", "up"):
+		o.off = clamp(o.off-1, 0, maxOff)
+	}
+	return false, nil
+}
+
+func (o *filesOverlay) view(m *Model, w, h int) string {
+	return m.scrollPanel("Files left on disk", o.layout(m, w), o.off, w, h)
+}
+
+func (o *filesOverlay) hints(m *Model) []hint {
+	w, _ := m.size()
+	if _, maxOff := scrollRows(len(o.layout(m, w)), m.bodyHeight()); maxOff > 0 {
+		return []hint{{"↑↓ j k", "scroll"}, {"esc", "close"}}
+	}
+	return []hint{{"esc", "close"}}
 }
 
 func (o *helpOverlay) hints(m *Model) []hint {

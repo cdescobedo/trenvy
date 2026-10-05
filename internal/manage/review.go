@@ -18,13 +18,18 @@ import (
 // before -> after, with irreversible lines marked (spec §3). It is also
 // the confirmation step: nothing is written until enter here.
 type reviewOverlay struct {
-	cursor  int
+	cursor int
+	// off scrolls a failure report into view when the panel is too short to
+	// show it above the cursor: 0 follows the cursor, n > 0 puts the
+	// report's line n-1 on the panel's first row.
+	off     int
 	failure string // the last commit's error, shown until the next attempt
 	refused bool   // that error was ErrNothingWritten: retrying cannot succeed
 }
 
 type reviewLine struct {
-	index        int // into staged.All()
+	index        int    // into staged.All()
+	kind         string // "var" or "output": variables list first
 	group        string
 	mark, what   string
 	detail       string
@@ -37,12 +42,29 @@ func (m *Model) reviewLines() []reviewLine {
 	for i := range idx {
 		idx[i] = i
 	}
-	sort.SliceStable(idx, func(a, b int) bool { return all[idx[a]].Name < all[idx[b]].Name })
+	// Variables, then outputs, each by name. A variable and an output may
+	// share a name, so the kind is the first key.
+	sort.SliceStable(idx, func(a, b int) bool {
+		ca, cb := all[idx[a]], all[idx[b]]
+		if oa, ob := isOutputChange(ca), isOutputChange(cb); oa != ob {
+			return ob
+		}
+		return ca.Name < cb.Name
+	})
 	out := make([]reviewLine, 0, len(all))
 	for _, i := range idx {
 		out = append(out, m.describe(i, all[i]))
 	}
 	return out
+}
+
+func isOutputChange(c session.Change) bool {
+	switch c.Kind {
+	case session.ChangeAddOutput, session.ChangeRemoveOutput, session.ChangeRenameOutput,
+		session.ChangeDefaultOutput, session.ChangeSetGlobs, session.ChangeSetOutputFormat, session.ChangeSetOutputPath:
+		return true
+	}
+	return false
 }
 
 func valueOr(p *string, none string) string {
@@ -53,7 +75,10 @@ func valueOr(p *string, none string) string {
 }
 
 func (m *Model) describe(i int, c session.Change) reviewLine {
-	l := reviewLine{index: i, group: c.Name, mark: "~"}
+	if isOutputChange(c) {
+		return m.describeOutput(i, c)
+	}
+	l := reviewLine{index: i, kind: "var", group: c.Name, mark: "~"}
 	base := m.snap.Matrix.Vars[c.Name]
 	switch c.Kind {
 	case session.ChangeAddVar:
@@ -105,6 +130,36 @@ func (m *Model) describe(i int, c session.Change) reviewLine {
 		}
 	default:
 		l.what = c.Kind
+	}
+	return l
+}
+
+// describeOutput words an output change before -> after. A default-output
+// change sits in its target's group, since the target is what it names.
+func (m *Model) describeOutput(i int, c session.Change) reviewLine {
+	l := reviewLine{index: i, kind: "output", group: "output " + displayName(c.Name, m.outView(c.Name)), mark: "~"}
+	base := m.snap.Matrix.Outputs[c.Name]
+	switch c.Kind {
+	case session.ChangeAddOutput:
+		l.what, l.detail = "add output", "(none)  ->  "+c.Format+" "+display(c.Path)
+	case session.ChangeRemoveOutput:
+		l.mark, l.what, l.irreversible = "x", "remove output", true
+		l.detail = "its definition leaves the manifest; " + display(base.Path) + " stays on disk"
+	case session.ChangeRenameOutput:
+		l.what, l.detail = "rename", c.Name+"  ->  "+c.Value
+	case session.ChangeDefaultOutput:
+		before := m.snap.DefaultOutput
+		if before == "" {
+			before = "(none)"
+		}
+		l.what, l.detail = "make default", before+"  ->  "+c.Name
+	case session.ChangeSetGlobs:
+		l.what = "membership"
+		l.detail = session.SelectsSummary(base) + "  ->  " + session.SelectsSummary(manifest.Output{Include: c.Include, Exclude: c.Exclude})
+	case session.ChangeSetOutputFormat:
+		l.what, l.detail = "format", base.Format+"  ->  "+c.Value
+	case session.ChangeSetOutputPath:
+		l.what, l.detail = "path", display(base.Path)+"  ->  "+display(c.Value)
 	}
 	return l
 }
@@ -173,9 +228,22 @@ func (r *reviewOverlay) update(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
 	lines := m.reviewLines()
 	switch {
 	case keyIs(k, "j", "down"):
-		r.cursor = min(r.cursor+1, len(lines)-1)
+		// Past the last change j scrolls instead, down the failure report,
+		// so a panel too short to show it above the changes can still
+		// reach its end. k at the first change scrolls back.
+		if r.cursor >= len(lines)-1 {
+			w, _ := m.size()
+			_, _, report := r.layout(m, w)
+			r.off = min(r.off+1, report)
+		} else {
+			r.cursor, r.off = r.cursor+1, 0
+		}
 	case keyIs(k, "k", "up"):
-		r.cursor = max(r.cursor-1, 0)
+		if r.cursor == 0 {
+			r.off = max(r.off-1, 0)
+		} else {
+			r.cursor, r.off = r.cursor-1, 0
+		}
 	case keyIs(k, "u"):
 		l := lines[clamp(r.cursor, 0, len(lines)-1)]
 		dropped := m.staged.Drop(l.index)
@@ -188,7 +256,7 @@ func (r *reviewOverlay) update(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
 		if m.staged.Len() == 0 {
 			return true, nil
 		}
-		r.cursor = clamp(r.cursor, 0, m.staged.Len()-1)
+		r.cursor, r.off = clamp(r.cursor, 0, m.staged.Len()-1), 0
 	case keyIs(k, "enter"):
 		if m.stale {
 			m.msg = message{"can't save: the last reload failed -- esc, then . and Reload from disk", true}
@@ -206,6 +274,20 @@ func (r *reviewOverlay) update(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
 // failure's report come first, above the changes, so they are on screen
 // when the review reopens with them.
 func (r *reviewOverlay) view(m *Model, w, h int) string {
+	body, focus, _ := r.layout(m, w)
+	if r.off > 0 {
+		// panelAt keeps focus on the last row it shows, so the line to show
+		// first is rows-1 above it. Two borders, the title and its blank
+		// line take four of h.
+		rows := max(1, min(h, len(body)+4)-4)
+		focus = r.off - 1 + rows - 1
+	}
+	return m.panelAt("Review "+m.th.PillStaged.Render(plural(m.staged.Len(), "change")), body, focus, w, h)
+}
+
+// layout is the review's body, the body line the cursor is on, and how many
+// of the body's leading lines are the failure report.
+func (r *reviewOverlay) layout(m *Model, w int) (body []string, focus, report int) {
 	t := m.th
 	inner := min(w, panelMax) - 2
 	// "> ~ " leads each line; the what column and the details follow, with
@@ -213,7 +295,6 @@ func (r *reviewOverlay) view(m *Model, w, h int) string {
 	const lead = 4
 	whatW := clamp((inner-lead)/2, 8, 22)
 	detailW := inner - lead - whatW - 1
-	var body []string
 	switch {
 	case m.saving:
 		body = append(body, t.Muted.Render("saving…"), "")
@@ -234,12 +315,13 @@ func (r *reviewOverlay) view(m *Model, w, h int) string {
 				body = append(body, pre+t.Danger.Render(part))
 			}
 		}
-		for _, part := range wrap(r.nextStep(), inner-1) {
+		report = len(body)
+		for _, part := range wrap(r.nextStep(m), inner-1) {
 			body = append(body, t.Text.Render(part))
 		}
 		body = append(body, "")
 	}
-	group, focus := "", 0
+	group := ""
 	indent := strings.Repeat(" ", lead+whatW)
 	for i, l := range m.reviewLines() {
 		if l.group != group {
@@ -254,14 +336,27 @@ func (r *reviewOverlay) view(m *Model, w, h int) string {
 		}
 		st, text := t.Text, l.detail
 		if l.irreversible {
-			st, text = t.Danger, l.detail+" !"
+			st = t.Danger
 		}
-		details := wrap(text, detailW)
+		// A detail that would wrap beside its label drops under it instead,
+		// where it has the panel's full width: a path or a sentence stays
+		// in one piece more often than in a narrow column.
+		dw, hang, own := detailW, indent, lipgloss.Width(l.what) > whatW
+		details := wrap(text, dw)
+		if len(details) > 1 {
+			own = true
+		}
+		if own {
+			dw, hang = inner-lead-1, strings.Repeat(" ", lead)
+			details = wrap(text, dw)
+		}
 		if text == "" {
 			details = nil
 		}
 		if l.irreversible {
-			details = append(details, wrap("cannot be undone after saving", detailW)...)
+			// The "!" leads its own line rather than trailing the detail, so
+			// it never decides where the detail wraps.
+			details = append(details, wrap("! cannot be undone after saving", dw)...)
 		}
 		head := cur + t.Staged.Render(l.mark) + " "
 		if lipgloss.Width(l.what) > whatW {
@@ -271,6 +366,8 @@ func (r *reviewOverlay) view(m *Model, w, h int) string {
 				}
 				body = append(body, head+t.Text.Render(part))
 			}
+		} else if own {
+			body = append(body, head+t.Text.Render(l.what))
 		} else if len(details) > 0 {
 			body = append(body, head+t.Text.Render(pad(l.what, whatW))+st.Render(details[0]))
 			details = details[1:]
@@ -278,16 +375,21 @@ func (r *reviewOverlay) view(m *Model, w, h int) string {
 			body = append(body, head+t.Text.Render(l.what))
 		}
 		for _, d := range details {
-			body = append(body, indent+st.Render(d))
+			body = append(body, hang+st.Render(d))
 		}
 	}
-	return m.panelAt("Review "+t.PillStaged.Render(plural(m.staged.Len(), "change")), body, focus, w, h)
+	return body, focus, report
 }
 
 // nextStep is the line under a failure's report. A partial failure is
 // retried whole (spec §3); a refused batch wrote nothing and would be
-// refused again, so it points at the change to drop or edit instead.
-func (r *reviewOverlay) nextStep() string {
+// refused again, so it points at the change to drop or edit instead. When
+// the reload after the failure failed too, enter is refused until a reload
+// lands, so retrying is not on offer.
+func (r *reviewOverlay) nextStep(m *Model) string {
+	if m.stale {
+		return "every change is still staged -- press esc, then . and Reload from disk, then w to retry"
+	}
 	if r.refused {
 		return "nothing was written -- u to drop the change the manifest refuses, or esc to edit"
 	}
@@ -350,8 +452,11 @@ func (m Model) afterCommit(msg committedMsg) (tea.Model, tea.Cmd) {
 	}
 	m.staged.Clear()
 	text := "saved " + plural(msg.res.Saved, "change")
-	if len(msg.res.LeftInPlace) > 0 {
-		text += " -- left in place: " + strings.Join(msg.res.LeftInPlace, ", ")
+	if n := len(msg.res.LeftInPlace); n > 0 {
+		// The paths go in a panel of their own, where they wrap in full; on
+		// the message line they would push out what follows a failed reload.
+		text += " -- " + plural(n, "file") + " left on disk, listed"
+		m.push(&filesOverlay{paths: msg.res.LeftInPlace})
 	}
 	m.msg = message{text, false}
 	return m, m.reloadCmd()
@@ -371,9 +476,10 @@ func (m Model) afterReload(msg reloadedMsg) (tea.Model, tea.Cmd) {
 		// choose, so the message line never cuts it off.
 		text := "reload failed, press . then Reload from disk: " + msg.err.Error()
 		// A save that landed set a plain message just before this reload;
-		// keep it, or the failure reads as if nothing was saved.
+		// keep its first clause, or the failure reads as if nothing was
+		// saved. Not the file list: that has its own panel.
 		if m.msg.text != "" && !m.msg.isErr {
-			text = m.msg.text + " -- " + text
+			text += " -- " + strings.SplitN(m.msg.text, " -- ", 2)[0]
 		}
 		m.msg = message{text, true}
 		return m, nil

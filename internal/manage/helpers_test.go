@@ -69,6 +69,7 @@ type fakeDeps struct {
 	next      *manage.Snapshot // what Reload returns; nil means fixture()
 	reloadErr error
 	ignored   map[string]bool // path -> git ignores it; missing means not ignored
+	left      []string        // what a successful Commit reports as left on disk
 
 	rendered, cleaned, checks  map[string]string // output -> what Render, Clean and Check return
 	renderErr                  error
@@ -89,7 +90,7 @@ func (f *fakeDeps) deps() manage.Deps {
 			if f.commitErr != nil {
 				return manage.CommitResult{}, f.commitErr
 			}
-			return manage.CommitResult{Saved: len(cs)}, nil
+			return manage.CommitResult{Saved: len(cs), LeftInPlace: f.left}, nil
 		},
 		Reload: func() (manage.Snapshot, error) {
 			f.reloads++

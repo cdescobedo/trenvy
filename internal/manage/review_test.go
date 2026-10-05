@@ -339,3 +339,77 @@ func (refused) Error() string {
 	return `var "APP_MODE": needs value, a profile value, secret = true, or optional = true`
 }
 func (refused) Unwrap() []error { return []error{manage.ErrNothingWritten} }
+
+func TestReviewGroupsVariablesThenOutputs(t *testing.T) {
+	m := press(newModel(&fakeDeps{}), "j", "d", "2", "j", ".")
+	m = pickMenu(t, m, "Make default")
+	m = press(m, "w")
+	v := m.View()
+	vi, oi := strings.Index(v, "APP_MODE"), strings.Index(v, "output web")
+	if vi < 0 || oi < 0 || vi > oi {
+		t.Errorf("variables do not come before outputs:\n%s", v)
+	}
+	if !strings.Contains(v, "make default") || !strings.Contains(v, "local  ->  web") {
+		t.Errorf("default line:\n%s", v)
+	}
+}
+
+func TestReviewDescribesEveryOutputKind(t *testing.T) {
+	m := out(newModel(&fakeDeps{ignored: map[string]bool{"api.env": true}}), "a")
+	m = typeText(m, "api")
+	m = press(m, "enter", "d", "ctrl+u")
+	m = typeText(m, "api.env")
+	m = press(m, "enter")
+	// The cursor is on api after the add; the list is api, local, web.
+	m = press(m, "j", "enter", "enter", "j") // local: detail, format row, json
+	m = press(m, "left", "j", "d")           // web removed
+	m = press(m, "w")
+	v := m.View()
+	for _, want := range []string{"add output", "(none)  ->  dotenv api.env", "format", "dotenv  ->  json", "remove output", "web.json stays on disk"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("review lacks %q:\n%s", want, v)
+		}
+	}
+}
+
+func TestFilesLeftInPlaceAreListedInFull(t *testing.T) {
+	long := "/Users/someone/workspace/project-one/deep/path/to/the/worktree/web.json"
+	f := &fakeDeps{left: []string{long}}
+	m := press(newModel(f), "2", "j", "d", "w", "enter")
+	v := m.View()
+	// The path has no spaces, so it may wrap mid-word: compare with the
+	// borders, padding and line breaks taken out.
+	flat := strings.NewReplacer("│", "", " ", "", "\n", "").Replace(v)
+	if !strings.Contains(flat, long) || !strings.Contains(v, "left on disk") {
+		t.Errorf("view:\n%s", v)
+	}
+}
+
+func TestReloadFailureAfterASaveWithFilesLeftKeepsTheRecovery(t *testing.T) {
+	f := &fakeDeps{left: []string{"/a/very/long/path/that/would/fill/the/message/line/web.json"}, reloadErr: errors.New("manifest unreadable")}
+	m := sized(manage.New(fixture(), f.deps(), noTheme()), 80, 24)
+	m = press(m, "2", "j", "d", "w", "enter")
+	if !strings.Contains(m.View(), "Reload from disk") {
+		t.Errorf("the recovery instruction was cut:\n%s", m.View())
+	}
+}
+
+func TestStaleReviewDoesNotOfferARetryItWillRefuse(t *testing.T) {
+	f := &fakeDeps{commitErr: errors.New("keyring is locked"), reloadErr: errors.New("manifest unreadable")}
+	m := press(newModel(f), "j", "d", "w", "enter")
+	if strings.Contains(m.View(), "enter to retry") || !strings.Contains(m.View(), "Reload from disk") {
+		t.Errorf("view:\n%s", m.View())
+	}
+}
+
+func TestTinyReviewCanScrollToTheEndOfAFailure(t *testing.T) {
+	f := &fakeDeps{commitErr: errors.New("keyring is locked\n  stored 0 of 1 secrets; the manifest was not saved\n  left in place: /x/y.env")}
+	m := sized(manage.New(fixture(), f.deps(), noTheme()), 40, 10)
+	m = press(m, "j", "d", "w", "enter")
+	for i := 0; i < 10; i++ {
+		m = press(m, "j")
+	}
+	if !strings.Contains(m.View(), "left in place") {
+		t.Errorf("the end of the report never came into view:\n%s", m.View())
+	}
+}
