@@ -233,6 +233,13 @@ func (m *Model) varMenu() overlay {
 			disabled: "renaming a variable is not supported yet -- a secret's keyring items and every output glob naming it would have to move with it",
 		})
 	}
+	return &menuOverlay{title: "More", items: append(items, m.commonMenuItems()...)}
+}
+
+// commonMenuItems ends every screen's . menu: Reload from disk while the
+// last reload failed, Project info, and Switch project.
+func (m *Model) commonMenuItems() []menuItem {
+	var items []menuItem
 	if m.stale {
 		items = append(items, menuItem{label: "Reload from disk", run: func(m *Model) tea.Cmd { return m.reloadCmd() }})
 	}
@@ -247,5 +254,5 @@ func (m *Model) varMenu() overlay {
 	if len(others) == 0 {
 		sw.disabled = "no other project is registered"
 	}
-	return &menuOverlay{title: "More", items: append(items, sw)}
+	return append(items, sw)
 }

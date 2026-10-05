@@ -258,3 +258,36 @@ func TestUiNewOutputsShowsDiskStateAndDefault(t *testing.T) {
 		t.Errorf("docker row = %q, want default and not rendered:\n%s", row, view)
 	}
 }
+
+// Adding an output asks git, in the session's worktree, whether the path is
+// ignored: a tracked path is warned about and nothing is staged, an ignored
+// one is staged and saved.
+func TestUiNewAddOutputAsksGitWhetherThePathIsIgnored(t *testing.T) {
+	h := newHarness(t)
+	h.gitInit("api.env\n")
+	h.register("vpb", fixtureManifest(t))
+	var warned string
+	h.opts.RunManage = func(m manage.Model) (manage.Model, error) {
+		// Outputs, add, name, dotenv, a path git would track.
+		m = drive(m, r("2"), r("a"), r("api"), enter, r("d"), r("tracked.env"), enter)
+		warned = m.View()
+		if n := len(m.Staged()); n != 0 {
+			t.Errorf("a tracked path was staged without a second enter: %d changes", n)
+		}
+		m = drive(m, tea.KeyMsg{Type: tea.KeyEsc}, r("a"), r("api"), enter, r("d"), r("api.env"), enter, r("w"), enter)
+		return drive(m, r("q")), nil
+	}
+	if err := h.run("ui", "--new"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(warned, "tracked.env is not ignored by git") {
+		t.Errorf("no warning for a tracked path:\n%s", warned)
+	}
+	got, err := manifest.Load(config.ManifestPath("vpb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o, ok := got.Outputs["api"]; !ok || o.Path != "api.env" || o.Format != manifest.FormatDotenv {
+		t.Errorf("outputs = %+v", got.Outputs)
+	}
+}

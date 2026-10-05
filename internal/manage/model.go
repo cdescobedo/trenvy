@@ -51,6 +51,9 @@ type Deps struct {
 	Reveal func(name, profile string) (string, error)
 	Commit func([]session.Change) (CommitResult, error)
 	Reload func() (Snapshot, error)
+	// Ignored reports whether git ignores path in this worktree, for the
+	// add-output warning (spec §4).
+	Ignored func(path string) (bool, error)
 }
 
 type message struct {
@@ -72,6 +75,13 @@ type committedMsg struct {
 type reloadedMsg struct {
 	snap Snapshot
 	err  error
+}
+
+// ignoredMsg is git's answer for the path an add-output names.
+type ignoredMsg struct {
+	path    string
+	ignored bool
+	err     error
 }
 
 // Model is the interface's whole state.
@@ -169,6 +179,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.afterCommit(msg)
 	case reloadedMsg:
 		return m.afterReload(msg)
+	case ignoredMsg:
+		// Only the add-output panel still on its path step, with the same
+		// path, takes the answer; one for a path since edited is stale.
+		if a, ok := m.top().(*addOutputOverlay); ok && a.step == 2 && strings.TrimSpace(a.f.value()) == msg.path {
+			if a.afterIgnored(&m, msg) {
+				m.removeOverlay(len(m.overlays) - 1)
+			}
+		}
+		return m, nil
 	case tea.KeyMsg:
 		return m.key(msg)
 	}

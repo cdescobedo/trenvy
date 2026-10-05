@@ -139,10 +139,18 @@ func (m *Model) moveOutput(d int) {
 	m.outs.at = ""
 }
 
-// outputsKey handles the Outputs screen's keys. Task 4 wires movement and
-// the panes; Tasks 5 and 6 add staging and the immediate actions.
+// outputsKey handles the Outputs screen's keys.
 func (m Model) outputsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if _, ok := m.selectedOutput(); !ok {
+	switch {
+	case keyIs(k, "a"):
+		m.beginAddOutput()
+		return m, nil
+	case keyIs(k, "."):
+		m.push(m.outMenu())
+		return m, nil
+	}
+	id, ok := m.selectedOutput()
+	if !ok {
 		return m, nil
 	}
 	if m.outs.pane == paneList {
@@ -153,6 +161,10 @@ func (m Model) outputsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.moveOutput(-1)
 		case keyIs(k, "l", "right", "enter"):
 			m.outs.pane, m.outs.at = paneDetail, ""
+		case keyIs(k, "d"):
+			m.toggleRemoveOutput(id)
+		case keyIs(k, "u"):
+			m.undoOutput(id)
 		}
 		return m, nil
 	}
@@ -165,19 +177,50 @@ func (m Model) outputsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.outs.at = rows[max(i-1, 0)].key
 	case keyIs(k, "h", "left", "esc"):
 		m.outs.pane = paneList
+	case keyIs(k, "enter"):
+		return m.beginOutputEdit(id, rows[i].key)
+	case keyIs(k, " ") && strings.HasPrefix(rows[i].key, "var:"):
+		m.toggleMember(id, strings.TrimPrefix(rows[i].key, "var:"))
+	case keyIs(k, "u"):
+		m.undoOutputRow(id, rows[i].key)
 	}
 	return m, nil
 }
 
-// outputsHints is the Outputs footer. Task 5 extends it.
+// outputsHints is the Outputs footer, most important first.
 func (m Model) outputsHints() []hint {
-	if _, ok := m.selectedOutput(); !ok {
-		return nil
+	id, ok := m.selectedOutput()
+	if !ok {
+		return []hint{{"a", "add"}}
 	}
+	v := m.outView(id)
 	if m.outs.pane == paneList {
-		return []hint{{"enter", "open"}}
+		hs := []hint{{"enter", "open"}}
+		if v.Removed {
+			hs = append(hs, hint{"d", "restore"})
+		} else {
+			hs = append(hs, hint{"d", "remove"})
+		}
+		if len(m.staged.OnOutput(id)) > 0 {
+			hs = append(hs, hint{"u", "undo"})
+		}
+		return append(hs, hint{"a", "add"}, hint{".", "more"})
 	}
-	return []hint{{"←", "back"}}
+	rows := m.outRows()
+	r := rows[m.outRowIndex(rows)]
+	var hs []hint
+	if strings.HasPrefix(r.key, "var:") {
+		hs = append(hs, hint{"space", "toggle"})
+		if v.Changed["globs"] {
+			hs = append(hs, hint{"u", "undo"})
+		}
+	} else {
+		hs = append(hs, hint{"enter", "edit"})
+		if v.Changed[r.key] {
+			hs = append(hs, hint{"u", "undo"})
+		}
+	}
+	return append(hs, hint{"←", "back"}, hint{".", "more"})
 }
 
 const (
@@ -271,9 +314,22 @@ func (m Model) outDetailBody(inner, height int) string {
 	case v.Added:
 		meta = "~ new · " + meta
 	}
+	// The meta sits right of the name when both fit. Otherwise it wraps
+	// on its own lines under the name: "x marked for removal · dotenv ·
+	// default" alone is wider than the detail pane at 40 columns, and the
+	// staged state is the part that must not be lost.
 	title := display(displayName(id, v))
-	head := t.Title.Render(cutTo(title, max(1, inner-lipgloss.Width(meta)-1)))
-	lines := []string{head + strings.Repeat(" ", max(1, inner-lipgloss.Width(head)-lipgloss.Width(meta))) + t.Muted.Render(meta), ""}
+	var lines []string
+	if lipgloss.Width(title)+1+lipgloss.Width(meta) <= inner {
+		gap := strings.Repeat(" ", inner-lipgloss.Width(title)-lipgloss.Width(meta))
+		lines = append(lines, t.Title.Render(title)+gap+t.Muted.Render(meta))
+	} else {
+		lines = append(lines, t.Title.Render(cutTo(title, inner)))
+		for _, p := range wrap(meta, inner) {
+			lines = append(lines, t.Muted.Render(p))
+		}
+	}
+	lines = append(lines, "")
 
 	const labelW = 14 // "new variables" + a space
 	valueW := max(8, inner-labelW-2)

@@ -141,11 +141,14 @@ func TestFilteringOrTogglingProblemsHidesRevealedValues(t *testing.T) {
 // right now. Each listed key must change the screen or return a command.
 func TestEveryFooterKeyDoesSomething(t *testing.T) {
 	states := map[string][]string{
-		"list, secret":         nil,
-		"list, plain":          {"j"},
-		"detail, secret dev":   {"enter"},
-		"detail, plain shared": {"j", "enter"},
-		"detail, plain prod":   {"j", "enter", "j", "j", "j"},
+		"list, secret":          nil,
+		"list, plain":           {"j"},
+		"detail, secret dev":    {"enter"},
+		"detail, plain shared":  {"j", "enter"},
+		"detail, plain prod":    {"j", "enter", "j", "j", "j"},
+		"outputs list":          {"2"},
+		"outputs detail format": {"2", "enter"},
+		"outputs detail var":    {"2", "enter", "j", "j"},
 	}
 	for name, setup := range states {
 		f := &fakeDeps{secrets: map[string]string{"API_TOKEN/dev": "d"}}

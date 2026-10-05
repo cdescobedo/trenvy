@@ -115,8 +115,11 @@ func TestOutputsLayoutNeverExceedsTheTerminal(t *testing.T) {
 	for i := 0; i < 60; i++ {
 		mf.Vars["VAR_"+strings.Repeat("X", i%17)+string(rune('A'+i%26))] = manifestVar("v")
 	}
+	// local, the default, marked for removal: its title carries the
+	// longest meta, "x marked for removal · dotenv · default".
+	removedDefault := []string{"2", "j", "d", "enter"}
 	for _, w := range []int{40, 79, 80, 120} {
-		for _, keys := range [][]string{{"2"}, {"2", "enter"}, {"2", "enter", "j", "j", "j", "j", "j"}} {
+		for _, keys := range [][]string{{"2"}, {"2", "enter"}, {"2", "enter", "j", "j", "j", "j", "j"}, removedDefault} {
 			snap := snapshotOf(mf, nil)
 			m := press(sized(manage.New(snap, (&fakeDeps{}).deps(), asciiTheme()), w, 24), keys...)
 			lines := strings.Split(m.View(), "\n")
@@ -127,6 +130,23 @@ func TestOutputsLayoutNeverExceedsTheTerminal(t *testing.T) {
 				if lw := lipgloss.Width(l); lw > w {
 					t.Errorf("w=%d %v: line %d is %d wide: %q", w, keys, i, lw, l)
 				}
+			}
+			if len(keys) != len(removedDefault) {
+				continue
+			}
+			// Theme.Pane cuts a line that is too wide, so the width check
+			// alone cannot see a meta pushed off the title line: the whole
+			// meta must be on screen once wrapping is undone.
+			var detail []string
+			for _, l := range lines {
+				if i := strings.LastIndex(l, "││"); i >= 0 {
+					l = l[i:]
+				}
+				detail = append(detail, l)
+			}
+			flat := strings.NewReplacer("│", "", " ", "").Replace(strings.Join(detail, ""))
+			if !strings.Contains(flat, "xmarkedforremoval·dotenv·default") {
+				t.Errorf("w=%d: the title's meta is cut:\n%s", w, m.View())
 			}
 		}
 	}

@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/guard"
 	"github.com/cdescobedo/trenvy/internal/manage"
 	"github.com/cdescobedo/trenvy/internal/session"
 	"github.com/cdescobedo/trenvy/internal/store"
@@ -79,6 +80,7 @@ func runManage(opts *Options, app *appContext) error {
 				mu.Unlock()
 				return buildSnapshot(&quiet, next, projects)
 			},
+			Ignored: func(p string) (bool, error) { return guard.GitIgnored(current().Worktree, p) },
 		}
 		final, err := opts.RunManage(manage.New(snap, deps, th))
 		if err != nil {
