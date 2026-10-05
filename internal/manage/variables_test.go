@@ -164,3 +164,46 @@ func TestEveryFooterKeyDoesSomething(t *testing.T) {
 		}
 	}
 }
+
+// M5: a value staged for a missing cell answers its problem, so the
+// detail stops showing it -- for a secret (set-secret), a plain override
+// (set-value) and a shared value (set-shared). Others stay.
+func TestAStagedValueAnswersItsMissingProblem(t *testing.T) {
+	m := press(newModel(&fakeDeps{}), "enter", "j", "enter") // API_TOKEN staging
+	m = typeText(m, "s3cret")
+	m = press(m, "enter")
+	if v := m.View(); strings.Contains(v, "no value under staging") {
+		t.Errorf("a stored-on-save secret still shows its problem:\n%s", v)
+	}
+
+	mf := fixtureManifest()
+	mf.Vars["REQ"] = manifest.Var{Profiles: map[string]string{"dev": "x"}} // missing under staging and prod
+	snap := snapshotOf(mf, map[string]map[string]bool{"API_TOKEN": {"dev": true, "prod": true}})
+	m = sized(manage.New(snap, (&fakeDeps{}).deps(), noTheme()), 100, 30)
+	for i := 0; i < 8 && !strings.Contains(lineWith(t, m.View(), "REQ"), ">"); i++ {
+		m = press(m, "j")
+	}
+	m = press(m, "enter")
+	for i := 0; i < 6 && !strings.Contains(lineWith(t, m.View(), "staging"), ">"); i++ {
+		m = press(m, "j")
+	}
+	m = press(m, "enter")
+	m = typeText(m, "y")
+	m = press(m, "enter")
+	v := m.View()
+	if strings.Contains(v, "no value under staging") || !strings.Contains(v, "no value under prod") {
+		t.Errorf("after a staging override, want only prod's problem:\n%s", v)
+	}
+	for i := 0; i < 6 && !strings.Contains(lineWith(t, m.View(), "shared"), ">"); i++ {
+		m = press(m, "k")
+	}
+	m = press(m, "enter")
+	m = typeText(m, "z")
+	m = press(m, "enter")
+	if v := m.View(); strings.Contains(v, "no value under") {
+		t.Errorf("after a shared value, want no missing problem:\n%s", v)
+	}
+	if got := strings.Join(staged(m), ","); got != "set-value:REQ:staging:y,set-shared:REQ::z" {
+		t.Errorf("staged = %s", got)
+	}
+}

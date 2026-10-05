@@ -82,14 +82,32 @@ func (m Model) varView(name string) session.VarView {
 
 // problemsFor is every snapshot problem about the variable name. An
 // "output" problem names an output, not a variable, so it never matches.
+// A missing value that a staged value will fill is left out: the cell
+// already reads staged, and the problem goes on save.
 func (m Model) problemsFor(name string) []session.Problem {
 	var out []session.Problem
 	for _, p := range m.snap.Problems {
-		if p.Name == name && p.Kind != "output" {
+		if p.Name == name && p.Kind != "output" && !(p.Kind == "missing" && m.valueStaged(name, p.Profile)) {
 			out = append(out, p)
 		}
 	}
 	return out
+}
+
+// valueStaged reports whether a staged change gives name a value under
+// profile: a secret or an override for that profile, or a shared value.
+func (m Model) valueStaged(name, profile string) bool {
+	for _, c := range m.staged.On(name) {
+		switch c.Kind {
+		case session.ChangeSetShared:
+			return true
+		case session.ChangeSetSecret, session.ChangeSetValue:
+			if c.Profile == profile {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type detailRow struct {
