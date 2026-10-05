@@ -214,3 +214,27 @@ func TestWriteGlobsModeSwitchPreservesSelection(t *testing.T) {
 		t.Errorf("everything-except: an unseen future variable must default in, got excluded")
 	}
 }
+
+func TestInferGlobMode(t *testing.T) {
+	for _, c := range []struct {
+		include []string
+		want    session.GlobMode
+	}{
+		{nil, session.GlobsEverythingExcept},
+		{[]string{"*"}, session.GlobsEverythingExcept},
+		{[]string{"PUBLIC_*"}, session.GlobsOnlyThese},
+		{[]string{"A", "B"}, session.GlobsOnlyThese},
+	} {
+		if got := session.InferGlobMode(c.include); got != c.want {
+			t.Errorf("InferGlobMode(%v) = %v, want %v", c.include, got, c.want)
+		}
+	}
+}
+
+func TestCheckedFollowsResolveSelects(t *testing.T) {
+	got := session.Checked([]string{"PUBLIC_*"}, []string{"PUBLIC_SECRET"}, []string{"PUBLIC_URL", "PUBLIC_SECRET", "DB"})
+	want := map[string]bool{"PUBLIC_URL": true, "PUBLIC_SECRET": false, "DB": false}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Checked = %v, want %v", got, want)
+	}
+}

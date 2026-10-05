@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/cdescobedo/trenvy/internal/manifest"
+	"github.com/cdescobedo/trenvy/internal/resolve"
 )
 
 // GlobMode says which of two futures a variable that does not exist yet
@@ -16,6 +17,31 @@ const (
 	GlobsEverythingExcept GlobMode = iota
 	GlobsOnlyThese
 )
+
+// InferGlobMode reads which future an output's include list already
+// promises: no include, or the single "*", is everything-except.
+func InferGlobMode(include []string) GlobMode {
+	if len(include) == 0 || (len(include) == 1 && include[0] == "*") {
+		return GlobsEverythingExcept
+	}
+	return GlobsOnlyThese
+}
+
+// Checked reports which of names an output with these globs selects, by
+// the rule render itself uses (resolve.Selects), so the grid can never
+// claim a variable reaches a file that render would leave it out of.
+func Checked(include, exclude, names []string) map[string]bool {
+	scratch := &manifest.Manifest{Outputs: map[string]manifest.Output{
+		"x": {Include: include, Exclude: exclude},
+	}}
+	out := make(map[string]bool, len(names))
+	for _, n := range names {
+		if sel, err := resolve.Selects(scratch, "x", n); err == nil {
+			out[n] = sel
+		}
+	}
+	return out
+}
 
 // SelectsSummary renders an output's globs as prose, because the globs
 // themselves do not say which of two futures applies: whether a variable

@@ -71,4 +71,11 @@ const (
 	ChangeUnsetValue = "unset-value"
 	// ChangeSetOptional sets Optional. Value is "true" or "false".
 	ChangeSetOptional = "set-optional"
+
+	// ChangeSetOutputFormat and ChangeSetOutputPath edit an output's format
+	// or path in place. Value is the new one. Like every output kind they
+	// key by the output's identity (see Staged), never by a staged rename's
+	// target, and commitStaged applies them in phase 5a, before 5b renames.
+	ChangeSetOutputFormat = "set-output-format"
+	ChangeSetOutputPath   = "set-output-path"
 )

@@ -42,6 +42,9 @@ const (
 	ChangeSetShared   = session.ChangeSetShared
 	ChangeUnsetValue  = session.ChangeUnsetValue
 	ChangeSetOptional = session.ChangeSetOptional
+
+	ChangeSetOutputFormat = session.ChangeSetOutputFormat
+	ChangeSetOutputPath   = session.ChangeSetOutputPath
 )
 
 var (

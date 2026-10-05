@@ -26,11 +26,30 @@ func slot(c Change) string {
 		return "value\x00" + c.Name + "\x00" + c.Profile
 	case ChangeSetSecret:
 		return "secret\x00" + c.Name + "\x00" + c.Profile
+	case ChangeDefaultOutput:
+		// One project, one default: a new default replaces the last.
+		return c.Kind
 	}
 	return c.Kind + "\x00" + c.Name
 }
 
-// Add stages c.
+// isOutputKind reports whether kind changes an output rather than a
+// variable. The two share Change.Name and an output may share a
+// variable's name, so every rule keyed by name looks only at its own kind
+// (phase 1 ledger, Task 3).
+func isOutputKind(kind string) bool {
+	switch kind {
+	case ChangeAddOutput, ChangeRenameOutput, ChangeRemoveOutput, ChangeDefaultOutput,
+		ChangeSetGlobs, ChangeSetOutputFormat, ChangeSetOutputPath:
+		return true
+	}
+	return false
+}
+
+// Add stages c. Variable kinds and output kinds are two namespaces: they
+// share Change.Name, an output may be named like a variable, and each rule
+// below looks only at its own kind. default-output occupies a single slot,
+// so staging a new default replaces the previous one.
 //
 // The invariant: a delete-var is never staged beside another change on the
 // same name, so commit never receives both. Two rules hold it:
@@ -42,8 +61,12 @@ func slot(c Change) string {
 //
 // Without the first, a promotion staged before the delete would store its
 // keyring items and the delete would then remove the manifest entry that
-// names them.
+// names them. Outputs follow the same two rules with remove-output.
 func (s *Staged) Add(c Change) {
+	if isOutputKind(c.Kind) {
+		s.addOutput(c)
+		return
+	}
 	if c.Kind == ChangeDeleteVar {
 		added := s.Has(ChangeAddVar, c.Name)
 		s.DropOn(c.Name)
@@ -53,6 +76,28 @@ func (s *Staged) Add(c Change) {
 	} else {
 		s.DropKind(ChangeDeleteVar, c.Name)
 	}
+	s.put(c)
+}
+
+// addOutput is Add for output kinds, with the same two rules variables
+// follow: removing an output drops its other changes (or nets to nothing
+// when it was added this session), and any other change on a removed
+// output restores it.
+func (s *Staged) addOutput(c Change) {
+	if c.Kind == ChangeRemoveOutput {
+		added := s.Has(ChangeAddOutput, c.Name)
+		s.DropOnOutput(c.Name)
+		if added {
+			return
+		}
+	} else {
+		s.DropKind(ChangeRemoveOutput, c.Name)
+	}
+	s.put(c)
+}
+
+// put stages c, replacing a change in the same slot.
+func (s *Staged) put(c Change) {
 	k := slot(c)
 	for i, x := range s.list {
 		if slot(x) == k {
@@ -83,7 +128,7 @@ func (s Staged) Has(kind, name string) bool {
 func (s Staged) On(name string) []Change {
 	var out []Change
 	for _, c := range s.list {
-		if c.Name == name {
+		if c.Name == name && !isOutputKind(c.Kind) {
 			out = append(out, c)
 		}
 	}
@@ -129,7 +174,9 @@ func dependsOn(dep, on Change) bool {
 	}
 	switch on.Kind {
 	case ChangeAddVar:
-		return true
+		return !isOutputKind(dep.Kind)
+	case ChangeAddOutput:
+		return isOutputKind(dep.Kind)
 	case ChangePromoteSecret:
 		return dep.Kind == ChangeSetSecret
 	}
@@ -174,7 +221,7 @@ func (s *Staged) remove(match func(Change) bool) []Change {
 
 // DropOn removes every change on the variable name.
 func (s *Staged) DropOn(name string) []Change {
-	return s.remove(func(c Change) bool { return c.Name == name })
+	return s.remove(func(c Change) bool { return c.Name == name && !isOutputKind(c.Kind) })
 }
 
 // DropCell removes the value and secret changes on one cell.
@@ -189,6 +236,94 @@ func (s *Staged) DropKind(kind, name string) []Change {
 
 // Clear empties the set, after a save.
 func (s *Staged) Clear() { s.list = nil }
+
+// OnOutput returns every change staged on the output identity id.
+func (s Staged) OnOutput(id string) []Change {
+	var out []Change
+	for _, c := range s.list {
+		if c.Name == id && isOutputKind(c.Kind) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// DropOnOutput removes every change on the output identity id.
+func (s *Staged) DropOnOutput(id string) []Change {
+	return s.remove(func(c Change) bool { return c.Name == id && isOutputKind(c.Kind) })
+}
+
+// AddedOutputs returns every output identity added this session, sorted.
+func (s Staged) AddedOutputs() []string {
+	var out []string
+	for _, c := range s.list {
+		if c.Kind == ChangeAddOutput {
+			out = append(out, c.Name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// DefaultOutput names the output a staged default-output points at.
+func (s Staged) DefaultOutput() (string, bool) {
+	for _, c := range s.list {
+		if c.Kind == ChangeDefaultOutput {
+			return c.Name, true
+		}
+	}
+	return "", false
+}
+
+// OutputView is one output as it will read once the staged changes land.
+type OutputView struct {
+	Output    manifest.Output
+	Added     bool
+	Removed   bool
+	RenamedTo string          // "" when no rename is staged
+	Default   bool            // after staged changes
+	Changed   map[string]bool // "format", "path", "globs" -> a change is staged
+}
+
+// OutputView applies the changes staged on id to base. base's slices are
+// copied first: they belong to the loaded manifest.
+//
+// An add-output resets Output to the added definition, and OnOutput returns
+// staged order. An add-output is always staged first for its identity (the
+// other kinds only ever act on an output that exists), so a later
+// set-globs, set-output-format or set-output-path applies on top of it.
+func (s Staged) OutputView(id string, base manifest.Output, diskDefault string) OutputView {
+	v := OutputView{Output: base, Changed: map[string]bool{}}
+	v.Output.Include = append([]string(nil), base.Include...)
+	v.Output.Exclude = append([]string(nil), base.Exclude...)
+	for _, c := range s.OnOutput(id) {
+		switch c.Kind {
+		case ChangeAddOutput:
+			v.Added = true
+			v.Output = manifest.Output{Format: c.Format, Path: c.Path}
+		case ChangeRemoveOutput:
+			v.Removed = true
+		case ChangeRenameOutput:
+			v.RenamedTo = c.Value
+		case ChangeSetGlobs:
+			v.Output.Include = append([]string(nil), c.Include...)
+			v.Output.Exclude = append([]string(nil), c.Exclude...)
+			v.Changed["globs"] = true
+		case ChangeSetOutputFormat:
+			v.Output.Format = c.Value
+			v.Changed["format"] = true
+		case ChangeSetOutputPath:
+			v.Output.Path = c.Value
+			v.Changed["path"] = true
+		}
+	}
+	if d, ok := s.DefaultOutput(); ok {
+		v.Default = d == id
+	} else {
+		v.Default = diskDefault == id
+	}
+	return v
+}
 
 // VarView is one variable as it will read once the staged changes land.
 // The interface draws it; nothing is written by building one.
