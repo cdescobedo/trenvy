@@ -134,6 +134,15 @@ func checkRelPath(p string) error {
 	return nil
 }
 
+// CheckProfileName reports why p cannot be a profile name, in Validate's
+// words, so the interface can say so while the name is typed.
+func CheckProfileName(p string) error {
+	if !validProfileName(p) {
+		return errors.New("names may use letters, digits, - and _ only; a profile name becomes a segment of the keyring service name")
+	}
+	return nil
+}
+
 // validProfileName allows letters, digits, hyphen and underscore. The
 // restriction exists because the name is interpolated into the keyring
 // service name: a "/" there would reshape the namespace silently rather than

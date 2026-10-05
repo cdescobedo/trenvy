@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -37,18 +38,21 @@ func newUiCmd(opts *Options) *cobra.Command {
 //  0. Validate the whole batch on a clone (prevalidate), so a batch the
 //     manifest refuses writes nothing at all.
 //
-//  1. Structural additions (add-var, add-output): pure in-memory map
-//     inserts. These run FIRST because nothing else may read an added
-//     entry's absence -- in particular, phase 5 below may stage a
+//  1. Structural additions (add-var, add-output, add-profile): pure
+//     in-memory inserts. These run FIRST because nothing else may read an
+//     added entry's absence -- in particular, phase 5 below may stage a
 //     rename-output or remove-output for a row THIS SAME SESSION also
 //     added (a row added this session can be selected, so
 //     selecting and acting on it before w is a normal session), and that
 //     phase's mutation needs the key to already exist in the map.
 //
-//  2. Keyring writes (set-secret).
+//  2. Keyring writes (set-secret). One on a deleted variable or on a
+//     profile the batch removes is skipped: nothing would name the item.
 //
-//  3. Keyring deletes (delete-var's secret removal), after every write --
-//     phase 1's own rule, carried forward unchanged.
+//  3. Keyring deletes, after every write -- phase 1's own rule, carried
+//     forward unchanged: delete-var's item under every profile, and
+//     remove-profile's item for every secret variable. An item both name
+//     is deleted once, and one never stored (ErrNotFound) is not counted.
 //
 //  4. The state file: a staged rename repoints that output's render
 //     records (State.RenameOutput); a staged removal or path edit forgets
@@ -60,14 +64,25 @@ func newUiCmd(opts *Options) *cobra.Command {
 //     State.RenameOutput's doc): only this order is recoverable by
 //     re-running the same session's equivalent by hand.
 //
+//     The state file also holds this machine's active profile. A
+//     remove-profile clears a selection naming the removed profile, as
+//     `trenvy profile rm` does; a use-profile then sets it. Because this
+//     save lands before the manifest's, use-profile may only name a
+//     profile the manifest on disk already declares and the batch keeps
+//     (prevalidate refuses anything else): a selection naming an
+//     undeclared profile would break every command if the manifest save
+//     then failed. A cleared selection left behind by that failure is
+//     harmless -- the profile is still declared, and an empty selection
+//     falls back to the default.
+//
 //  5. Every remaining manifest mutation, including every REMOVAL
 //     (delete-var, remove-output) and the rest (set-value, promote-secret,
-//     default-output, set-globs). Removals live here, never in phase 1's
-//     loop, so an add-output and a remove-output for the SAME row in one
-//     batch always nets to "never existed" regardless of which the caller
-//     listed first in staged -- getting this backwards is the Fix-1-shaped
-//     bug: an addition applied AFTER its own removal resurrects exactly what
-//     the user staged getting rid of.
+//     default-output, default-profile, set-globs). Removals live here,
+//     never in phase 1's loop, so an add-output and a remove-output for
+//     the SAME row in one batch always nets to "never existed" regardless
+//     of which the caller listed first in staged -- getting this backwards
+//     is the Fix-1-shaped bug: an addition applied AFTER its own removal
+//     resurrects exactly what the user staged getting rid of.
 //
 //     rename-output's manifest half runs in its OWN pass, 5b, strictly after
 //     every case above -- never interleaved with them in staged order. This
@@ -87,6 +102,10 @@ func newUiCmd(opts *Options) *cobra.Command {
 //     and 5b's own rename then carries forward whatever those mutations just
 //     wrote, exactly the way removedOutputNames (computed before phase 4)
 //     already makes removal order-independent.
+//
+//     remove-profile's manifest half runs in its own pass, 5c, after 5b:
+//     the profile leaves project.profiles and every variable's per-profile
+//     overrides, so a set-value staged on it leaves nothing behind.
 //
 //  6. Validate, then save the manifest.
 //
@@ -135,11 +154,14 @@ func commitStaged(opts *Options, app *appContext, staged []session.Change) (comm
 	// delete leaves no manifest entry naming the item, so storing it would
 	// orphan it in the keyring. session.Staged never stages both; this
 	// guards a hand-built batch, as applyManifestEdits' deletedNames does.
+	// A set-secret on a profile the batch removes is skipped for the same
+	// reason: phase 5c drops the profile, so nothing would name the item.
 	deleted := deletedVarNames(staged)
+	removedProfiles := removedProfileNames(staged)
 	for _, c := range staged {
 		switch c.Kind {
 		case session.ChangeSetSecret:
-			if deleted[c.Name] {
+			if deleted[c.Name] || removedProfiles[c.Profile] {
 				continue
 			}
 			writes = append(writes, keyOp{
@@ -170,8 +192,36 @@ func commitStaged(opts *Options, app *appContext, staged []session.Change) (comm
 					})
 				}
 			}
+		case session.ChangeRemoveProfile:
+			// Removing a profile removes its keyring item for every secret
+			// variable, the per-profile mirror of delete-var above. Sorted,
+			// so a partial failure names the same item on every run.
+			names := make([]string, 0, len(app.Manifest.Vars))
+			for name, v := range app.Manifest.Vars {
+				if v.Secret {
+					names = append(names, name)
+				}
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				deletes = append(deletes, keyOp{
+					del:     true,
+					service: app.Cfg.Keyring.ServiceName(app.Manifest.Project.ID, c.Name, name),
+				})
+			}
 		}
 	}
+	// A delete-var and a remove-profile can name the same item; it is
+	// deleted, and counted, once.
+	seen := make(map[string]bool, len(deletes))
+	unique := deletes[:0]
+	for _, op := range deletes {
+		if !seen[op.service] {
+			seen[op.service] = true
+			unique = append(unique, op)
+		}
+	}
+	deletes = unique
 
 	// Stored and deleted are counted separately, never folded into one
 	// number: a blurred "applied 3 of 5" cannot tell a reader whether the
@@ -310,13 +360,30 @@ func commitStaged(opts *Options, app *appContext, staged []session.Change) (comm
 			renamedAny = true
 		}
 	}
+	// This machine's active profile: a removal clears a selection naming
+	// the removed profile, as `trenvy profile rm` does, and only then does
+	// a use-profile set it, so "use q, remove p" leaves q whichever was
+	// staged first. prevalidate has already refused a use-profile naming a
+	// profile the manifest on disk does not declare, or one this batch
+	// removes.
+	activeChanged := false
+	for _, c := range staged {
+		if c.Kind == session.ChangeRemoveProfile && app.State.Active == c.Name {
+			app.State.Active, activeChanged = "", true
+		}
+	}
+	for _, c := range staged {
+		if c.Kind == session.ChangeUseProfile {
+			app.State.Active, activeChanged = c.Name, true
+		}
+	}
 	// records stays zero unless the Save below lands: the counts above are
 	// set the instant the in-memory mutations run, and phase 6's failure
 	// path must not credit a save that never happened.
 	var records recordCounts
-	if renamedAny || len(forgotten) > 0 || len(movedPaths) > 0 || len(reformatted) > 0 {
+	if renamedAny || activeChanged || len(forgotten) > 0 || len(movedPaths) > 0 || len(reformatted) > 0 {
 		if err := app.State.Save(); err != nil {
-			return commitResult{}, partialCommitError("save state for output changes", config.StatePath(app.Entry.ID), err,
+			return commitResult{}, partialCommitError("save state", config.StatePath(app.Entry.ID), err,
 				storedApplied, storedTotal, deletedApplied, deletedTotal, recordCounts{})
 		}
 		records = recordCounts{renamedRecords, len(forgotten), staleRecords}
@@ -332,7 +399,7 @@ func commitStaged(opts *Options, app *appContext, staged []session.Change) (comm
 		left.leftInPlace = append(left.leftInPlace, e.Worktree+"/"+e.Path)
 	}
 
-	// Phases 5a and 5b -- see applyManifestEdits.
+	// Phases 5a, 5b and 5c -- see applyManifestEdits.
 	applyManifestEdits(app.Manifest, staged)
 
 	// Phase 6: validate, then save the manifest.
@@ -390,6 +457,9 @@ func (e *invalidBatchError) Unwrap() error { return e.err }
 // it, so a batch the manifest refuses is refused before its first keyring
 // write rather than after (spec 2026-09-30 §3).
 func prevalidate(m *manifest.Manifest, staged []session.Change) error {
+	if err := useProfileCheck(m, staged); err != nil {
+		return &invalidBatchError{err}
+	}
 	c, err := m.Clone()
 	if err != nil {
 		return err
@@ -404,6 +474,25 @@ func prevalidate(m *manifest.Manifest, staged []session.Change) error {
 	}
 	if err := c.Validate(); err != nil {
 		return &invalidBatchError{err}
+	}
+	return nil
+}
+
+// useProfileCheck refuses a use-profile the state file could not safely
+// hold: phase 4 saves it before the manifest, so it may only name a
+// profile the manifest on disk already declares and this batch keeps.
+func useProfileCheck(m *manifest.Manifest, staged []session.Change) error {
+	removed := removedProfileNames(staged)
+	for _, c := range staged {
+		if c.Kind != session.ChangeUseProfile {
+			continue
+		}
+		if removed[c.Name] {
+			return fmt.Errorf("%s is removed in this batch; it can't also be this machine's active profile", c.Name)
+		}
+		if !slices.Contains(m.Project.Profiles, c.Name) {
+			return fmt.Errorf("save %s before using it on this machine: it is not in the manifest yet", c.Name)
+		}
 	}
 	return nil
 }
@@ -505,13 +594,18 @@ func applyAdditions(m *manifest.Manifest, staged []session.Change) {
 			if _, exists := m.Outputs[c.Name]; !exists {
 				m.Outputs[c.Name] = manifest.Output{Format: c.Format, Path: c.Path}
 			}
+		case session.ChangeAddProfile:
+			if !slices.Contains(m.Project.Profiles, c.Name) {
+				m.Project.Profiles = append(m.Project.Profiles, c.Name)
+			}
 		}
 	}
 }
 
-// applyManifestEdits is phases 5a and 5b (see commitStaged's doc): every
-// manifest mutation after the structural additions, removals included,
-// with rename-output's manifest half strictly last.
+// applyManifestEdits is phases 5a, 5b and 5c (see commitStaged's doc):
+// every manifest mutation after the structural additions, removals
+// included, with rename-output's manifest half and then profile removals
+// strictly last.
 func applyManifestEdits(m *manifest.Manifest, staged []session.Change) {
 	removedOutputNames := make(map[string]bool, len(staged))
 	for _, c := range staged {
@@ -623,6 +717,8 @@ func applyManifestEdits(m *manifest.Manifest, staged []session.Change) {
 				continue
 			}
 			m.Project.Output = c.Name
+		case session.ChangeDefaultProfile:
+			m.Project.DefaultProfile = c.Name
 		case session.ChangeSetOutputFormat, session.ChangeSetOutputPath:
 			// Keyed by identity, applied before 5b renames for the same
 			// reason set-globs is (see commitStaged's doc).
@@ -702,6 +798,27 @@ func applyManifestEdits(m *manifest.Manifest, staged []session.Change) {
 			m.Project.Output = c.Value
 		}
 	}
+
+	// Phase 5c: profile removals, after every other edit, so a set-value on
+	// the removed profile (staged by hand) leaves no override behind.
+	for _, c := range staged {
+		if c.Kind != session.ChangeRemoveProfile {
+			continue
+		}
+		kept := make([]string, 0, len(m.Project.Profiles))
+		for _, p := range m.Project.Profiles {
+			if p != c.Name {
+				kept = append(kept, p)
+			}
+		}
+		m.Project.Profiles = kept
+		for n, v := range m.Vars {
+			if _, ok := v.Profiles[c.Name]; ok {
+				delete(v.Profiles, c.Name)
+				m.Vars[n] = v
+			}
+		}
+	}
 }
 
 // deletedVarNames is every variable staged deletes.
@@ -709,6 +826,17 @@ func deletedVarNames(staged []session.Change) map[string]bool {
 	out := make(map[string]bool, len(staged))
 	for _, c := range staged {
 		if c.Kind == session.ChangeDeleteVar {
+			out[c.Name] = true
+		}
+	}
+	return out
+}
+
+// removedProfileNames is every profile staged removes.
+func removedProfileNames(staged []session.Change) map[string]bool {
+	out := map[string]bool{}
+	for _, c := range staged {
+		if c.Kind == session.ChangeRemoveProfile {
 			out[c.Name] = true
 		}
 	}

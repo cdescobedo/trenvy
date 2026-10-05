@@ -411,3 +411,16 @@ func TestCheckOutputPath(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckProfileName(t *testing.T) {
+	for _, ok := range []string{"dev", "prod-eu", "qa_2"} {
+		if err := manifest.CheckProfileName(ok); err != nil {
+			t.Errorf("CheckProfileName(%q) = %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"", "a b", "x/y", "é"} {
+		if err := manifest.CheckProfileName(bad); err == nil {
+			t.Errorf("CheckProfileName(%q) = nil, want a refusal", bad)
+		}
+	}
+}
