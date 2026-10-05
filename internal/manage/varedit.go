@@ -196,7 +196,8 @@ func (m *Model) beginPromote(name string) {
 	m.push(&confirmOverlay{
 		title: "Make " + name + " a secret",
 		text: fmt.Sprintf("%s becomes %s, one per declared profile -- changing one "+
-			"afterward will not change the others. There is no way back to plain.",
+			"afterward will not change the others. There is no way back inside the "+
+			"interface; trenvy secret demote does it from the command line.",
 			name, plural(len(m.snap.Matrix.Profiles), "separate keyring item")),
 		choices: []choice{{"enter", "promote", stage}},
 	})
@@ -210,7 +211,8 @@ func (m *Model) varMenu() overlay {
 		secret := menuItem{label: "Make secret", run: func(m *Model) tea.Cmd { m.beginPromote(name); return nil }}
 		switch {
 		case v.Var.Secret:
-			secret.disabled = name + " is already a secret -- there is no way back to plain"
+			secret.disabled = name + " is already a secret -- there is no way back inside the interface; " +
+				"trenvy secret demote does it from the command line"
 		case v.Deleted:
 			secret.disabled = name + " is marked for deletion"
 		}

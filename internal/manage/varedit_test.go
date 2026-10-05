@@ -176,6 +176,10 @@ func TestMakeSecretConfirmsWhenASharedValueExists(t *testing.T) {
 	if v := m.View(); !strings.Contains(v, "3 separate keyring items") {
 		t.Fatalf("no drift confirmation:\n%s", v)
 	}
+	// `trenvy secret demote` is the way back, outside the interface.
+	if v := m.View(); strings.Contains(v, "back to plain") || !strings.Contains(v, "demote") {
+		t.Errorf("the confirmation must name secret demote as the way back:\n%s", v)
+	}
 	m = press(m, "esc")
 	if len(m.Staged()) != 0 {
 		t.Errorf("esc staged something: %v", staged(m))
@@ -191,6 +195,9 @@ func TestMakeSecretIsDisabledOnASecret(t *testing.T) {
 	m := press(newModel(&fakeDeps{}), ".", "enter") // API_TOKEN
 	if len(m.Staged()) != 0 || !strings.Contains(m.View(), "already a secret") {
 		t.Errorf("staged %v, view:\n%s", staged(m), m.View())
+	}
+	if v := m.View(); strings.Contains(v, "back to plain") || !strings.Contains(v, "demote") {
+		t.Errorf("the reason must name secret demote as the way back:\n%s", v)
 	}
 }
 
