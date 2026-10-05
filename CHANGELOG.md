@@ -327,6 +327,10 @@ the command surface may still move under you.
   glob match, and is skipped entirely on a project with no outputs defined
   at all, where every variable is at zero by definition and repeating that
   fact once per variable would just be noise.
+- **Profiles in `trenvy ui`.** A third screen lists the project's profiles with
+  what each is missing; it adds a profile, makes one the default or this
+  machine's active profile, and removes one -- deleting its stored secrets
+  only after its name is typed in the save review.
 
 ### Changed
 

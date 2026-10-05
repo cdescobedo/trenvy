@@ -58,9 +58,12 @@ owns everything user-facing. `manage` is the interactive interface behind both
 the interface a `manage.Deps`. `manage` is the interface: a root shell (header,
 screen switch, message line, footer, a stack of overlays) with one file per
 screen. Variables is `variables.go` and `varedit.go`, Outputs is `outputs.go`,
-`outedit.go` and `outactions.go`, and the save review is `review.go`. The line
-editor (`lineedit.go`), the `.` menu and the key table (`keys.go`) are shared.
-Only two screens exist; a profile is still managed with `trenvy profile`.
+`outedit.go` and `outactions.go`, Profiles is `profiles.go` (the list and its
+detail) and `profedit.go` (add, remove, use, default and the `.` menu), and the
+save review is `review.go`. `typed.go` is the panel that asks for each removed
+profile's name before the review saves. The line editor (`lineedit.go`), the
+`.` menu and the key table (`keys.go`) are shared. `trenvy profile` remains the
+command-line way to do the same.
 
 `session` holds everything the interface needs that is not drawing: the staged
 set (`Staged`, with `Change`), `Problems` and the state words, the
@@ -302,7 +305,8 @@ rest untouched.
 
 The interface holds every edit — a shared or per-profile value, a secret's new
 value, a secret promotion, an added or removed variable, an added, renamed,
-defaulted, deleted, re-formatted, re-pathed or re-membered output — as a
+defaulted, deleted, re-formatted, re-pathed or re-membered output, an added,
+removed, defaulted or selected profile — as a
 `session.Change` in `session.Staged`, and applies none of them until the review's
 `enter`. `Staged` is a set, not a log: a change deciding the same thing as an
 earlier one replaces it, so the review lists what will happen rather than every
@@ -313,15 +317,20 @@ clone, so a batch the manifest refuses writes nothing at all -- and so does
 one that renames an output onto a held name, or leaves two outputs on one path
 (the rule `trenvy output add` enforces); then it runs six phases:
 
-1. **Structural additions.** A staged `add-var` or `add-output` inserts the
-   new entry before anything else runs, so a row this same session also
-   renames, sets a value on or removes has an entry to act on from the start.
+1. **Structural additions.** A staged `add-var`, `add-output` or `add-profile`
+   inserts the new entry before anything else runs, so a row this same session
+   also renames, sets a value on or removes has an entry to act on from the
+   start.
 2. **Keyring writes.** Every staged secret value lands in the keyring —
    `set-secret`'s own value, and the value or values *Make secret* moves
-   out of the manifest.
+   out of the manifest. A value on a profile the batch removes, or on a
+   variable it deletes, is skipped: nothing would name the item.
 3. **Keyring deletes.** A deleted variable's secret is removed under every
    declared profile, not only the one active in this session, built through
    `Cfg.Keyring.ServiceName(project, p, name)` for each profile `p` in turn.
+   A removed profile's secrets are removed the same way, for every secret
+   variable, with the list `trenvy profile rm` uses. An item both name is
+   deleted once, and one that was never stored is not counted as deleted.
 4. **The state file.** A staged output rename repoints its render records to
    the new name; a staged output removal or path edit forgets its render
    records in every worktree that ever rendered it, and the commit later names
@@ -329,14 +338,21 @@ one that renames an output onto a held name, or leaves two outputs on one path
    so the file in the old format reads `STALE` rather than fresh. All are
    saved to `state/<id>.toml` here, ahead of the manifest edit in phase 5 —
    the same state-before-manifest order `trenvy output rename` already uses
-   on its own.
+   on its own. The machine's active profile lives in the same file: removing
+   the selected profile clears it, and a staged use-profile sets it, after
+   the clear so "use q, remove p" leaves q. Because this save lands before
+   the manifest's, a use-profile may only name a profile the manifest on disk
+   already declares and the batch keeps; one naming an unsaved profile would
+   break every command if the manifest save then failed, so the batch is
+   refused before any write.
 5. **Every remaining manifest edit and removal.** Value edits, optional
    flags, secret promotions (flipping `Secret` and clearing `Value`/`Profiles`), output
    defaults, output format and path edits, output removals and glob changes
    are applied to the in-memory
    manifest. An output staged as both added and removed in the same session
    has no entry left after this phase, regardless of which the session did
-   first, because phase 1 already created it and this phase deletes it.
+   first, because phase 1 already created it and this phase deletes it. A
+   default-profile change is applied here too.
 
    Output renames are the one exception: they run in their own pass, strictly
    after every case above, never interleaved with them in staged order. Every
@@ -347,6 +363,11 @@ one that renames an output onto a held name, or leaves two outputs on one path
    processed early deletes the key a later lookup needs. Running renames last
    means every other output mutation always sees the row under its pre-rename
    identity, so staged order can no longer change the outcome.
+   Profile removals are the last pass of this phase (5c), after every other
+   edit, so a value staged by hand on a removed profile leaves no override
+   behind. A removal drops the profile from the manifest's list and from
+   every variable's overrides, with the edit `trenvy profile rm` makes
+   (`dropProfile`, `internal/cli/profile.go`).
 6. **Validate, then save.** `Manifest.Validate` runs before the manifest
    reaches disk; only a manifest that passes is written.
 

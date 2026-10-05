@@ -415,7 +415,7 @@ demote` outside the interface.
 ```console
 $ trenvy ui
  myapp · dev (default)                                                                ! 2 problems
- [ Variables ]  Outputs
+ [ Variables ]  Outputs  Profiles
 ╭───────────────────────╮╭─────────────────────────────────────────────────────────────────────────╮
 │> API_TOKEN    secret !││  API_TOKEN                                            secret · required │
 │  APP_MODE             ││                                                                         │
@@ -438,9 +438,8 @@ $ trenvy ui
   On the right, the problem count, and — once something is staged — the
   unsaved count with the key that reviews it. Each appears only when it is
   non-zero.
-- **Screens.** **Variables** and **Outputs**, switched with `1` and `2`, or
-  `tab` and `shift+tab`. Profiles are not a screen of this interface:
-  `trenvy profile` does that job from the command line.
+- **Screens.** **Variables**, **Outputs** and **Profiles**, switched with
+  `1`, `2` and `3`, or `tab` and `shift+tab`.
 - **Size.** It needs a terminal of at least 40 by 10; smaller, it says so and
   does not draw.
 - **Body.** A list on the left, the selected row's detail on the right. `→`
@@ -466,7 +465,7 @@ The detail shows what the variable is worth under **every** profile, and why:
 
 ```console
  myapp · dev (default)                                          ! 2 problems    3 unsaved  w review
- [ Variables ]  Outputs
+ [ Variables ]  Outputs  Profiles
 ╭───────────────────────╮╭─────────────────────────────────────────────────────────────────────────╮
 │  API_TOKEN    secret ~││  APP_MODE                                              plain · required │
 │· APP_MODE            ~││                                                                         │
@@ -520,7 +519,7 @@ first unless you pass `--yes`, and it refuses a variable that is not a secret.
 
 ```console
  myapp · dev (default)                                                                ! 3 problems
-  Variables  [ Outputs ]
+  Variables  [ Outputs ]  Profiles
 ╭──────────────────────────────╮╭──────────────────────────────────────────────────────────────────╮
 │  local default STALE        !││  web                                                        json │
 │> web           FOREIGN      !││                                                                  │
@@ -595,6 +594,67 @@ first -- they are not on disk yet*.
 A variable that reaches several outputs is not a problem. It shows on the
 variable's own `written to` line instead.
 
+### Profiles
+
+```console
+ myapp · dev (default)                                                                 ! 1 problem
+ Variables  Outputs  [ Profiles ]
+╭────────────────────────────╮╭────────────────────────────────────────────────────────────────────╮
+│  dev      default · active ││  staging                                                           │
+│> staging  1 missing       !││                                                                    │
+│  prod                      ││  overrides   0                                                     │
+│                            ││  secrets     0 of 1 stored                                         │
+│                            ││  missing     API_TOKEN                                             │
+│                            ││                                                                    │
+│                            ││                                                                    │
+│                            ││                                                                    │
+╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
+
+ enter open   d remove   a add   . more   ? keys
+```
+
+`3` opens it. The list is every profile in the manifest, in its order, with
+two tags: `default` is the manifest's default profile and `active` is this
+machine's selection (the one `trenvy profile use` saves). A profile with
+required variables that have no value carries a `!`, and reads `N missing`
+where it has no tag to show; `~` marks one with staged changes and `x` one
+marked for removal.
+
+The detail shows the profile's **overrides** (plain variables with a value of
+their own under it), its **secrets** stored out of the total, and the names
+still **missing**. A secret counts as stored when it is in the keyring, which
+the interface learns with `Has`, never by reading it. `→` or `enter` on a
+profile moves into the detail, and `enter` on a missing name opens it in
+Variables, on that profile's row.
+
+- `a` adds a profile by name. It is staged, and it gets its values in
+  Variables **after you save**: Variables lists the profiles on disk, so the
+  new one's detail says *new -- save, then give it values in Variables*.
+- `d` marks a profile for removal, and again keeps it. It is refused for the
+  last profile, for the default profile (make another the default first), for
+  the profile this session is on (use `trenvy -p <other> ui` to remove it),
+  and when removing it would leave a required plain variable with no value.
+  Values already staged on the profile's cells are dropped, with the count in
+  the message, and keeping the profile does not bring them back. On Variables
+  the profile's cells read `x removed` and cannot be edited, and *Make
+  secret* leaves it out.
+- Saving a removal **asks for the profile's name to be typed**, one profile at
+  a time, before anything is written; a wrong name keeps the panel open and
+  `esc` returns to the review. It then deletes the profile's stored keyring
+  items (only those that exist; the review lists them) and drops its
+  overrides from the manifest, as `trenvy profile rm` does. Removing the
+  profile this machine had selected clears the selection.
+- `.` offers:
+  - *Use on this machine* saves the selection to the state file, as `trenvy
+    profile use` does. It is disabled for a profile not saved yet. If the
+    session was opened with `--profile` or `$TRENVY_PROFILE`, those still
+    outrank the selection, so the message and the review line say so and the
+    header does not change after the save.
+  - *Make default* changes the manifest's `default_profile`.
+  - *Rename* is always disabled: a profile's name is part of every keyring
+    item stored under it, and renaming would mean moving each secret, which
+    is not supported.
+
 ### Saving
 
 Nothing reaches disk until you press `w`, and the review shows exactly what
@@ -602,7 +662,7 @@ would happen:
 
 ```console
  myapp · dev (default)                                          ! 2 problems    4 unsaved  w review
- [ Variables ]  Outputs
+ [ Variables ]  Outputs  Profiles
             ╭──────────────────────────────────────────────────────────────────────────╮
             │Review  4 changes                                                         │
             │                                                                          │
@@ -653,26 +713,26 @@ Press `?` for the list. It wraps rather than truncates:
 
 ```console
  myapp · dev (default)                                                                 ! 1 problem
- [ Variables ]  Outputs
+ [ Variables ]  Outputs  Profiles
             ╭──────────────────────────────────────────────────────────────────────────╮
             │Keys                                                                      │
             │                                                                          │
-            │↑↓  j k   move                                                            │
-            │←→  h l   switch pane                                                     │
-            │1 2  tab  switch screen (shift+tab goes back)                             │
-            │enter     the primary action on the selection                             │
-            │a         add                                                             │
-            │d         mark deleted, or remove a value (again to unmark)               │
-            │u         undo the staged change on the selection                         │
-            │v         reveal or hide the value under the cursor                       │
-            │/         filter by name                                                  │
-            │!         show only rows with problems                                    │
-            │.         more actions for the selection                                  │
-            │w         review and save                                                 │
-            │q         quit (asks first if anything is unsaved)                        │
-            │ctrl+c    quit now, writing nothing                                       │
-            │esc       close the panel on top                                          │
-            │?         this list                                                       │
+            │↑↓  j k     move                                                          │
+            │←→  h l     switch pane                                                   │
+            │1 2 3  tab  switch screen (shift+tab goes back)                           │
+            │enter       the primary action on the selection                           │
+            │a           add                                                           │
+            │d           mark deleted, or remove a value (again to unmark)             │
+            │u           undo the staged change on the selection                       │
+            │v           reveal or hide the value under the cursor                     │
+            │/           filter by name                                                │
+            │!           show only rows with problems                                  │
+            │.           more actions for the selection                                │
+            │w           review and save                                               │
+            │q           quit (asks first if anything is unsaved)                      │
+            │ctrl+c      quit now, writing nothing                                     │
+            │esc         close the panel on top                                        │
+            │?           this list                                                     │
             ╰──────────────────────────────────────────────────────────────────────────╯
  esc close
 ```
