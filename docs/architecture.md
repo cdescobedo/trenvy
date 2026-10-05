@@ -330,7 +330,9 @@ one that renames an output onto a held name, or leaves two outputs on one path
    `Cfg.Keyring.ServiceName(project, p, name)` for each profile `p` in turn.
    A removed profile's secrets are removed the same way, for every secret
    variable, with the list `trenvy profile rm` uses. An item both name is
-   deleted once, and one that was never stored is not counted as deleted.
+   deleted once. Only an item `Has` finds is deleted or counted, so a
+   partial failure's "deleted A of B" counts stored items alone, the same
+   items the review lists.
 4. **The state file.** A staged output rename repoints its render records to
    the new name; a staged output removal or path edit forgets its render
    records in every worktree that ever rendered it, and the commit later names

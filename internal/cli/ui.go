@@ -52,8 +52,9 @@ func newUiCmd(opts *Options) *cobra.Command {
 //  3. Keyring deletes, after every write -- phase 1's own rule, carried
 //     forward unchanged: delete-var's item under every profile, and
 //     remove-profile's item for every secret variable. An item both name
-//     is deleted once, and one never stored (ErrNotFound) is not counted
-//     as deleted.
+//     is deleted once. Only an item Has finds is deleted or counted, so
+//     "deleted A of B" counts stored items alone; one Has cannot answer
+//     for is still attempted, and ErrNotFound is not counted as deleted.
 //
 //  4. The state file: a staged rename repoints that output's render
 //     records (State.RenameOutput); a staged removal or path edit forgets
@@ -227,13 +228,27 @@ func commitStaged(opts *Options, app *appContext, staged []session.Change) (comm
 	// user reading this message is deciding what to do about their secrets
 	// right now, and a count that hides which kind of operation stalled
 	// gives back exactly what reporting partial progress was for.
-	storedTotal, deletedTotal := len(writes), len(deletes)
+	storedTotal, deletedTotal := 0, 0
 	storedApplied, deletedApplied := 0, 0
-	if storedTotal+deletedTotal > 0 {
+	if len(writes)+len(deletes) > 0 {
 		s, err := app.store()
 		if err != nil {
 			return commitResult{}, err
 		}
+		// Only an item Has finds is deleted, or counted in the total: a
+		// declared secret never stored under a profile is the ordinary
+		// case, and the review already lists only the stored ones. A Has
+		// that errors cannot say the item is absent, so its delete is still
+		// attempted. Presence only -- never Get.
+		present := deletes[:0]
+		for _, op := range deletes {
+			if ok, err := s.Has(op.service); err == nil && !ok {
+				continue
+			}
+			present = append(present, op)
+		}
+		deletes = present
+		storedTotal, deletedTotal = len(writes), len(deletes)
 		// Phase 2: keyring writes.
 		for _, op := range writes {
 			if err := s.Set(op.service, op.value); err != nil {
@@ -247,9 +262,8 @@ func commitStaged(opts *Options, app *appContext, staged []session.Change) (comm
 		for _, op := range deletes {
 			if err := s.Delete(op.service); err != nil {
 				if errors.Is(err, store.ErrNotFound) {
-					// A declared secret that was never actually stored under
-					// this profile is the ordinary case, not a failure, and
-					// must not inflate the applied count.
+					// Gone since Has looked, or Has could not tell: nothing
+					// to delete, and not counted as deleted.
 					continue
 				}
 				return commitResult{}, partialCommitError("delete", op.service, err,

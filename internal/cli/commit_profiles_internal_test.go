@@ -63,6 +63,56 @@ func TestCommitRemoveProfileDeletesOnlyItsStoredSecrets(t *testing.T) {
 	}
 }
 
+// Review Focus 1, on the failure path: the delete total counts only the
+// items Has finds, and an item it does not find is never deleted.
+func TestCommitDeleteTotalCountsOnlyStoredItems(t *testing.T) {
+	st := &failDelOnce{Mem: store.NewMem(), failOn: "trenvy/vpb/prod/TOKEN2"}
+	st.Seed("trenvy/vpb/prod/TOKEN2", "v")
+	opts, app := newCommitAppFrom(t, st, kindsManifest+"\n[vars.TOKEN2]\nsecret = true\n")
+	_, err := commitStaged(opts, app, []session.Change{{Kind: session.ChangeRemoveProfile, Name: "prod"}})
+	if err == nil {
+		t.Fatal("commit succeeded; the store was set to fail")
+	}
+	if !strings.Contains(err.Error(), "deleted 0 of 1 keyring items") {
+		t.Errorf("err = %v, want deleted 0 of 1", err)
+	}
+	for _, c := range st.Calls() {
+		if c == "Delete trenvy/vpb/prod/TOKEN" {
+			t.Errorf("an item Has did not find was deleted: %v", st.Calls())
+		}
+	}
+}
+
+// delete-var counts the same way: TOKEN is stored under prod only.
+func TestCommitDeleteVarTotalCountsOnlyStoredItems(t *testing.T) {
+	st := &failDelOnce{Mem: store.NewMem(), failOn: "trenvy/vpb/prod/TOKEN"}
+	st.Seed("trenvy/vpb/prod/TOKEN", "v")
+	opts, app := newCommitApp(t, st)
+	_, err := commitStaged(opts, app, []session.Change{{Kind: session.ChangeDeleteVar, Name: "TOKEN"}})
+	if err == nil || !strings.Contains(err.Error(), "deleted 0 of 1 keyring items") {
+		t.Errorf("err = %v, want deleted 0 of 1", err)
+	}
+}
+
+// hasFails answers every Has with an error.
+type hasFails struct{ *store.Mem }
+
+func (hasFails) Has(string) (bool, error) { return false, errors.New("keyring is locked") }
+
+// A Has that errors cannot say the item is absent, so the delete is
+// still attempted.
+func TestCommitDeletesAnItemWhoseHasErrors(t *testing.T) {
+	mem := store.NewMem()
+	mem.Seed("trenvy/vpb/prod/TOKEN", "v")
+	opts, app := newCommitApp(t, hasFails{mem})
+	if _, err := commitStaged(opts, app, []session.Change{{Kind: session.ChangeRemoveProfile, Name: "prod"}}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := mem.Has("trenvy/vpb/prod/TOKEN"); ok {
+		t.Error("prod's TOKEN survived; the delete was skipped when Has failed")
+	}
+}
+
 func TestCommitRemovingTheDefaultIsRefusedUnlessTheDefaultMoves(t *testing.T) {
 	opts, app := newCommitApp(t, store.NewMem())
 	_, err := commitStaged(opts, app, []session.Change{{Kind: session.ChangeRemoveProfile, Name: "dev"}})
