@@ -339,7 +339,7 @@ active selection instead of setting one.
 | `trenvy secret rm <NAME>` | Delete a secret's value from the keyring, keeping the variable |
 | `trenvy unset <NAME>` | Remove a variable from the manifest and its secret from every profile's keyring |
 | `trenvy edit` | Open the interactive interface (the same as trenvy ui) |
-| `trenvy ui` | Manage this project's variables and outputs, interactively |
+| `trenvy ui` | Manage this project's variables, outputs and profiles, interactively |
 
 Flags: `import` takes `--output <name>`, `--no-output`, `--no-tui` and
 `--force`; `set` takes `--shared`; `show` takes `--reveal` and `--format
@@ -415,7 +415,7 @@ demote` outside the interface.
 ```console
 $ trenvy ui
  myapp · dev (default)                                                                ! 2 problems
- [ Variables ]  Outputs  Profiles
+ [ Variables ]  Outputs   Profiles
 ╭───────────────────────╮╭─────────────────────────────────────────────────────────────────────────╮
 │> API_TOKEN    secret !││  API_TOKEN                                            secret · required │
 │  APP_MODE             ││                                                                         │
@@ -465,7 +465,7 @@ The detail shows what the variable is worth under **every** profile, and why:
 
 ```console
  myapp · dev (default)                                          ! 2 problems    3 unsaved  w review
- [ Variables ]  Outputs  Profiles
+ [ Variables ]  Outputs   Profiles
 ╭───────────────────────╮╭─────────────────────────────────────────────────────────────────────────╮
 │  API_TOKEN    secret ~││  APP_MODE                                              plain · required │
 │· APP_MODE            ~││                                                                         │
@@ -597,11 +597,11 @@ variable's own `written to` line instead.
 ### Profiles
 
 ```console
- myapp · dev (default)                                                                 ! 1 problem
- Variables  Outputs  [ Profiles ]
+ myapp · dev (active)                                                                  ! 1 problem
+  Variables   Outputs  [ Profiles ]
 ╭────────────────────────────╮╭────────────────────────────────────────────────────────────────────╮
-│  dev      default · active ││  staging                                                           │
-│> staging  1 missing       !││                                                                    │
+│  dev     default · active  ││  staging                                                           │
+│> staging 1 missing        !││                                                                    │
 │  prod                      ││  overrides   0                                                     │
 │                            ││  secrets     0 of 1 stored                                         │
 │                            ││  missing     API_TOKEN                                             │
@@ -623,9 +623,9 @@ marked for removal.
 The detail shows the profile's **overrides** (plain variables with a value of
 their own under it), its **secrets** stored out of the total, and the names
 still **missing**. A secret counts as stored when it is in the keyring, which
-the interface learns with `Has`, never by reading it. `→` or `enter` on a
-profile moves into the detail, and `enter` on a missing name opens it in
-Variables, on that profile's row.
+the interface learns with `Has`, never by reading it, or when a value for it
+is staged this session. `→` or `enter` on a profile moves into the detail,
+and `enter` on a missing name opens it in Variables, on that profile's row.
 
 - `a` adds a profile by name. It is staged, and it gets its values in
   Variables **after you save**: Variables lists the profiles on disk, so the
@@ -646,10 +646,11 @@ Variables, on that profile's row.
   profile this machine had selected clears the selection.
 - `.` offers:
   - *Use on this machine* saves the selection to the state file, as `trenvy
-    profile use` does. It is disabled for a profile not saved yet. If the
-    session was opened with `--profile` or `$TRENVY_PROFILE`, those still
-    outrank the selection, so the message and the review line say so and the
-    header does not change after the save.
+    profile use` does. It is disabled for a profile not saved yet, one
+    already active, and one marked for removal. If the session was opened with
+    `--profile` or `$TRENVY_PROFILE`, those still outrank the selection, so
+    the message and the review line say so and the header does not change
+    after the save.
   - *Make default* changes the manifest's `default_profile`.
   - *Rename* is always disabled: a profile's name is part of every keyring
     item stored under it, and renaming would mean moving each secret, which
@@ -662,7 +663,7 @@ would happen:
 
 ```console
  myapp · dev (default)                                          ! 2 problems    4 unsaved  w review
- [ Variables ]  Outputs  Profiles
+ [ Variables ]  Outputs   Profiles
             ╭──────────────────────────────────────────────────────────────────────────╮
             │Review  4 changes                                                         │
             │                                                                          │
@@ -713,7 +714,7 @@ Press `?` for the list. It wraps rather than truncates:
 
 ```console
  myapp · dev (default)                                                                 ! 1 problem
- [ Variables ]  Outputs  Profiles
+ [ Variables ]  Outputs   Profiles
             ╭──────────────────────────────────────────────────────────────────────────╮
             │Keys                                                                      │
             │                                                                          │
