@@ -41,12 +41,12 @@ func (m *Model) reviewLines() []reviewLine {
 	for i := range idx {
 		idx[i] = i
 	}
-	// Variables, then outputs, each by name. A variable and an output may
-	// share a name, so the kind is the first key.
+	// Variables, then outputs, then profiles, each by name. A variable, an
+	// output and a profile may share a name, so the kind is the first key.
 	sort.SliceStable(idx, func(a, b int) bool {
 		ca, cb := all[idx[a]], all[idx[b]]
-		if oa, ob := isOutputChange(ca), isOutputChange(cb); oa != ob {
-			return ob
+		if ra, rb := groupRank(ca), groupRank(cb); ra != rb {
+			return ra < rb
 		}
 		return ca.Name < cb.Name
 	})
@@ -55,6 +55,24 @@ func (m *Model) reviewLines() []reviewLine {
 		out = append(out, m.describe(i, all[i]))
 	}
 	return out
+}
+
+func groupRank(c session.Change) int {
+	switch {
+	case isOutputChange(c):
+		return 1
+	case isProfileChange(c):
+		return 2
+	}
+	return 0
+}
+
+func isProfileChange(c session.Change) bool {
+	switch c.Kind {
+	case session.ChangeAddProfile, session.ChangeRemoveProfile, session.ChangeDefaultProfile, session.ChangeUseProfile:
+		return true
+	}
+	return false
 }
 
 func isOutputChange(c session.Change) bool {
@@ -76,6 +94,9 @@ func valueOr(p *string, none string) string {
 func (m *Model) describe(i int, c session.Change) reviewLine {
 	if isOutputChange(c) {
 		return m.describeOutput(i, c)
+	}
+	if isProfileChange(c) {
+		return m.describeProfile(i, c)
 	}
 	l := reviewLine{index: i, group: c.Name, mark: "~"}
 	base := m.snap.Matrix.Vars[c.Name]
@@ -129,6 +150,56 @@ func (m *Model) describe(i int, c session.Change) reviewLine {
 		}
 	default:
 		l.what = c.Kind
+	}
+	return l
+}
+
+// describeProfile words a profile change before -> after. A removal counts
+// only the secrets the snapshot shows stored (Has presence) under it.
+func (m *Model) describeProfile(i int, c session.Change) reviewLine {
+	l := reviewLine{index: i, group: "profile " + c.Name, mark: "~"}
+	switch c.Kind {
+	case session.ChangeAddProfile:
+		l.mark, l.what, l.detail = "+", "add profile", "(none)  ->  new, no values yet"
+	case session.ChangeDefaultProfile:
+		l.what, l.detail = "make default", m.snap.DefaultProfile+"  ->  "+c.Name
+	case session.ChangeUseProfile:
+		from := m.snap.Active
+		if from == "" {
+			from = "none"
+		}
+		l.what, l.detail = "use on this machine", from+"  ->  "+c.Name
+		if o := m.outranked(); o != "" {
+			l.detail += "; this session's " + o + " still outranks it"
+		}
+	case session.ChangeRemoveProfile:
+		l.mark, l.what, l.irreversible = "x", "remove profile", true
+		var stored []string
+		overrides := 0
+		for _, n := range m.snap.Matrix.Names {
+			v := m.snap.Matrix.Vars[n]
+			if v.Secret && m.snap.Matrix.Stored[n][c.Name] {
+				stored = append(stored, n)
+			}
+			if _, ok := v.Profiles[c.Name]; ok && !v.Secret {
+				overrides++
+			}
+		}
+		if len(stored) == 0 {
+			l.detail = "no keyring items stored under it"
+		} else {
+			l.detail = "removes " + plural(len(stored), "keyring item") + ": " + strings.Join(stored, ", ")
+		}
+		if overrides > 0 {
+			verb := " leave"
+			if overrides == 1 {
+				verb = " leaves"
+			}
+			l.detail += "; its " + plural(overrides, "override") + verb + " the manifest"
+		}
+		if m.snap.Active == c.Name {
+			l.detail += "; clears this machine's active selection"
+		}
 	}
 	return l
 }
@@ -287,8 +358,17 @@ func (r *reviewOverlay) update(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
 			m.msg = message{"can't save: the last reload failed -- esc, then . and Reload from disk", true}
 			return false, nil
 		}
-		m.saving, r.failure, r.refused = true, "", false
-		return false, m.commitCmd()
+		var removed []string
+		for _, c := range m.staged.All() {
+			if c.Kind == session.ChangeRemoveProfile {
+				removed = append(removed, c.Name)
+			}
+		}
+		if len(removed) > 0 {
+			m.push(&typedOverlay{names: removed, f: newField("", false)})
+			return false, nil
+		}
+		return false, m.startSave()
 	}
 	return false, nil
 }
@@ -429,6 +509,16 @@ func (r *reviewOverlay) hints(m *Model) []hint {
 		return []hint{{"ctrl+c", "quit now"}}
 	}
 	return []hint{{"enter", "save all"}, {"u", "drop this change"}, {"esc", "keep editing"}}
+}
+
+// startSave begins a commit of everything staged. The review and the typed
+// confirmation both start it.
+func (m *Model) startSave() tea.Cmd {
+	if r := m.review(); r != nil {
+		r.failure, r.refused = "", false
+	}
+	m.saving = true
+	return m.commitCmd()
 }
 
 func (m *Model) commitCmd() tea.Cmd {

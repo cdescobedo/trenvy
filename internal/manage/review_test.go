@@ -457,3 +457,68 @@ func TestReviewSaysWhatFormatAndPathEditsDoToTheRenderedFile(t *testing.T) {
 		t.Errorf("the review says a file web never rendered stays on disk:\n%s", v)
 	}
 }
+
+// collapsed collapses the panel's borders and wrapping so a phrase split across
+// lines can still be asserted whole.
+func collapsed(v string) string {
+	return strings.Join(strings.Fields(strings.ReplaceAll(v, "│", " ")), " ")
+}
+
+func TestReviewGroupsVariablesOutputsThenProfiles(t *testing.T) {
+	m := press(newModel(&fakeDeps{}), "3", "j", "j", ".", "j", "enter") // prod default
+	m = press(m, "2", "j", ".", "enter")                                // web default output
+	m = press(m, "1", "d")                                              // delete API_TOKEN
+	v := press(m, "w").View()
+	iv, io, ip := strings.Index(v, "API_TOKEN"), strings.Index(v, "output web"), strings.Index(v, "profile prod")
+	if iv < 0 || io < 0 || ip < 0 || !(iv < io && io < ip) {
+		t.Errorf("order: variable %d, output %d, profile %d; want ascending:\n%s", iv, io, ip, v)
+	}
+}
+
+// Review Focus 1: staging has no stored item, prod has API_TOKEN.
+func TestReviewCountsOnlyStoredItemsForARemovedProfile(t *testing.T) {
+	v := collapsed(press(newModel(&fakeDeps{}), "3", "j", "d", "w").View())
+	if !strings.Contains(v, "no keyring items stored under it") || !strings.Contains(v, "cannot be undone") {
+		t.Errorf("staging removal line:\n%s", v)
+	}
+	v = collapsed(press(newModel(&fakeDeps{}), "3", "j", "j", "d", "w").View())
+	if !strings.Contains(v, "removes 1 keyring item: API_TOKEN") || !strings.Contains(v, "its 1 override leaves the manifest") {
+		t.Errorf("prod removal line:\n%s", v)
+	}
+}
+
+func TestReviewUseLineSaysWhenOutranked(t *testing.T) {
+	snap := fixture()
+	snap.Source = "TRENVY_PROFILE"
+	m := press(sized(manage.New(snap, (&fakeDeps{}).deps(), noTheme()), 100, 30), "3", "j", "j", ".", "enter", "w")
+	if v := collapsed(m.View()); !strings.Contains(v, "none -> prod") || !strings.Contains(v, "TRENVY_PROFILE still outranks it") {
+		t.Errorf("use line:\n%s", v)
+	}
+}
+
+func TestRemovingAProfileNeedsItsNameTyped(t *testing.T) {
+	f := &fakeDeps{}
+	m := press(newModel(f), "3", "j", "d", "w", "enter")
+	if len(f.commits) != 0 || !strings.Contains(collapsed(m.View()), "Type staging") {
+		t.Fatalf("enter should ask for the name first:\n%s", m.View())
+	}
+	m = press(typeText(m, "stag"), "enter")
+	if len(f.commits) != 0 || !strings.Contains(collapsed(m.View()), "type staging exactly") {
+		t.Fatalf("a wrong name must not save:\n%s", m.View())
+	}
+	m = press(typeText(press(m, "ctrl+u"), "staging"), "enter")
+	if len(f.commits) != 1 {
+		t.Fatalf("commits = %d after the right name, want 1", len(f.commits))
+	}
+	if strings.Contains(m.View(), "Review") {
+		t.Errorf("the review should close once the save lands:\n%s", m.View())
+	}
+}
+
+func TestEscFromTheTypedConfirmationWritesNothing(t *testing.T) {
+	f := &fakeDeps{}
+	m := press(newModel(f), "3", "j", "d", "w", "enter", "esc")
+	if len(f.commits) != 0 || !strings.Contains(m.View(), "Review") {
+		t.Errorf("esc should return to the review with nothing written:\n%s", m.View())
+	}
+}
