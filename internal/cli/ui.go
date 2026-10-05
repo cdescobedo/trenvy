@@ -310,19 +310,17 @@ func commitStaged(opts *Options, app *appContext, staged []session.Change) (comm
 			renamedAny = true
 		}
 	}
-	// stateSaved records whether the Save below runs (and, since it returns
-	// on error, lands) -- distinct from the record counts above, which are
-	// set the instant the in-memory mutations run, whether or not Save ever
-	// gets called. Phase 6's failure path below must not credit a save
-	// that never happened.
-	stateSaved := renamedAny || len(forgotten) > 0 || len(movedPaths) > 0 || len(reformatted) > 0
-	if stateSaved {
+	// records stays zero unless the Save below lands: the counts above are
+	// set the instant the in-memory mutations run, and phase 6's failure
+	// path must not credit a save that never happened.
+	var records recordCounts
+	if renamedAny || len(forgotten) > 0 || len(movedPaths) > 0 || len(reformatted) > 0 {
 		if err := app.State.Save(); err != nil {
 			return commitResult{}, partialCommitError("save state for output changes", config.StatePath(app.Entry.ID), err,
 				storedApplied, storedTotal, deletedApplied, deletedTotal, recordCounts{})
 		}
+		records = recordCounts{renamedRecords, len(forgotten), staleRecords}
 	}
-	records := recordCounts{renamedRecords, len(forgotten), staleRecords}
 
 	// Naming the file, not just the removed output: matches `trenvy output
 	// rm --force`'s own "left in place: %s/%s" verbatim, because a user who
