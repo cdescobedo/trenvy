@@ -201,20 +201,50 @@ func (m Model) profilesHints() []hint {
 }
 
 const (
-	profNoteW = 16 // "default · active"
-	// profChrome is a list row less its name: two borders, the cursor
-	// column and a space, a space, the note, a space and the mark.
-	profChrome  = 2 + 2 + 1 + profNoteW + 1 + 1
-	profListMin = 28
+	profNoteMin = 16 // "default · active"
+	// profChromeFixed is a list row less its name and note: two borders,
+	// the cursor column and a space, a space and the mark.
+	profChromeFixed = 2 + 2 + 1 + 1 + 1
+	profListMin     = 28
+	// profListMax holds a 7-character name and the widest realistic note,
+	// "default · active · 12 missing" (29 cells).
 	profListMax = 48
 )
+
+// profNote is p's note: its tags, then how many variables it misses. The
+// missing count is never dropped for a tag or a staged mark.
+func (m Model) profNote(p string) (tags, missing string) {
+	v := m.profView(p)
+	tags = strings.Join(profTags(v), " · ")
+	if n := len(m.missingFor(p)); n > 0 && !v.Added {
+		missing = fmt.Sprintf("%d missing", n)
+	}
+	return tags, missing
+}
+
+func joinNote(tags, missing string) string {
+	if tags != "" && missing != "" {
+		return tags + " · " + missing
+	}
+	return tags + missing
+}
+
+// profNoteW is the note column's width: the widest note, at least
+// profNoteMin.
+func (m Model) profNoteW() int {
+	w := profNoteMin
+	for _, p := range m.profileIDs() {
+		w = max(w, lipgloss.Width(joinNote(m.profNote(p))))
+	}
+	return w
+}
 
 func (m Model) profListWidth() int {
 	longest := 0
 	for _, p := range m.profileIDs() {
 		longest = max(longest, lipgloss.Width(p))
 	}
-	return clamp(longest+profChrome, profListMin, profListMax)
+	return clamp(longest+profChromeFixed+m.profNoteW(), profListMin, profListMax)
 }
 
 func (m Model) viewProfiles(w, h int) string {
@@ -233,7 +263,8 @@ func (m Model) viewProfiles(w, h int) string {
 func (m Model) profListBody(inner, height int) string {
 	t := m.th
 	ids := m.profileIDs()
-	nameW := max(4, inner-(profChrome-2))
+	noteW := m.profNoteW()
+	nameW := max(4, inner-(profChromeFixed-2)-noteW)
 	cur := t.Accent.Render(">")
 	if m.profs.pane != paneList {
 		cur = t.Muted.Render("·")
@@ -243,10 +274,15 @@ func (m Model) profListBody(inner, height int) string {
 	for i, p := range ids {
 		v := m.profView(p)
 		missing := len(m.missingFor(p))
-		note, noteSt := strings.Join(profTags(v), " · "), t.Muted
-		if note == "" && missing > 0 && !v.Added {
-			note, noteSt = fmt.Sprintf("%d missing", missing), t.Danger
+		tags, miss := m.profNote(p)
+		note := t.Muted.Render(tags)
+		if miss != "" {
+			if tags != "" {
+				note += t.Muted.Render(" · ")
+			}
+			note += t.Danger.Render(miss)
 		}
+		note += strings.Repeat(" ", max(0, noteW-lipgloss.Width(joinNote(tags, miss))))
 		mark, markSt := " ", t.Text
 		switch {
 		case v.Removed:
@@ -258,10 +294,10 @@ func (m Model) profListBody(inner, height int) string {
 		}
 		name := pad(cutTo(display(p), nameW), nameW)
 		if i == cursor {
-			lines = append(lines, cur+t.Selected.Render(" "+name+" ")+noteSt.Render(pad(note, profNoteW))+" "+markSt.Render(mark))
+			lines = append(lines, cur+t.Selected.Render(" "+name+" ")+note+" "+markSt.Render(mark))
 			continue
 		}
-		lines = append(lines, "  "+t.Text.Render(name)+" "+noteSt.Render(pad(note, profNoteW))+" "+markSt.Render(mark))
+		lines = append(lines, "  "+t.Text.Render(name)+" "+note+" "+markSt.Render(mark))
 	}
 	return strings.Join(window(lines, cursor, height), "\n")
 }

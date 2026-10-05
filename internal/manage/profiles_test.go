@@ -100,7 +100,7 @@ func TestProfilesLayoutNeverExceedsTheTerminal(t *testing.T) {
 			// cannot see a lost mark: the long name is whole or cut with
 			// …, and its note and ! survive inside the border.
 			if len(keys) == 1 {
-				row := lineWith(t, v, "a-very-long-prof")
+				row := lineWith(t, v, "a-very-long-")
 				whole := strings.Contains(row, "a-very-long-profile-name-for-layout-checks")
 				if !whole && !strings.Contains(row, "…") || !regexp.MustCompile(`31 missing +!│`).MatchString(row) {
 					t.Errorf("w=%d: long row = %q, want the name whole or cut with …, then 31 missing and !", w, row)
@@ -118,5 +118,60 @@ func TestReloadKeepsTheProfilesCursor(t *testing.T) {
 	}
 	if !strings.Contains(m.View(), "> prod") {
 		t.Errorf("the cursor left prod after the reload:\n%s", m.View())
+	}
+}
+
+// A profile's missing count rides beside its tags and its staged mark: the
+// list never hides it.
+func TestProfilesNoteShowsMissingBesideTags(t *testing.T) {
+	snap := fixture()
+	snap.Active = "staging"
+	m := press(sized(manage.New(snap, (&fakeDeps{}).deps(), noTheme()), 100, 30), "3")
+	if row := lineWith(t, m.View(), "staging"); !strings.Contains(row, "active · 1 missing") {
+		t.Errorf("staging row = %q, want active · 1 missing", row)
+	}
+}
+
+func TestStagedUseStillShowsTheMissingCount(t *testing.T) {
+	m := press(newModel(&fakeDeps{}), "3", "j", ".", "enter") // Use on this machine on staging
+	row := lineWith(t, m.View(), "> staging")
+	if !strings.Contains(row, "1 missing") || !strings.Contains(row, "~") {
+		t.Errorf("staging row = %q, want 1 missing and ~", row)
+	}
+}
+
+func TestDefaultProfileShowsItsMissingCount(t *testing.T) {
+	snap := snapshotOf(fixtureManifest(), map[string]map[string]bool{"API_TOKEN": {"prod": true}})
+	m := press(sized(manage.New(snap, (&fakeDeps{}).deps(), noTheme()), 100, 30), "3")
+	if row := lineWith(t, m.View(), "> dev"); !strings.Contains(row, "default · 1 missing") {
+		t.Errorf("dev row = %q, want default · 1 missing", row)
+	}
+}
+
+func TestProfilesNoteIsNeverCut(t *testing.T) {
+	mf := fixtureManifest()
+	mf.Project.Profiles = []string{"devprod", "other"}
+	mf.Project.DefaultProfile = "devprod"
+	mf.Vars = map[string]manifest.Var{}
+	for i := 0; i < 12; i++ {
+		mf.Vars["SECRET_"+string(rune('A'+i))] = manifest.Var{Secret: true}
+	}
+	snap := snapshotOf(mf, nil)
+	snap.Profile, snap.Active = "devprod", "devprod"
+	for _, w := range []int{40, 60, 80, 100} {
+		v := press(sized(manage.New(snap, (&fakeDeps{}).deps(), noTheme()), w, 24), "3").View()
+		var row string
+		for _, l := range strings.Split(v, "\n") {
+			if strings.Contains(l, "│> ") {
+				row = l
+			}
+			if lw := lipgloss.Width(l); lw > w {
+				t.Errorf("w=%d: line is %d wide: %q", w, lw, l)
+			}
+		}
+		list, _, _ := strings.Cut(row, "││")
+		if !strings.Contains(list, "default · active · 12 missing") {
+			t.Errorf("w=%d: list row = %q, want the full note", w, list)
+		}
 	}
 }
