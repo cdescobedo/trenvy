@@ -131,9 +131,18 @@ func (m *Model) moveProfile(d int) {
 	m.profs.at = ""
 }
 
-// profilesKey is the Profiles screen's keys. Task 4 adds the staging keys.
+// profilesKey is the Profiles screen's keys.
 func (m Model) profilesKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if _, ok := m.selectedProfile(); !ok {
+	switch {
+	case keyIs(k, "a"):
+		m.beginAddProfile()
+		return m, nil
+	case keyIs(k, "."):
+		m.push(m.profMenu())
+		return m, nil
+	}
+	p, ok := m.selectedProfile()
+	if !ok {
 		return m, nil
 	}
 	if m.profs.pane == paneList {
@@ -144,10 +153,14 @@ func (m Model) profilesKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.moveProfile(-1)
 		case keyIs(k, "l", "right", "enter"):
 			m.profs.pane, m.profs.at = paneDetail, ""
+		case keyIs(k, "d"):
+			m.toggleRemoveProfile(p)
+		case keyIs(k, "u"):
+			m.undoProfile(p)
 		}
 		return m, nil
 	}
-	rows := m.profRows(m.profileIDs()[clamp(m.profs.cursor, 0, len(m.profileIDs())-1)])
+	rows := m.profRows(p)
 	switch {
 	case keyIs(k, "j", "down") && len(rows) > 0:
 		m.profs.at = rows[min(m.profRowIndex(rows)+1, len(rows)-1)]
@@ -155,15 +168,34 @@ func (m Model) profilesKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.profs.at = rows[max(m.profRowIndex(rows)-1, 0)]
 	case keyIs(k, "h", "left", "esc"):
 		m.profs.pane = paneList
+	case keyIs(k, "enter") && len(rows) > 0:
+		m.jumpToCell(strings.TrimPrefix(rows[m.profRowIndex(rows)], "miss:"), p)
 	}
 	return m, nil
 }
 
 func (m Model) profilesHints() []hint {
-	if m.profs.pane == paneList {
-		return []hint{{"enter", "open"}}
+	p, ok := m.selectedProfile()
+	if !ok {
+		return []hint{{"a", "add"}}
 	}
-	return []hint{{"←", "back"}}
+	if m.profs.pane == paneList {
+		hs := []hint{{"enter", "open"}}
+		if m.profView(p).Removed {
+			hs = append(hs, hint{"d", "keep"})
+		} else {
+			hs = append(hs, hint{"d", "remove"})
+		}
+		if len(m.staged.OnProfile(p)) > 0 {
+			hs = append(hs, hint{"u", "undo"})
+		}
+		return append(hs, hint{"a", "add"}, hint{".", "more"})
+	}
+	var hs []hint
+	if len(m.profRows(p)) > 0 {
+		hs = append(hs, hint{"enter", "jump"})
+	}
+	return append(hs, hint{"←", "back"}, hint{".", "more"})
 }
 
 const (
