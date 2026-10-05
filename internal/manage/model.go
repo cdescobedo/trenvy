@@ -28,6 +28,8 @@ type Snapshot struct {
 	Problems                        []session.Problem
 	OutputsFor                      map[string][]string // variable -> outputs selecting it
 	OutputPaths                     map[string]string   // output -> its path
+	OutputStates                    map[string]string   // output -> a session.State* word (quick mode)
+	DefaultOutput                   string              // project.output on disk
 	Projects                        []string            // every registered project id
 }
 
@@ -81,7 +83,9 @@ type Model struct {
 	width, height int
 
 	staged   session.Staged
+	scr      screen
 	vars     variables
+	outs     outputs
 	overlays []overlay
 	msg      message
 
@@ -101,7 +105,7 @@ type Model struct {
 }
 
 func New(snap Snapshot, deps Deps, th style.Theme) Model {
-	return Model{th: th, deps: deps, snap: snap, vars: newVariables()}
+	return Model{th: th, deps: deps, snap: snap, vars: newVariables(), outs: newOutputs()}
 }
 
 func (m Model) Init() tea.Cmd { return nil }
@@ -205,7 +209,10 @@ func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyIs(k, "w"):
 		return m.openReview()
 	}
-	return m.variablesKey(k)
+	if m.switchScreen(k) {
+		return m, nil
+	}
+	return m.screenKey(k)
 }
 
 // quitConfirm is q with unsaved changes (spec §3).
@@ -241,7 +248,7 @@ func (m Model) View() string {
 	}
 	msg := m.messageLines(w)
 	bodyH := m.bodyHeight()
-	body := m.viewVariables(w, bodyH)
+	body := m.screenView(w, bodyH)
 	if top := m.top(); top != nil {
 		// An overlay that draws nothing (the filter) leaves the body visible.
 		if o := top.view(&m, w, bodyH); o != "" {
@@ -306,10 +313,6 @@ func (m Model) headerLeft(avail int) string {
 	return left
 }
 
-func (m Model) viewTabs(w int) string {
-	return lipgloss.NewStyle().MaxWidth(w).Render(" " + m.th.TabActive.Render("Variables"))
-}
-
 // messageLines is the message, wrapped rather than cut so its end -- often
 // the way to undo or recover -- survives. Past maxMessageLines the last line
 // is cut, ending in ….
@@ -333,7 +336,7 @@ func (m Model) footerHints() []hint {
 	if top := m.top(); top != nil {
 		return top.hints(&m)
 	}
-	return footer(m.variablesHints())
+	return footer(m.screenHints())
 }
 
 func (m Model) viewFooter(w int) string {

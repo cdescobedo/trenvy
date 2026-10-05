@@ -231,3 +231,30 @@ func TestUiNewOpensWithHasAndRevealsWithOneGet(t *testing.T) {
 		t.Errorf("the revealed value is not on screen:\n%s", view)
 	}
 }
+
+// The Outputs screen's state word and default tag come from the snapshot
+// buildSnapshot fills: the quick-mode state `trenvy status` prints, and
+// project.output from disk.
+func TestUiNewOutputsShowsDiskStateAndDefault(t *testing.T) {
+	h := newHarness(t)
+	h.register("vpb", fixtureManifest(t)) // output docker, the default, never rendered
+	var view string
+	h.opts.RunManage = func(m manage.Model) (manage.Model, error) {
+		m = drive(m, r("2"))
+		view = m.View()
+		return m, nil
+	}
+	if err := h.run("ui", "--new"); err != nil {
+		t.Fatal(err)
+	}
+	var row string
+	for _, l := range strings.Split(view, "\n") {
+		if strings.Contains(l, "docker") {
+			row = l
+			break
+		}
+	}
+	if !strings.Contains(row, "default") || !strings.Contains(row, "not rendered") {
+		t.Errorf("docker row = %q, want default and not rendered:\n%s", row, view)
+	}
+}

@@ -18,11 +18,12 @@ func footer(hs []hint) []hint {
 }
 
 // verbs is the ? overlay's list: the fixed verbs, the same on every screen
-// (spec §1). Phase 1 has one screen, so screen switching is not listed
-// until phase 2 adds a second -- a key that does nothing is not a hint.
+// (spec §1). Only built screens are switched to, so 3 is not listed until
+// phase 3 adds Profiles -- a key that does nothing is not a hint.
 var verbs = []hint{
 	{"↑↓  j k", "move"},
 	{"←→  h l", "switch pane"},
+	{"1 2  tab", "switch screen"},
 	{"enter", "the primary action on the selection"},
 	{"a", "add"},
 	{"d", "mark deleted, or remove a value (again to unmark)"},

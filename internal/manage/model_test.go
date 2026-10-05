@@ -21,11 +21,11 @@ func TestHeaderNamesProjectProfileAndSource(t *testing.T) {
 	}
 }
 
-// Spec §1: Overview is gone; phase 1 has one screen, and the tab row
-// claims no screen that does not exist yet.
+// Spec §1: Overview is gone, and the tab row claims no screen that does
+// not exist yet: Profiles arrives with phase 3.
 func TestTabRowShowsOnlyBuiltScreens(t *testing.T) {
 	second := strings.Split(newModel(&fakeDeps{}).View(), "\n")[1]
-	if !strings.Contains(second, "Variables") || strings.Contains(second, "Overview") || strings.Contains(second, "Outputs") {
+	if !strings.Contains(second, "Variables") || strings.Contains(second, "Overview") || strings.Contains(second, "Profiles") {
 		t.Errorf("tab row = %q", second)
 	}
 }

@@ -357,9 +357,10 @@ func (m Model) afterCommit(msg committedMsg) (tea.Model, tea.Cmd) {
 	return m, m.reloadCmd()
 }
 
-// afterReload swaps in a fresh snapshot, keeping the cursor on the same
-// variable. Revealed values are dropped: a reload is a new view of disk,
-// and a secret shown before it must be asked for again.
+// afterReload swaps in a fresh snapshot, keeping each screen's cursor on
+// the same variable and output. Revealed values are dropped: a reload is a
+// new view of disk, and a secret shown before it must be asked for again.
+// Check now results go with them, since they described the old snapshot.
 func (m Model) afterReload(msg reloadedMsg) (tea.Model, tea.Cmd) {
 	m.reloading = false
 	m.gen++
@@ -378,9 +379,14 @@ func (m Model) afterReload(msg reloadedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	keep, _ := m.selected()
+	keepOut, _ := m.selectedOutput()
 	m.stale, m.snap = false, msg.snap
 	if keep != "" {
 		m.selectName(keep)
 	}
+	if keepOut != "" {
+		m.selectOutput(keepOut)
+	}
+	m.outs.checked = map[string]string{}
 	return m, nil
 }

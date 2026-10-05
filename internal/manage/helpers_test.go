@@ -101,18 +101,23 @@ func (f *fakeDeps) deps() manage.Deps {
 
 // fixture: three profiles; APP_MODE shared plus a prod override; API_TOKEN
 // secret stored under dev and prod only (one problem: staging); DATABASE_URL
-// shared; LOG_LEVEL optional with a shared value. Sorted names:
-// API_TOKEN, APP_MODE, DATABASE_URL, LOG_LEVEL.
+// shared; LOG_LEVEL optional with a shared value; PUBLIC_URL shared. Sorted
+// names: API_TOKEN, APP_MODE, DATABASE_URL, LOG_LEVEL, PUBLIC_URL. Two
+// outputs: local (the default, everything) and web (only PUBLIC_*).
 func fixtureManifest() *manifest.Manifest {
 	return &manifest.Manifest{
-		Project: manifest.Project{ID: "app", Profiles: []string{"dev", "staging", "prod"}, DefaultProfile: "dev"},
+		Project: manifest.Project{ID: "app", Profiles: []string{"dev", "staging", "prod"}, DefaultProfile: "dev", Output: "local"},
 		Vars: map[string]manifest.Var{
 			"API_TOKEN":    {Secret: true},
 			"APP_MODE":     {Value: str("development"), Profiles: map[string]string{"prod": "production"}},
 			"DATABASE_URL": {Value: str("postgres://localhost:5432/app")},
 			"LOG_LEVEL":    {Value: str("info"), Optional: true},
+			"PUBLIC_URL":   {Value: str("http://localhost:3000")},
 		},
-		Outputs: map[string]manifest.Output{"local": {Format: manifest.FormatDotenv, Path: ".env"}},
+		Outputs: map[string]manifest.Output{
+			"local": {Format: manifest.FormatDotenv, Path: ".env"},
+			"web":   {Format: manifest.FormatJSON, Path: "web.json", Include: []string{"PUBLIC_*"}},
+		},
 	}
 }
 
@@ -122,7 +127,9 @@ func snapshotOf(m *manifest.Manifest, stored map[string]map[string]bool) manage.
 		Project: "app", Profile: "dev", Source: "default",
 		ManifestPath: "/cfg/projects/app.toml", Worktree: "/code/app", Backend: "file",
 		Matrix: mx, Problems: session.Problems(mx, nil), OutputsFor: session.OutputsFor(mx),
-		OutputPaths: map[string]string{"local": ".env"}, Projects: []string{"app", "other"},
+		OutputPaths:   map[string]string{"local": ".env", "web": "web.json"},
+		OutputStates:  map[string]string{"local": session.StateFresh, "web": session.StateAbsent},
+		DefaultOutput: "local", Projects: []string{"app", "other"},
 	}
 }
 
@@ -139,3 +146,7 @@ func newModel(f *fakeDeps) manage.Model {
 }
 
 type manageModel = manage.Model
+
+// noTheme is the zero Theme: every role renders plain text, so a test can
+// assert on words alone (every state reads without colour).
+func noTheme() style.Theme { return style.Theme{} }

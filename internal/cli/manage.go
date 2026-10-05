@@ -149,16 +149,18 @@ func buildSnapshot(opts *Options, app *appContext, projects []string) (manage.Sn
 		paths[name] = o.Path
 	}
 	return manage.Snapshot{
-		Project:      app.Entry.ID,
-		Profile:      app.Profile.Name,
-		Source:       app.Profile.Source,
-		ManifestPath: config.ManifestPath(app.Entry.ID),
-		Worktree:     app.Worktree,
-		Backend:      store.ResolveBackendName(opts.Backend),
-		Matrix:       mx,
-		Problems:     session.Problems(mx, states),
-		OutputsFor:   session.OutputsFor(mx),
-		OutputPaths:  paths,
-		Projects:     projects,
+		Project:       app.Entry.ID,
+		Profile:       app.Profile.Name,
+		Source:        app.Profile.Source,
+		ManifestPath:  config.ManifestPath(app.Entry.ID),
+		Worktree:      app.Worktree,
+		Backend:       store.ResolveBackendName(opts.Backend),
+		Matrix:        mx,
+		Problems:      session.Problems(mx, states),
+		OutputsFor:    session.OutputsFor(mx),
+		OutputPaths:   paths,
+		OutputStates:  states,
+		DefaultOutput: app.Manifest.Project.Output,
+		Projects:      projects,
 	}, nil
 }
