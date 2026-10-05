@@ -19,7 +19,7 @@ import (
 func newUiCmd(opts *Options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "ui",
-		Short: "Manage this project's variables and outputs, interactively",
+		Short: "Manage this project's variables, outputs and profiles, interactively",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			app, err := opts.resolveApp()

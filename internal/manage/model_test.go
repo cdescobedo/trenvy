@@ -252,3 +252,13 @@ func TestSwitchProjectCursorShowsWithoutColour(t *testing.T) {
 		t.Errorf("switch cursor did not move to third:\n%s", v)
 	}
 }
+
+func TestHelpKeyColumnNeverRunsIntoItsDescription(t *testing.T) {
+	v := press(sized(newModel(&fakeDeps{}), 100, 30), "?").View()
+	if strings.Contains(v, "tabswitch") {
+		t.Errorf("a key ran into its description:\n%s", v)
+	}
+	if !strings.Contains(v, "1 2 3  tab ") {
+		t.Errorf("the screen-switch key has no space after it:\n%s", v)
+	}
+}

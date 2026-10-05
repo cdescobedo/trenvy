@@ -92,7 +92,12 @@ func (o *helpOverlay) update(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
 // layout is the help body for a w x h body area, how many of its lines fit
 // in the panel, and the furthest it can scroll.
 func (o *helpOverlay) layout(m *Model, w, h int) (body []string, rows, maxOff int) {
-	descW := min(w, panelMax) - 4 - 10
+	keyW := 0
+	for _, v := range verbs {
+		keyW = max(keyW, lipgloss.Width(v.key))
+	}
+	keyW += 2
+	descW := min(w, panelMax) - 4 - keyW
 	for _, v := range verbs {
 		desc := strings.Split(m.th.KeyDesc.Width(descW).Render(v.desc), "\n")
 		for i, d := range desc {
@@ -100,7 +105,7 @@ func (o *helpOverlay) layout(m *Model, w, h int) (body []string, rows, maxOff in
 			if i == 0 {
 				k = v.key
 			}
-			body = append(body, lipgloss.JoinHorizontal(lipgloss.Top, m.th.Key.Width(10).Render(k), d))
+			body = append(body, lipgloss.JoinHorizontal(lipgloss.Top, m.th.Key.Width(keyW).Render(k), d))
 		}
 	}
 	rows, maxOff = scrollRows(len(body), h)
