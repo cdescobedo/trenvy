@@ -220,7 +220,7 @@ func TestProfilesFooterListsOnlyKeysThatAct(t *testing.T) {
 		keys []string
 		want []string
 	}{
-		{[]string{"3"}, []string{"enter", "d", "a", ".", "?"}},
+		{[]string{"3"}, []string{"enter", "a", ".", "?"}}, // dev: removal is refused
 		{[]string{"3", "j", "d"}, []string{"enter", "d", "u", "a", ".", "?"}},
 		{[]string{"3", "j", "enter"}, []string{"enter", "←", ".", "?"}},
 		{[]string{"3", "j", "j", "enter"}, []string{"←", ".", "?"}}, // prod: nothing missing

@@ -223,6 +223,15 @@ func TestEditingACellOnARemovedProfileIsRefused(t *testing.T) {
 	}
 }
 
+// Spec §1: enter and d are refused on a removed profile's row, so the
+// footer does not offer them.
+func TestFooterOnARemovedProfilesRowOffersNoEdit(t *testing.T) {
+	m := press(newModel(&fakeDeps{}), "3", "j", "d", "1", "j", "enter", "j", "j") // APP_MODE, staging row
+	if got := m.FooterKeys(); strings.Join(got, " ") != "← . ?" {
+		t.Errorf("footer = %v, want [← . ?]", got)
+	}
+}
+
 func TestPromotionSkipsARemovedProfile(t *testing.T) {
 	m := press(newModel(&fakeDeps{}), "3", "j", "j", "d", "1") // prod removed
 	m = press(m, "j", "j", ".", "enter", "enter")              // DATABASE_URL, Make secret, confirm

@@ -269,11 +269,16 @@ func (m Model) variablesHints() []hint {
 		return []hint{{"←", "back"}, {".", "more"}}
 	}
 	r := rows[m.rowIndex(rows)]
+	// A removed profile's row refuses enter and d, so neither is offered.
+	removed := r.profile != "" && m.staged.Has(session.ChangeRemoveProfile, r.profile)
 	verb := "edit"
 	if v.Var.Secret {
 		verb = "store"
 	}
-	hs := []hint{{"enter", verb}}
+	var hs []hint
+	if !removed {
+		hs = append(hs, hint{"enter", verb})
+	}
 	if v.Var.Secret && !v.NewSecret[r.profile] && m.snap.Matrix.Stored[name][r.profile] {
 		if _, shown := m.vars.revealed[cellKey{name, r.profile}]; shown {
 			hs = append(hs, hint{"v", "hide"})
@@ -281,7 +286,7 @@ func (m Model) variablesHints() []hint {
 			hs = append(hs, hint{"v", "reveal"})
 		}
 	}
-	if m.removable(v, r) {
+	if !removed && m.removable(v, r) {
 		hs = append(hs, hint{"d", "remove"})
 	}
 	if len(m.staged.OnCell(name, r.profile)) > 0 {

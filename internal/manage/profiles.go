@@ -182,9 +182,10 @@ func (m Model) profilesHints() []hint {
 	}
 	if m.profs.pane == paneList {
 		hs := []hint{{"enter", "open"}}
-		if m.profView(p).Removed {
+		switch {
+		case m.profView(p).Removed:
 			hs = append(hs, hint{"d", "keep"})
-		} else {
+		case m.removeRefusal(p) == "":
 			hs = append(hs, hint{"d", "remove"})
 		}
 		if len(m.staged.OnProfile(p)) > 0 {
