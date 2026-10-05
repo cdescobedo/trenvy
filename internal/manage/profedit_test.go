@@ -234,6 +234,29 @@ func TestRefusalsFitTwoMessageLinesAt60(t *testing.T) {
 	}
 }
 
+// Use or Make default on the profile disk already names drops the staged
+// change instead of staging a second one.
+func TestUseAndDefaultBackOnTheDiskProfileRevert(t *testing.T) {
+	snap := fixture()
+	snap.Active = "dev"
+	m := press(sized(manage.New(snap, (&fakeDeps{}).deps(), noTheme()), 100, 30), "3", "j", "j", ".", "enter") // prod: Use
+	if u, ok := useOf(m); !ok || u != "prod" {
+		t.Fatalf("setup: use-profile = %q %v", u, ok)
+	}
+	m = press(m, "k", "k", ".", "enter") // dev: Use
+	if len(m.Staged()) != 0 || !strings.Contains(m.View(), "dev is this machine's active profile again, as on disk") {
+		t.Errorf("Use on the disk-active dev: staged %v:\n%s", stagedKinds(m), m.View())
+	}
+	m = press(newModel(&fakeDeps{}), "3", "j", "j", ".", "j", "enter") // prod: Make default
+	if got := stagedKinds(m); len(got) != 1 || got[0] != "default-profile:prod" {
+		t.Fatalf("setup: staged = %v", got)
+	}
+	m = press(m, "k", "k", ".", "j", "enter") // dev: Make default
+	if len(m.Staged()) != 0 || !strings.Contains(m.View(), "dev is the default again, as on disk") {
+		t.Errorf("Make default on the disk default dev: staged %v:\n%s", stagedKinds(m), m.View())
+	}
+}
+
 func TestUseIsDisabledOnAnUnsavedProfile(t *testing.T) {
 	m := press(typeText(press(newModel(&fakeDeps{}), "3", "a"), "qa"), "enter")
 	m = press(m, ".", "enter")

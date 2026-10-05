@@ -1,6 +1,7 @@
 package manage_test
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -39,9 +40,13 @@ func TestProfilesListShowsTagsMissingAndMarks(t *testing.T) {
 
 func TestProfileDetailCountsOverridesSecretsAndMissing(t *testing.T) {
 	v := press(newModel(&fakeDeps{}), "3", "j", "j").View() // prod
-	for _, want := range []string{"overrides", "1", "secrets", "1 of 1 stored", "missing", "none"} {
-		if !strings.Contains(v, want) {
-			t.Errorf("prod detail lacks %q:\n%s", want, v)
+	for line, want := range map[string]string{
+		"overrides": `overrides +1 +│`,
+		"secrets":   `secrets +1 of 1 stored +│`,
+		"none":      `missing +none +│`,
+	} {
+		if row := lineWith(t, v, line); !regexp.MustCompile(want).MatchString(row) {
+			t.Errorf("prod detail line = %q, want %s:\n%s", row, want, v)
 		}
 	}
 	v = press(newModel(&fakeDeps{}), "3", "j", "enter").View() // staging, detail focused
@@ -78,16 +83,27 @@ func TestProfilesLayoutNeverExceedsTheTerminal(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		mf.Vars["REQUIRED_"+strings.Repeat("Z", i%19)+string(rune('A'+i%26))] = manifest.Var{Secret: true}
 	}
-	for _, w := range []int{40, 60, 79, 80, 120} {
+	for _, w := range []int{40, 60, 79, 80, 100, 120} {
 		for _, keys := range [][]string{{"3"}, {"3", "enter"}, {"3", "G"}, {"3", "j", "j", "j", "enter", "j", "j"}} {
 			m := press(sized(manage.New(snapshotOf(mf, nil), (&fakeDeps{}).deps(), asciiTheme()), w, 24), keys...)
-			lines := strings.Split(m.View(), "\n")
+			v := m.View()
+			lines := strings.Split(v, "\n")
 			if len(lines) > 24 {
 				t.Errorf("w=%d %v: %d lines", w, keys, len(lines))
 			}
 			for i, l := range lines {
 				if lw := lipgloss.Width(l); lw > w {
 					t.Errorf("w=%d %v: line %d is %d wide: %q", w, keys, i, lw, l)
+				}
+			}
+			// The pane clips what overflows it, so a width check alone
+			// cannot see a lost mark: the long name is whole or cut with
+			// …, and its note and ! survive inside the border.
+			if len(keys) == 1 {
+				row := lineWith(t, v, "a-very-long-prof")
+				whole := strings.Contains(row, "a-very-long-profile-name-for-layout-checks")
+				if !whole && !strings.Contains(row, "…") || !regexp.MustCompile(`31 missing +!│`).MatchString(row) {
+					t.Errorf("w=%d: long row = %q, want the name whole or cut with …, then 31 missing and !", w, row)
 				}
 			}
 		}

@@ -515,6 +515,27 @@ func TestRemovingAProfileNeedsItsNameTyped(t *testing.T) {
 	}
 }
 
+// Two removals ask for each name in turn, counted, each in an empty field.
+func TestTwoRemovalsAskForEachNameInTurn(t *testing.T) {
+	f := &fakeDeps{}
+	m := press(newModel(f), "3", "j", "d", "j", "d", "w", "enter") // staging, then prod
+	if v := collapsed(m.View()); !strings.Contains(v, "(1 of 2) Type staging") {
+		t.Fatalf("the first name should be asked for, counted:\n%s", m.View())
+	}
+	m = press(typeText(m, "staging"), "enter")
+	if len(f.commits) != 0 {
+		t.Fatalf("saved after the first of two names")
+	}
+	if v := collapsed(m.View()); !strings.Contains(v, "(2 of 2) Type prod") {
+		t.Fatalf("the second name should follow:\n%s", m.View())
+	}
+	// The field starts empty: typing prod alone confirms it.
+	m = press(typeText(m, "prod"), "enter")
+	if len(f.commits) != 1 {
+		t.Fatalf("commits = %d after both names, want 1:\n%s", len(f.commits), m.View())
+	}
+}
+
 func TestEscFromTheTypedConfirmationWritesNothing(t *testing.T) {
 	f := &fakeDeps{}
 	m := press(newModel(f), "3", "j", "d", "w", "enter", "esc")
