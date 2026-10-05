@@ -264,7 +264,10 @@ func newSecretDemoteCmd(opts *Options) *cobra.Command {
 				return err
 			}
 			name := args[0]
-			v := app.Manifest.Vars[name]
+			v, ok := app.Manifest.Vars[name]
+			if !ok {
+				return fmt.Errorf("%s is not in the manifest", name)
+			}
 			if !v.Secret {
 				return fmt.Errorf("%s is not a secret", name)
 			}
@@ -347,13 +350,21 @@ func newSecretDemoteCmd(opts *Options) *cobra.Command {
 				fmt.Fprintf(opts.Stdout, "demoted %s: no values were stored; it is now an optional plain variable\n", name)
 				return nil
 			}
-			fmt.Fprintf(opts.Stdout, "demoted %s: %d plain values (%s), deleted %d keyring items\n",
-				name, len(found), strings.Join(found, ", "), done)
+			fmt.Fprintf(opts.Stdout, "demoted %s: %s (%s), deleted %s\n",
+				name, countOf(len(found), "plain value"), strings.Join(found, ", "), countOf(done, "keyring item"))
 			return nil
 		},
 	}
 	c.Flags().BoolVar(&yes, "yes", false, "do not ask for confirmation")
 	return c
+}
+
+// countOf is "1 plain value" / "2 plain values".
+func countOf(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 func allEqual(values map[string]string) bool {

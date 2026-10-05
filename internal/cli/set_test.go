@@ -699,6 +699,9 @@ func TestSecretDemoteRefusals(t *testing.T) {
 	if err := h.run("secret", "demote", "PLAIN", "--yes"); err == nil || !strings.Contains(err.Error(), "not a secret") {
 		t.Errorf("plain: %v", err)
 	}
+	if err := h.run("secret", "demote", "NOPE", "--yes"); err == nil || !strings.Contains(err.Error(), "NOPE is not in the manifest") {
+		t.Errorf("unknown: %v", err)
+	}
 	if err := h.run("secret", "demote", "TOKEN", "--yes"); err == nil || !strings.Contains(err.Error(), "nothing stored") {
 		t.Errorf("empty: %v", err)
 	}
@@ -742,6 +745,9 @@ func TestSecretDemoteUsesTheManifestProjectIDForKeyringItems(t *testing.T) {
 	if ok, _ := h.mem.Has("trenvy/vpb/dev/TOKEN"); ok {
 		t.Error("the item written under the manifest's project id survived")
 	}
+	if got := h.out.String(); !strings.Contains(got, "demoted TOKEN: 1 plain value (dev), deleted 1 keyring item\n") {
+		t.Errorf("output = %q", got)
+	}
 }
 
 // vanishingStore reports ErrNotFound for one service's Delete, as if the item
@@ -769,7 +775,7 @@ func TestSecretDemoteDoesNotCountAnItemThatWasAlreadyGone(t *testing.T) {
 	if err := h.run("secret", "demote", "TOKEN", "--yes"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(h.out.String(), "deleted 1 keyring items") {
+	if !strings.Contains(h.out.String(), "2 plain values (dev, prod), deleted 1 keyring item\n") {
 		t.Errorf("output = %q", h.out.String())
 	}
 }
