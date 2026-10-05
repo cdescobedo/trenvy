@@ -616,3 +616,32 @@ func TestLeftInPlaceSurvivesARetry(t *testing.T) {
 		t.Errorf("retry LeftInPlace = %v, want [%s]", res.LeftInPlace, want)
 	}
 }
+
+// The old interface stages a rename back to the row's own name; phase 5b
+// treats it as a no-op, so the collision check must let it through.
+func TestCommitAllowsASelfRenameAndRenamingAnAddedOutput(t *testing.T) {
+	opts, app := newOutputsApp(t)
+	if _, err := commitStaged(opts, app, []ui.Change{
+		{Kind: ui.ChangeRenameOutput, Name: "local", Value: "local"},
+	}); err != nil {
+		t.Fatalf("self-rename: %v", err)
+	}
+	if o, ok := loadVPB(t).Outputs["local"]; !ok || o.Format != "dotenv" || o.Path != ".env" {
+		t.Errorf("outputs = %+v, want local dotenv .env intact", loadVPB(t).Outputs)
+	}
+
+	opts, app = newOutputsApp(t)
+	if _, err := commitStaged(opts, app, []ui.Change{
+		{Kind: ui.ChangeAddOutput, Name: "extra", Format: "dotenv", Path: "x.env"},
+		{Kind: ui.ChangeRenameOutput, Name: "extra", Value: "free"},
+	}); err != nil {
+		t.Fatalf("add then rename: %v", err)
+	}
+	outs := loadVPB(t).Outputs
+	if _, ok := outs["free"]; !ok {
+		t.Errorf("outputs = %+v, want free", outs)
+	}
+	if _, ok := outs["extra"]; ok {
+		t.Errorf("outputs = %+v, extra should be gone", outs)
+	}
+}

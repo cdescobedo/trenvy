@@ -198,9 +198,10 @@ func newUiCmd(opts *Options) *cobra.Command {
 //
 // commitStaged returns its result instead of printing it, because the new
 // interface calls it while it owns the terminal; printCommitResult prints
-// it the way `trenvy ui` always has. A failure after the state save (phase
-// 6) still returns the left-in-place paths beside its error, because that
-// save forgot the render records and a retry would find none to name.
+// it the way `trenvy ui` always has. A failure in phase 6, after the state
+// save (phase 4), still returns the left-in-place paths beside its error,
+// because that save forgot the render records and a retry would find none
+// to name.
 //
 // Adding a kind (Task 8's set-globs) means adding one case to whichever
 // phase above it belongs in -- never restructuring the phases themselves.
@@ -431,12 +432,13 @@ func commitStaged(opts *Options, app *appContext, staged []ui.Change) (commitRes
 	return left, nil
 }
 
-// commitResult is what a successful commit reports. It is returned rather
-// than printed because internal/manage calls commitStaged while its screen
-// owns stdout.
+// commitResult is what a commit reports: in full on success, and with only
+// leftInPlace filled in beside a late error (see commitStaged). It is
+// returned rather than printed because internal/manage calls commitStaged
+// while its screen owns stdout.
 type commitResult struct {
 	saved       int
-	leftInPlace []string // "<worktree>/<path>" of each removed output's file left on disk
+	leftInPlace []string // "<worktree>/<path>" of each removed output's file left on disk; also set with a late error
 }
 
 // printCommitResult prints r the way `trenvy ui` always has.
@@ -496,6 +498,11 @@ func renameCollision(m *manifest.Manifest, staged []ui.Change) error {
 	targets := map[string]string{}
 	for _, c := range staged {
 		if c.Kind != ui.ChangeRenameOutput {
+			continue
+		}
+		// A rename back to the row's own name is a no-op in phase 5b, and
+		// the original interface stages exactly that.
+		if c.Value == c.Name {
 			continue
 		}
 		if held[c.Value] {
