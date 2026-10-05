@@ -51,13 +51,14 @@ func newUiCmd(opts *Options) *cobra.Command {
 //     phase 1's own rule, carried forward unchanged.
 //
 //  4. The state file: a staged rename repoints that output's render
-//     records (State.RenameOutput), and a staged removal forgets them
-//     outright (State.Forget, across every worktree) -- the staged-model
+//     records (State.RenameOutput); a staged removal or path edit forgets
+//     them (State.Forget, across every worktree) -- the staged-model
 //     equivalent of `trenvy output rm --force`, not its refusal, since d
-//     on this tab has already asked for that. Both save before the
-//     manifest, for the same reason `trenvy output rename` already
-//     established (see State.RenameOutput's doc): only this order is
-//     recoverable by re-running the same session's equivalent by hand.
+//     on this tab has already asked for that; a staged format edit marks
+//     them stale (State.MarkStale). All save before the manifest, for the
+//     same reason `trenvy output rename` already established (see
+//     State.RenameOutput's doc): only this order is recoverable by
+//     re-running the same session's equivalent by hand.
 //
 //  5. Every remaining manifest mutation, including every REMOVAL
 //     (delete-var, remove-output) and the rest (set-value, promote-secret,
@@ -190,7 +191,7 @@ func commitStaged(opts *Options, app *appContext, staged []session.Change) (comm
 		for _, op := range writes {
 			if err := s.Set(op.service, op.value); err != nil {
 				return commitResult{}, partialCommitError("store", op.service, err,
-					storedApplied, storedTotal, deletedApplied, deletedTotal, 0, 0, false)
+					storedApplied, storedTotal, deletedApplied, deletedTotal, recordCounts{})
 			}
 			storedApplied++
 		}
@@ -205,7 +206,7 @@ func commitStaged(opts *Options, app *appContext, staged []session.Change) (comm
 					continue
 				}
 				return commitResult{}, partialCommitError("delete", op.service, err,
-					storedApplied, storedTotal, deletedApplied, deletedTotal, 0, 0, false)
+					storedApplied, storedTotal, deletedApplied, deletedTotal, recordCounts{})
 			}
 			deletedApplied++
 		}
@@ -224,7 +225,7 @@ func commitStaged(opts *Options, app *appContext, staged []session.Change) (comm
 		}
 	}
 
-	// Phase 4: the state file. Two kinds touch it.
+	// Phase 4: the state file. Four kinds touch it.
 	//
 	// A staged rename must repoint any render record under the output's
 	// OLD name, and that repointing must be saved to disk before the
@@ -254,12 +255,53 @@ func commitStaged(opts *Options, app *appContext, staged []session.Change) (comm
 	// uses: removing the manifest entry is not removing the file, and a
 	// file that may carry secrets must never be silently forgotten about.
 	//
-	// Both RenameOutput and Forget only ever mutate app.State in memory;
-	// Save runs once, unconditionally, whenever either kind was staged --
-	// never only when a record actually moved or was found -- mirroring
-	// `output rename`'s own unconditional Save after RenameOutput: a
-	// project with no render records yet still deserves a state file that
-	// agrees with the manifest the moment one is ever recorded.
+	// A staged path edit leaves the file at the old path behind, so it is
+	// forgotten and named exactly as a removal's is -- every record for
+	// that output whose path is not the new one.
+	//
+	// A staged format edit leaves the file in the old format while its
+	// values, all its Sum covers, are unchanged, so the record would read
+	// fresh. State.MarkStale blanks the Sum instead: the file reads STALE
+	// and render may replace it.
+	//
+	// Forgetting runs before repointing, because every Change keys by the
+	// output's original name, which a rename is about to move.
+	//
+	// RenameOutput, Forget and MarkStale only ever mutate app.State in
+	// memory; Save runs once, unconditionally, whenever a rename, a path
+	// or a format edit was staged, or a removal found records to forget --
+	// mirroring `output rename`'s own unconditional Save after
+	// RenameOutput: a project with no render records yet still deserves a
+	// state file that agrees with the manifest the moment one is ever
+	// recorded.
+	movedPaths := map[string]string{}
+	var reformatted []string
+	for _, c := range staged {
+		switch c.Kind {
+		case session.ChangeSetOutputPath:
+			if !removedOutputNames[c.Name] {
+				movedPaths[c.Name] = filepath.Clean(c.Value)
+			}
+		case session.ChangeSetOutputFormat:
+			if !removedOutputNames[c.Name] {
+				reformatted = append(reformatted, c.Name)
+			}
+		}
+	}
+	var forgotten []config.RenderEntry
+	for _, e := range app.State.Renders {
+		to, moved := movedPaths[e.Output]
+		if removedOutputNames[e.Output] || (moved && filepath.Clean(e.Path) != to) {
+			forgotten = append(forgotten, e)
+		}
+	}
+	for _, e := range forgotten {
+		app.State.Forget(e.Worktree, e.Output)
+	}
+	staleRecords := 0
+	for _, name := range reformatted {
+		staleRecords += app.State.MarkStale(name)
+	}
 	renamedRecords, renamedAny := 0, false
 	for _, c := range staged {
 		if c.Kind == session.ChangeRenameOutput {
@@ -267,28 +309,19 @@ func commitStaged(opts *Options, app *appContext, staged []session.Change) (comm
 			renamedAny = true
 		}
 	}
-	var forgotten []config.RenderEntry
-	for _, e := range app.State.Renders {
-		if removedOutputNames[e.Output] {
-			forgotten = append(forgotten, e)
-		}
-	}
-	for _, e := range forgotten {
-		app.State.Forget(e.Worktree, e.Output)
-	}
-	if renamedAny || len(forgotten) > 0 {
-		if err := app.State.Save(); err != nil {
-			return commitResult{}, partialCommitError("save state for output changes", config.StatePath(app.Entry.ID), err,
-				storedApplied, storedTotal, deletedApplied, deletedTotal, 0, 0, false)
-		}
-	}
-	// stateSaved records whether the Save above actually ran (and, since it
-	// would have already returned on error, actually landed) -- distinct
-	// from renamedRecords/len(forgotten) being nonzero, which are true the
-	// instant the in-memory mutations above run, whether or not Save ever
+	// stateSaved records whether the Save below runs (and, since it returns
+	// on error, lands) -- distinct from the record counts above, which are
+	// set the instant the in-memory mutations run, whether or not Save ever
 	// gets called. Phase 6's failure path below must not credit a save
 	// that never happened.
-	stateSaved := renamedAny || len(forgotten) > 0
+	stateSaved := renamedAny || len(forgotten) > 0 || len(movedPaths) > 0 || len(reformatted) > 0
+	if stateSaved {
+		if err := app.State.Save(); err != nil {
+			return commitResult{}, partialCommitError("save state for output changes", config.StatePath(app.Entry.ID), err,
+				storedApplied, storedTotal, deletedApplied, deletedTotal, recordCounts{})
+		}
+	}
+	records := recordCounts{renamedRecords, len(forgotten), staleRecords}
 
 	// Naming the file, not just the removed output: matches `trenvy output
 	// rm --force`'s own "left in place: %s/%s" verbatim, because a user who
@@ -312,7 +345,7 @@ func commitStaged(opts *Options, app *appContext, staged []session.Change) (comm
 		// that are about to be lost right along with it. The bare error
 		// used to reach the caller unwarned on exactly that batch shape --
 		// the one Fix 3 was filed for.
-		if progress := commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal, renamedRecords, len(forgotten), stateSaved); progress != "" {
+		if progress := commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal, records); progress != "" {
 			return left, withLeftInPlace(fmt.Errorf("%w\n  %s; the manifest was not saved",
 				err, progress), forgotten)
 		}
@@ -331,7 +364,7 @@ func commitStaged(opts *Options, app *appContext, staged []session.Change) (comm
 		// the loss commitProgress and partialCommitError exist to prevent
 		// everywhere else in this function.
 		return left, withLeftInPlace(partialCommitError("save manifest", config.ManifestPath(app.Entry.ID), err,
-			storedApplied, storedTotal, deletedApplied, deletedTotal, renamedRecords, len(forgotten), stateSaved), forgotten)
+			storedApplied, storedTotal, deletedApplied, deletedTotal, records), forgotten)
 	}
 
 	left.saved = len(staged)
@@ -344,7 +377,7 @@ func commitStaged(opts *Options, app *appContext, staged []session.Change) (comm
 // while its screen owns stdout.
 type commitResult struct {
 	saved       int
-	leftInPlace []string // "<worktree>/<path>" of each removed output's file left on disk; also set with a late error
+	leftInPlace []string // "<worktree>/<path>" of each removed or moved output's file left on disk; also set with a late error
 }
 
 // invalidBatchError is a batch the manifest refuses, found before anything
@@ -710,17 +743,24 @@ type wrappedError struct {
 func (e *wrappedError) Error() string { return e.msg }
 func (e *wrappedError) Unwrap() error { return e.err }
 
+// recordCounts is how many render records a commit's state save changed.
+// The zero value is a commit whose state save never landed: in-memory
+// changes a failed commit leaves nowhere are not progress.
+type recordCounts struct {
+	repointed, forgotten, staled int
+}
+
 // commitProgress renders how far a commit got as "stored X of Y secrets,
 // deleted A of B keyring items, repointed N render record(s), forgot M
-// render record(s)", omitting whichever clause the batch never touched at
-// all: a batch with no deletions in it reporting "deleted 0 of 0" would be
-// noise at the exact moment a reader needs a message they can trust. The
-// two render-record clauses only ever appear when stateSaved is true -- the
-// state file's Save actually landed -- because that is real, persisted
-// progress a retry would find already done, unlike an in-memory manifest
-// edit that a failed commit leaves nowhere at all. Returns "" when the
-// batch touched none of these.
-func commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal, movedRecords, forgottenRecords int, stateSaved bool) string {
+// render record(s), marked K render record(s) stale", omitting whichever
+// clause the batch never touched at all: a batch with no deletions in it
+// reporting "deleted 0 of 0" would be noise at the exact moment a reader
+// needs a message they can trust. The render-record clauses come from
+// records, which is nonzero only once the state file's Save actually
+// landed -- real, persisted progress a retry would find already done,
+// unlike an in-memory manifest edit that a failed commit leaves nowhere at
+// all. Returns "" when the batch touched none of these.
+func commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal int, records recordCounts) string {
 	var parts []string
 	if storedTotal > 0 {
 		parts = append(parts, fmt.Sprintf("stored %d of %d secrets", storedApplied, storedTotal))
@@ -728,11 +768,14 @@ func commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal, mo
 	if deletedTotal > 0 {
 		parts = append(parts, fmt.Sprintf("deleted %d of %d keyring items", deletedApplied, deletedTotal))
 	}
-	if stateSaved && movedRecords > 0 {
-		parts = append(parts, fmt.Sprintf("repointed %d render record(s)", movedRecords))
+	if records.repointed > 0 {
+		parts = append(parts, fmt.Sprintf("repointed %d render record(s)", records.repointed))
 	}
-	if stateSaved && forgottenRecords > 0 {
-		parts = append(parts, fmt.Sprintf("forgot %d render record(s)", forgottenRecords))
+	if records.forgotten > 0 {
+		parts = append(parts, fmt.Sprintf("forgot %d render record(s)", records.forgotten))
+	}
+	if records.staled > 0 {
+		parts = append(parts, fmt.Sprintf("marked %d render record(s) stale", records.staled))
 	}
 	return strings.Join(parts, ", ")
 }
@@ -745,10 +788,10 @@ func commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal, mo
 //
 // It states facts only: the interface keeps the batch staged, so what the
 // user does next is retry, which the caller says.
-func partialCommitError(verb, service string, err error, storedApplied, storedTotal, deletedApplied, deletedTotal, movedRecords, forgottenRecords int, stateSaved bool) error {
+func partialCommitError(verb, service string, err error, storedApplied, storedTotal, deletedApplied, deletedTotal int, records recordCounts) error {
 	return fmt.Errorf(
 		"%s %s: %w\n  %s; the manifest was not saved",
-		verb, service, err, commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal, movedRecords, forgottenRecords, stateSaved))
+		verb, service, err, commitProgress(storedApplied, storedTotal, deletedApplied, deletedTotal, records))
 }
 
 // registryIDs lists every registered project id, in registration order --

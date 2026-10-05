@@ -413,3 +413,25 @@ func TestTinyReviewCanScrollToTheEndOfAFailure(t *testing.T) {
 		t.Errorf("the end of the report never came into view:\n%s", m.View())
 	}
 }
+
+// I2: a format edit leaves the rendered file in the old format, and a path
+// edit leaves it at the old path, untracked. The review says so, but only
+// for a file the snapshot shows rendered here.
+func TestReviewSaysWhatFormatAndPathEditsDoToTheRenderedFile(t *testing.T) {
+	f := &fakeDeps{ignored: map[string]bool{"moved.env": true, "moved.json": true}}
+	m := out(newModel(f), "enter", "enter", "j") // local (fresh): format -> json
+	m = press(m, "j", "enter", "ctrl+u")         // local: path row
+	m = typeText(m, "moved.env")
+	m = press(m, "enter", "left", "j", "enter", "j", "enter", "ctrl+u") // web (not rendered): path row
+	m = typeText(m, "moved.json")
+	m = press(m, "enter", "w")
+	v := m.View()
+	for _, want := range []string{".env must be rendered again", ".env stays on disk, no longer tracked", "not rendered here"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("review lacks %q:\n%s", want, v)
+		}
+	}
+	if strings.Contains(v, "web.json stays on disk") {
+		t.Errorf("the review says a file web never rendered stays on disk:\n%s", v)
+	}
+}

@@ -135,6 +135,25 @@ func (s *State) RenameOutput(old, replacement string) int {
 	return moved
 }
 
+// MarkStale blanks the Sum of every record for output, in every worktree,
+// returning how many it blanked.
+//
+// Sum covers only the resolved values, so a change that rewrites the file
+// without changing a value -- the output's format -- leaves the record
+// reading fresh for a file in the old format. A blank Sum never matches,
+// so guard.Inspect reads that file STALE, which render may overwrite;
+// forgetting the record instead would read FOREIGN, which it refuses.
+func (s *State) MarkStale(output string) int {
+	n := 0
+	for i, e := range s.Renders {
+		if e.Output == output {
+			s.Renders[i].Sum = ""
+			n++
+		}
+	}
+	return n
+}
+
 // Forget removes a record, used when a rendered file is cleaned.
 func (s *State) Forget(worktree, output string) {
 	worktree = filepath.Clean(worktree)

@@ -157,11 +157,29 @@ func (m *Model) describeOutput(i int, c session.Change) reviewLine {
 		l.what = "membership"
 		l.detail = session.SelectsSummary(base) + "  ->  " + session.SelectsSummary(manifest.Output{Include: c.Include, Exclude: c.Exclude})
 	case session.ChangeSetOutputFormat:
+		// The saved record is marked stale (commitStaged, phase 4).
 		l.what, l.detail = "format", base.Format+"  ->  "+c.Value
+		if m.renderedHere(c.Name) {
+			l.detail += "; " + display(base.Path) + " must be rendered again"
+		}
 	case session.ChangeSetOutputPath:
+		// The saved record is forgotten (commitStaged, phase 4).
 		l.what, l.detail = "path", display(base.Path)+"  ->  "+display(c.Value)
+		if m.renderedHere(c.Name) {
+			l.detail += "; " + display(base.Path) + " stays on disk, no longer tracked"
+		} else {
+			l.detail += "; not rendered here"
+		}
 	}
 	return l
+}
+
+// renderedHere reports whether the snapshot shows a file at id's path in
+// this worktree: any state but "not rendered" (an output added this
+// session has none).
+func (m *Model) renderedHere(id string) bool {
+	st, ok := m.snap.OutputStates[id]
+	return ok && st != session.StateAbsent
 }
 
 // describePromotion words a promote-secret from what is staged, not from

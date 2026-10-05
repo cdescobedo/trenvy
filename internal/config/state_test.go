@@ -294,6 +294,26 @@ func TestRenameOutputMovesOnlyMatchingRecords(t *testing.T) {
 	}
 }
 
+func TestMarkStaleBlanksOnlyMatchingSums(t *testing.T) {
+	s := &config.State{Renders: []config.RenderEntry{
+		{Worktree: "/w/main", Output: "app", Path: "a.env", Sum: "s1", File: "f1"},
+		{Worktree: "/w/feat", Output: "app", Path: "a.env", Sum: "s2", File: "f2"},
+		{Worktree: "/w/main", Output: "web", Path: "e.json", Sum: "s3", File: "f3"},
+	}}
+
+	if n := s.MarkStale("app"); n != 2 {
+		t.Errorf("marked = %d, want 2", n)
+	}
+	for _, e := range s.Renders[:2] {
+		if e.Sum != "" || e.File == "" {
+			t.Errorf("record = %+v, want its Sum blank and its File kept", e)
+		}
+	}
+	if s.Renders[2].Sum != "s3" {
+		t.Errorf("an unrelated record was rewritten: %+v", s.Renders[2])
+	}
+}
+
 func TestStateSaveTightensExistingFilePermissions(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("TRENVY_CONFIG_DIR", tmpDir)
