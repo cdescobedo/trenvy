@@ -324,7 +324,7 @@ var toSwitchProject = []string{".", "j", "j", "j", "j", "j", "j"}
 
 // Choosing another project reloads the interface against it, in the same
 // invocation, rather than requiring a quit and a re-run from its directory.
-func TestUiNewSwitchesProjectsAndReloadsAgainstTheChosenOne(t *testing.T) {
+func TestUiSwitchesProjectsAndReloadsAgainstTheChosenOne(t *testing.T) {
 	h := newHarness(t)
 	h.register("alpha", fixtureManifest(t))
 	registerAnotherProject(t, "beta", fixtureManifest(t))
@@ -355,7 +355,7 @@ func TestUiNewSwitchesProjectsAndReloadsAgainstTheChosenOne(t *testing.T) {
 
 // Switching never commits the project being left: its staged change is
 // discarded by the confirmation, not written to its manifest.
-func TestUiNewSwitchesProjectsWithStagedChangesConfirmsAndDoesNotCommit(t *testing.T) {
+func TestUiSwitchesProjectsWithStagedChangesConfirmsAndDoesNotCommit(t *testing.T) {
 	h := newHarness(t)
 	h.register("alpha", fixtureManifest(t)) // ALPHA_TOKEN, APP_URL
 	registerAnotherProject(t, "beta", fixtureManifest(t))

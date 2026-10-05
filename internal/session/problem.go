@@ -6,7 +6,7 @@ import (
 )
 
 // Problem is one thing wrong with the project, paired with the command that
-// fixes it, for the Overview tab.
+// fixes it, for the header's problem count and the marks on the screens.
 type Problem struct {
 	Kind    string // "missing", "output", "membership"
 	Name    string // variable or output name
@@ -88,8 +88,8 @@ func Problems(mx *Matrix, outputs map[string]string) []Problem {
 	// has never been rendered in this worktree, the normal state of a fresh
 	// clone. StateUnverified means the caller could not tell fresh from
 	// STALE without reading a secret it deliberately never reads (see its
-	// own doc above) -- reported once, if at all, via the Overview's own
-	// healthy-line caveat, never per output here. All three would put a
+	// own doc above) -- reported once, if at all, via the interface's own
+	// healthy-state caveat, never per output here. All three would put a
 	// permanent false alarm in front of every new user, or every project
 	// with a secret, if they reached this list.
 	for name, state := range outputs {
@@ -131,7 +131,7 @@ func Problems(mx *Matrix, outputs map[string]string) []Problem {
 	// shape of an exec/shell-only project (see viewOutputs' own placeholder
 	// for the same case). In that case EVERY variable is at zero by
 	// definition, and reporting that fact once per variable would bury an
-	// otherwise healthy Overview in N copies of the same non-problem.
+	// otherwise healthy project in N copies of the same non-problem.
 	if len(mx.Outputs) > 0 {
 		byName := membershipOutputsForMatrix(mx)
 
@@ -149,7 +149,7 @@ func Problems(mx *Matrix, outputs map[string]string) []Problem {
 		}
 	}
 
-	// The Overview re-renders on every keystroke; an unstable order would
+	// The interface re-renders on every keystroke; an unstable order would
 	// jump rows under the user's cursor and misdirect enter-to-jump later.
 	sort.Slice(ps, func(i, j int) bool {
 		if ps[i].Name != ps[j].Name {

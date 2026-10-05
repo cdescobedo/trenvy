@@ -33,8 +33,8 @@ func TestUiOpensTheInterfaceWithoutAFlag(t *testing.T) {
 	if !called {
 		t.Error("ui did not open the new interface")
 	}
-	if err := h.run("ui", "--new"); err == nil {
-		t.Error("--new is still accepted; it should be gone with the old interface")
+	if err := h.run("ui", "--new"); err == nil || !strings.Contains(err.Error(), "unknown flag") {
+		t.Errorf("--new should be rejected as an unknown flag; err = %v", err)
 	}
 }
 

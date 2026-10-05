@@ -10,10 +10,10 @@ package session
 // tells the phased commit (2a's Task 3) "this variable becomes secret ->
 // flip the manifest entry to secret = true with no Value and no Profiles".
 //
-// The four Change*Output kinds are the Outputs tab's own staged edits (Task
+// The four Change*Output kinds are the Outputs screen's own staged edits (Task
 // 5). They key by the output's identity at the start of the session (or the
 // name it was added under this session), never by a pending rename's
-// target -- see outputIdentityNames -- so a row that is both renamed and,
+// target, so a row that is both renamed and,
 // say, made default in the same session stages two Changes that agree about
 // which row they mean.
 //

@@ -70,8 +70,8 @@ func newUiCmd(opts *Options) *cobra.Command {
 //     every case above -- never interleaved with them in staged order. This
 //     is the fix for the second, closely related Fix-1-shaped bug a
 //     whole-branch review found: identity.Name never changes when a row is
-//     renamed (every other Change keys by the row's ORIGINAL identity), but the rename itself moves that
-//     key in app.Manifest.Outputs. Applying rename-output in the same
+//     renamed (every other Change keys by the row's ORIGINAL identity),
+//     but the rename itself moves that key in app.Manifest.Outputs. Applying rename-output in the same
 //     single-pass loop as set-globs or default-output meant whichever the
 //     user happened to press FIRST decided whether the other's edit landed:
 //     rename-then-edit-membership deleted the old key before set-globs ever
@@ -102,10 +102,10 @@ func newUiCmd(opts *Options) *cobra.Command {
 // something gone that a retry would actually find already done.
 //
 // commitStaged returns its result instead of printing it, because the
-// interface calls it while it owns the terminal. A failure in phase 6, after the state
-// save (phase 4), still returns the left-in-place paths beside its error,
-// because that save forgot the render records and a retry would find none
-// to name.
+// interface calls it while it owns the terminal. A failure in phase 6,
+// after the state save (phase 4), still returns the left-in-place paths
+// beside its error, because that save forgot the render records and a retry
+// would find none to name.
 //
 // Adding a kind (Task 8's set-globs) means adding one case to whichever
 // phase above it belongs in -- never restructuring the phases themselves.
@@ -513,7 +513,7 @@ func applyManifestEdits(m *manifest.Manifest, staged []session.Change) {
 		case session.ChangeDeleteVar:
 			delete(m.Vars, c.Name)
 		case session.ChangePromoteSecret:
-			// The row-level record from s (see stagePromotion's doc), never
+			// The row-level record from s (see session.PromotionChanges), never
 			// ChangeSetSecret: a set-secret also arrives here from editing an
 			// ALREADY-secret cell's value, which must not flip anything --
 			// the var is secret already, and re-deriving that from the wrong

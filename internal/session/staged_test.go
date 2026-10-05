@@ -110,7 +110,7 @@ func TestStagedDeleteDropsEveryOtherChangeOnTheVariable(t *testing.T) {
 }
 
 // Editing a variable marked for deletion un-marks it -- the same rule
-// internal/ui's beginEdit holds, so commit never sees both on one name.
+// internal/manage's beginEdit holds, so commit never sees both on one name.
 func TestStagedEditCancelsAPendingDelete(t *testing.T) {
 	var s session.Staged
 	s.Add(session.Change{Kind: session.ChangeDeleteVar, Name: "A"})
@@ -151,7 +151,7 @@ func TestStagedViewMarksPromotionAndNewSecrets(t *testing.T) {
 	}
 }
 
-// Same semantics as internal/ui's stagePromotion: each profile's override,
+// Same semantics as PromotionChanges' doc: each profile's override,
 // else the shared value, else nothing for that profile.
 func TestPromotionChangesUseOverrideThenShared(t *testing.T) {
 	v := manifest.Var{Value: ptr("shared"), Profiles: map[string]string{"prod": "p"}}

@@ -42,7 +42,7 @@ func (s *structuralWitnessStore) Set(service, value string) error {
 // commitStaged directly with a hand-built []session.Change, exactly the seam
 // deletedNames' own doc already leans on ("a Change slice is a plain
 // exported value, and this function must not trust that every caller built
-// one the only way internal/ui's keys currently allow"). The slice lists
+// one the only way the interface's keys allow"). The slice lists
 // the secret promotion BEFORE the output addition -- the opposite of
 // staged order a real session would produce if a user promoted first and
 // added the output second -- to prove the result does not depend on that
@@ -96,7 +96,7 @@ value = "http://+:8080"
 
 	staged := []session.Change{
 		// A genuine promotion: the value first, per profile, then the
-		// row-level flip -- mirrors stagePromotion's own shape.
+		// row-level flip -- mirrors session.PromotionChanges' shape.
 		{Kind: session.ChangeSetSecret, Name: "APP_URL", Profile: "dev", Value: "http://+:8080"},
 		{Kind: session.ChangePromoteSecret, Name: "APP_URL"},
 		{Kind: session.ChangeAddOutput, Name: "public", Format: "dotenv", Path: "public/.env"},
@@ -111,7 +111,7 @@ value = "http://+:8080"
 	}
 }
 
-// Fix 4 (Important, whole-branch review) taught internal/ui's own add-output
+// Fix 4 (Important, whole-branch review) taught the interface's add-output
 // wizard to refuse an illegal format live, at zero cost -- so a real
 // `trenvy ui` session can no longer stage one. But commitStaged must still
 // refuse it too: a []session.Change is a plain exported value (see this file's

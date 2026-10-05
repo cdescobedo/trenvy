@@ -20,8 +20,8 @@ const (
 // on it is a zero lipgloss.Style, and a zero Style carries no foreground,
 // background or attribute rule, so there is nothing for a renderer to write.
 // That is what lets every existing test keep building a Params or an Options
-// without a Styler and keep asserting on words -- the 126 strings.Contains
-// assertions in internal/ui depend on it.
+// without a Styler and keep asserting on words -- the many strings.Contains
+// assertions across the test suites depend on it.
 //
 // It is NOT because the zero Style lacks a renderer. Style.Render falls back
 // to lipgloss's package-global renderer when its own is nil (lipgloss v1.1.0

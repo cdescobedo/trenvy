@@ -126,7 +126,7 @@ func assertDBURLKeptWithBothProfiles(t *testing.T, deletedMsg string) {
 }
 
 // The Fix 1 regression, order 1: d then an edit of the prod cell. The edit
-// cancels the pending delete (internal/ui's beginEdit; session.Staged.Add
+// cancels the pending delete (internal/manage's beginEdit; session.Staged.Add
 // holds the same rule), so the batch is the edit alone, and dev survives.
 func TestCommitDeleteThenEditPreservesTheUntouchedProfile(t *testing.T) {
 	opts, app := newCommitAppFrom(t, store.NewMem(), dbURLSource)

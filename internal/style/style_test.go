@@ -92,8 +92,8 @@ func TestEveryTokenPreservesItsTextExactly(t *testing.T) {
 
 var ansiRE = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
-// The default renderer under `go test` is Ascii, which is what keeps the 126
-// existing strings.Contains assertions in internal/ui working untouched.
+// The default renderer under `go test` is Ascii, which is what keeps the
+// existing strings.Contains assertions in other packages working untouched.
 func TestDefaultStylerEmitsNoEscapes(t *testing.T) {
 	s := style.New(lipgloss.NewRenderer(io.Discard))
 	if got := s.Missing("MISSING"); got != "MISSING" {
@@ -101,7 +101,7 @@ func TestDefaultStylerEmitsNoEscapes(t *testing.T) {
 	}
 }
 
-// The zero Styler is load-bearing: every existing test in internal/ui and
+// The zero Styler is load-bearing: every existing test in internal/manage and
 // internal/cli builds its fixture without one, so if the zero value ever
 // panics or starts colouring, those suites break in bulk.
 func TestZeroStylerIsSafeAndPlain(t *testing.T) {

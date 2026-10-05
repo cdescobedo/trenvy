@@ -45,8 +45,9 @@ type Options struct {
 	// the environment and argv without spawning anything.
 	Run func(*exec.Cmd) error
 
-	// RunTUI drives the interactive table `trenvy import` reviews with. Swappable so tests can supply a
-	// finished model instead of a terminal session.
+	// RunTUI drives the interactive table `trenvy import` reviews with.
+	// Swappable so tests can supply a finished model instead of a terminal
+	// session.
 	RunTUI func(tui.Model, func(string) (string, error)) (tui.Model, error)
 
 	// RunManage drives the interface (`trenvy ui` and `trenvy edit`).

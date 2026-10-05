@@ -44,7 +44,7 @@ func r(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []run
 
 var enter = tea.KeyMsg{Type: tea.KeyEnter}
 
-func TestUiNewSavesAndStaysOpen(t *testing.T) {
+func TestUiSavesAndStaysOpen(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t)) // ALPHA_TOKEN (secret), APP_URL
 	var view string
@@ -79,7 +79,7 @@ func TestUiNewSavesAndStaysOpen(t *testing.T) {
 }
 
 // The reload after a save shows what is on disk, not what was staged.
-func TestUiNewReloadShowsDiskState(t *testing.T) {
+func TestUiReloadShowsDiskState(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
 	h.opts.RunManage = func(m manage.Model) (manage.Model, error) {
@@ -169,7 +169,7 @@ func (c *callLog) since(n int) []string {
 // The global constraint "presence comes from Has, never Get", at the seam:
 // opening the interface asks the store only Has, and v on one cell reads
 // exactly that cell, once.
-func TestUiNewOpensWithHasAndRevealsWithOneGet(t *testing.T) {
+func TestUiOpensWithHasAndRevealsWithOneGet(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t))
 	if err := h.mem.Set("trenvy/vpb/dev/ALPHA_TOKEN", "tok-dev"); err != nil {
@@ -208,7 +208,7 @@ func TestUiNewOpensWithHasAndRevealsWithOneGet(t *testing.T) {
 // The Outputs screen's state word and default tag come from the snapshot
 // buildSnapshot fills: the quick-mode state `trenvy status` prints, and
 // project.output from disk.
-func TestUiNewOutputsShowsDiskStateAndDefault(t *testing.T) {
+func TestUiOutputsShowsDiskStateAndDefault(t *testing.T) {
 	h := newHarness(t)
 	h.register("vpb", fixtureManifest(t)) // output docker, the default, never rendered
 	var view string
@@ -235,7 +235,7 @@ func TestUiNewOutputsShowsDiskStateAndDefault(t *testing.T) {
 // Adding an output asks git, in the session's worktree, whether the path is
 // ignored: a tracked path is warned about and nothing is staged, an ignored
 // one is staged and saved.
-func TestUiNewAddOutputAsksGitWhetherThePathIsIgnored(t *testing.T) {
+func TestUiAddOutputAsksGitWhetherThePathIsIgnored(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("api.env\n")
 	h.register("vpb", fixtureManifest(t))
@@ -268,7 +268,7 @@ func TestUiNewAddOutputAsksGitWhetherThePathIsIgnored(t *testing.T) {
 // A worktree outside git has nothing git could commit, so GitIgnored counts
 // every path as ignored -- the same judgement render's guard makes -- and
 // adding an output there takes one enter, with no warning.
-func TestUiNewAddOutputOutsideGitNeedsNoWarning(t *testing.T) {
+func TestUiAddOutputOutsideGitNeedsNoWarning(t *testing.T) {
 	h := newHarness(t) // h.root is a fresh temp dir, not a repository
 	h.register("vpb", fixtureManifest(t))
 	var view string
@@ -292,7 +292,7 @@ func TestUiNewAddOutputOutsideGitNeedsNoWarning(t *testing.T) {
 // output holds a secret, so the reload the action triggers reads it as
 // unverified (quick mode never reads secrets); Check now, which does, then
 // reads it fresh.
-func TestUiNewRenderNowWritesTheFileAndReloadsItsState(t *testing.T) {
+func TestUiRenderNowWritesTheFileAndReloadsItsState(t *testing.T) {
 	h := newHarness(t)
 	h.gitInit("src/.env\n")
 	h.register("vpb", fixtureManifest(t))

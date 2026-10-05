@@ -2,7 +2,7 @@
 // that carries meaning, and the two containers those tokens sit in.
 //
 // It exists because the same words -- MISSING, stored, STALE, optional --
-// are rendered by both internal/ui and internal/cli. Defined twice, they
+// are rendered by both internal/manage and internal/cli. Defined twice, they
 // would drift, and a token that means one thing in `trenvy status` and
 // another in `trenvy ui` is worse than an unstyled one.
 package style

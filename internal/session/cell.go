@@ -3,9 +3,8 @@
 // variable by every profile, the problems worth surfacing, which outputs
 // select a variable, and the staged changes a session holds until it saves.
 //
-// It imports no terminal library. Both internal/ui (the original interface)
-// and internal/manage (its replacement) build on it, which is what lets the
-// two run side by side until the cutover without two copies of the rules.
+// It imports no terminal library. internal/manage builds on it, and keeps the
+// rules here, where they are testable without a terminal.
 package session
 
 import "github.com/cdescobedo/trenvy/internal/manifest"

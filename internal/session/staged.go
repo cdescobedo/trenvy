@@ -57,7 +57,7 @@ func isOutputKind(kind string) bool {
 //     was only added this session then stages nothing at all: it never
 //     existed.
 //   - Any other change on a variable marked for deletion un-marks it, the
-//     rule internal/ui's beginEdit holds.
+//     rule internal/manage's beginEdit holds.
 //
 // Without the first, a promotion staged before the delete would store its
 // keyring items and the delete would then remove the manifest entry that
@@ -380,8 +380,8 @@ func (s Staged) View(name string, base manifest.Var) VarView {
 
 // PromotionChanges is what making name a secret stages: one set-secret per
 // profile that has a value -- its override, else the shared value -- then
-// the promote-secret that flips the manifest entry. Same semantics as
-// internal/ui's stagePromotion, so both interfaces promote identically.
+// the promote-secret that flips the manifest entry. The Variables screen
+// stages exactly these.
 func PromotionChanges(name string, v manifest.Var, profiles []string) []Change {
 	var out []Change
 	for _, p := range profiles {

@@ -25,7 +25,7 @@ func newEditCmd(opts *Options) *cobra.Command {
 	}
 }
 
-// reviewImport is the import review: the same table, pre-filled from the
+// reviewImport is the import review: internal/tui's table, pre-filled from the
 // sample. Reveal is stubbed out to ErrNotFound because nothing being reviewed
 // is in the keyring yet -- these rows are candidates, not stored secrets.
 func reviewImport(opts *Options, projectID string, entries []sample.Entry) ([]sample.Entry, error) {
