@@ -485,15 +485,17 @@ var (
 	renameDocker  = ui.Change{Kind: ui.ChangeRenameOutput, Name: "docker", Value: "prod-env"}
 )
 
-// default-output reads and writes project.output by the row's pre-rename
-// identity, so D and r on one row must land in either order.
+// The order that already worked before the fix, pinned so a change to
+// commitStaged cannot flip which order works.
 func TestCommitDefaultThenRenameBothLand(t *testing.T) {
 	opts, app := newCommitAppFrom(t, store.NewMem(), twoOutputsPublicDefault)
 	mustCommit(t, opts, app, []ui.Change{defaultDocker, renameDocker})
 	assertDockerRenamedAndDefault(t)
 }
 
-// The reverse order, which already worked before the fix.
+// default-output reads and writes project.output by the row's pre-rename
+// identity, so D after r on one row must still land: applied in staged
+// order, it would point project.output at a name the rename just moved.
 func TestCommitRenameThenDefaultBothLand(t *testing.T) {
 	opts, app := newCommitAppFrom(t, store.NewMem(), twoOutputsPublicDefault)
 	mustCommit(t, opts, app, []ui.Change{renameDocker, defaultDocker})
@@ -927,5 +929,32 @@ func TestCommitAddVarFailingValidationWritesNothing(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "nothing was written") {
 		t.Errorf("error does not say nothing was written: %v", err)
+	}
+}
+
+// A keyring write that fails reports how far phase 2 got -- "stored 0 of
+// 1", never a count that credits the failed write -- and leaves the
+// manifest unsaved. The original,
+// TestUiCommitErrorEndsWithTheRedoSentenceExactlyOnce, also counted the
+// old caller's redo sentence, which goes with it; this carries over the
+// part that is commitStaged's own.
+func TestCommitKeyringWriteFailureReportsStoredNoneOfOne(t *testing.T) {
+	st := &failOnce{Mem: store.NewMem(), failOn: "trenvy/vpb/dev/ALPHA_TOKEN"}
+	opts, app := newCommitAppFrom(t, st, portedFixture)
+
+	_, err := commitStaged(opts, app, []ui.Change{
+		{Kind: ui.ChangeSetSecret, Name: "ALPHA_TOKEN", Profile: "dev", Value: "new-secret-value"},
+	})
+	if err == nil {
+		t.Fatal("commit succeeded despite a failing keyring write")
+	}
+	if !strings.Contains(err.Error(), "stored 0 of 1 secrets") {
+		t.Errorf("error lacks the progress line: %v", err)
+	}
+	if !strings.Contains(err.Error(), "manifest was not saved") {
+		t.Errorf("error does not say the manifest is unsaved: %v", err)
+	}
+	if ok, _ := st.Has("trenvy/vpb/dev/ALPHA_TOKEN"); ok {
+		t.Error("the failed keyring write left an item in the store")
 	}
 }
