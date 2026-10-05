@@ -125,7 +125,7 @@ wrote .env  (3 vars, 1 from the keyring, 0600)
 Two things worth noticing. `import` normally opens an interactive table so you
 can review which variables are secret before anything is saved — `--no-tui`
 above skips it only so the block is pasteable; drop the flag and you get the
-review, or run `trenvy edit` later. And `--output local` names the output
+review, or run `trenvy ui` later. And `--output local` names the output
 import creates, pointing at the sample file's real path; drop the flag and
 import still creates one, named from the sample's directory (`root` for a
 sample at the worktree root) — only `--no-output` gets you variables and
@@ -335,6 +335,7 @@ active selection instead of setting one.
 | `trenvy get <NAME>` | Print one variable's value |
 | `trenvy show [output]` | List the profile's variables, or one output's subset, secrets masked |
 | `trenvy secret set <NAME>` | Store or rotate a secret in the keyring |
+| `trenvy secret demote <NAME>` | Turn a secret back into a plain variable, moving its values into the manifest |
 | `trenvy secret rm <NAME>` | Delete a secret's value from the keyring, keeping the variable |
 | `trenvy unset <NAME>` | Remove a variable from the manifest and its secret from every profile's keyring |
 | `trenvy edit` | Open the interactive interface (the same as trenvy ui) |
@@ -342,8 +343,8 @@ active selection instead of setting one.
 
 Flags: `import` takes `--output <name>`, `--no-output`, `--no-tui` and
 `--force`; `set` takes `--shared`; `show` takes `--reveal` and `--format
-dotenv|json`; `secret set` takes `--stdin`; `secret rm` and `unset` take
-`--yes`.
+dotenv|json`; `secret set` takes `--stdin`; `secret demote`, `secret rm` and
+`unset` take `--yes`.
 
 ### Delivery
 
@@ -398,134 +399,286 @@ Whether a secret is actually *stored* is `trenvy status`'s question, not
 
 ## The management interface
 
-`trenvy edit` shows one profile at a time. `trenvy ui` shows all of them at
-once, as a matrix — rows are variables, columns are profiles:
+`trenvy ui` and `trenvy edit` open the same interface. It is built around
+four promises: every value is on screen without a keypress (secrets masked), a
+key means the same thing on every screen, edits are **staged** until you
+review them with `w`, and saving does **not** quit — you keep working in the
+same session.
+
+Presence is loaded with `Has`, never `Get`, so opening it never raises a
+keyring authorization prompt. A secret's real value is read only when you ask:
+`v` on a value, *Check now* on an output, and `trenvy secret demote` outside
+the interface.
+
+### The layout
 
 ```console
 $ trenvy ui
-1:Overview  >2:Variables   3:Profiles   4:Outputs
+ myapp · dev (default)                                                                ! 2 problems
+ [ Variables ]  Outputs
+╭───────────────────────╮╭─────────────────────────────────────────────────────────────────────────╮
+│> API_TOKEN    secret !││  API_TOKEN                                            secret · required │
+│  APP_MODE             ││                                                                         │
+│  DATABASE_URL         ││  dev *       ••••••••                                    stored         │
+│  PUBLIC_URL           ││  staging     -                                           MISSING !      │
+│                       ││  prod        -                                           MISSING !      │
+│                       ││                                                                         │
+│                       ││  ! no value under prod -- enter on prod to store it                     │
+│                       ││  ! no value under staging -- enter on staging to store it               │
+│                       ││  written to  local (.env)                                               │
+│                       ││                                                                         │
+│                       ││                                                                         │
+╰───────────────────────╯╰─────────────────────────────────────────────────────────────────────────╯
 
-   NAME                  dev       prod
->  API_TOKEN     secret  [stored]  MISSING
-   APP_MODE              override  shared
-   DATABASE_URL          shared    shared
-
-no staged changes
+ enter open   d delete   a add   . more   / filter   ? keys
 ```
 
-A cell reads `shared` (the variable's default value), `override` (a value set
-just for that profile), `stored` (a secret present in the keyring), `MISSING`
-or `optional`. The `secret` column marks which rows are secrets. Presence is
-loaded with `Has`, never `Get`, so opening the view never raises a keyring
-authorization prompt — a cell's real value is only fetched when you reveal it.
+- **Header.** The project, then the profile in effect and where that choice
+  came from: `default` above, or `active`, `TRENVY_PROFILE` or `--profile`. On the right, the
+  problem count, and — once something is staged — the unsaved count with the
+  key that reviews it. Each appears only when it is non-zero.
+- **Screens.** **Variables** and **Outputs**, switched with `1` and `2`, or
+  `tab` and `shift+tab`. Profiles are not a screen of this interface:
+  `trenvy profile` does that job from the command line.
+- **Size.** It needs a terminal of at least 40 by 10; smaller, it says so and
+  does not draw.
+- **Body.** A list on the left, the selected row's detail on the right. `→`
+  or `l` moves into the detail, `←` or `h` back. Narrower than 80 columns the
+  two stack, and `enter` opens the detail full width, `←` returns.
+- **Message line.** One short line saying what just happened and how to
+  reverse it, cleared by the next keypress.
+- **Footer.** Only the keys that work for the current selection, with `? keys`
+  always last.
 
-`s` on a plain variable's row promotes it to a secret, one way: there is no
-key that turns a secret back into a plain variable. On `w`, the value —
-the shared default, or each profile's own override — moves into the keyring,
-one item per profile that had a value, and the manifest is left with
-`secret = true` and no plain value on it. A variable carrying a shared value
-confirms first, naming that it becomes one keyring item per declared profile
-that can drift apart once any one of them is edited later; declining stages
-nothing. A variable with only per-profile overrides and no shared value
-stages immediately, with no such prompt. `s` on a row that is already a
-secret says why it did nothing.
+Problems are marked where they live: a `!` beside the row, listed at the foot
+of its detail with what to do about it, and counted in the header. `!` limits
+the list to rows with a problem.
 
-The four tabs: **Overview** repeats `status`'s own project, profile, manifest,
-worktree and backend facts, lists every detected problem with the exact
-command that fixes it (or says the project is healthy), and flags a variable
-that reaches no output — a plain fact, not an error, since
-`exec` and `shell` read a whole profile with no output at all. Enter on a
-problem jumps to the cell, or the tab, that explains it.
+### Variables
 
-**Variables** is the matrix above. **Outputs** lists every declared
-output — name, format, path, what it selects, and its render state — and
-opens a membership editor on `enter`:
+The list holds one row per variable, with a `secret` tag on secrets and a mark
+for what is going on: `!` a problem, `~` staged, `x` marked for deletion.
+Marks are characters before they are colour, so they read the same with
+`NO_COLOR` set — every screen in this section was captured that way.
+
+The detail shows what the variable is worth under **every** profile, and why:
 
 ```console
-$ trenvy ui
- 1:Overview   2:Variables   3:Profiles  >4:Outputs
-
-   NAME     FORMAT  PATH      SELECTS   STATE
->  local *  dotenv  .env      all       absent
-   web      json    web.json  PUBLIC_*  absent
-
-D does nothing here: local is already the default -- there is no key that clears the default without setting a new one
-
-no staged changes
-a add · r rename · D default · d delete · enter edit membership · ? help
+ myapp · dev (default)                                          ! 2 problems    3 unsaved  w review
+ [ Variables ]  Outputs
+╭───────────────────────╮╭─────────────────────────────────────────────────────────────────────────╮
+│  API_TOKEN    secret ~││  APP_MODE                                              plain · required │
+│· APP_MODE            ~││                                                                         │
+│  DATABASE_URL         ││  shared      debug                                        ~             │
+│  PUBLIC_URL           ││                                                                         │
+│                       ││> dev *       staging                                     override ~     │
+│                       ││  staging     debug                                       from shared    │
+│                       ││  prod        production                                  override       │
+│                       ││                                                                         │
+│                       ││  written to  local (.env)                                               │
+│                       ││                                                                         │
+│                       ││                                                                         │
+╰───────────────────────╯╰─────────────────────────────────────────────────────────────────────────╯
+ APP_MODE override for dev staged -- u to undo
+ enter edit   d remove   u undo   ← back   . more   ? keys
 ```
 
-`*` marks the output `render` and `show` use with no argument, the same mark
-`trenvy output list` uses. `a` prompts for a name, then a format, then a
-path, staging all three as one addition; `r` renames the row in place; `D`
-(capital — `d` already means delete everywhere else in this UI) stages
-making the row the default; `d` marks the row deleted. Each of these shows in
-the table the instant it is staged, before `w` is ever pressed. A `fresh`
-STATE can still miss one thing: a secret's value changing since the last
-render while the file itself went untouched — `trenvy status` is the command
-that reads secrets and can tell that apart from a real match.
+A plain variable gets a `shared` row — the default — and then one row per
+profile. A value a profile inherits says `from shared`; one it sets itself says
+`override`. `*` marks the profile in effect. `~` marks a value that is staged
+but not yet saved. A secret has no shared row (the manifest refuses a secret
+with a value in it); each profile's row reads `stored` or `MISSING`, and the
+value is masked as `••••••••`.
 
-`enter` opens the membership editor: one checkbox per variable, for exactly
-which of them this output writes — a hand edit of the manifest's
-`include`/`exclude` globs until now.
+`→` enters the detail and `enter` edits the row under the cursor. The edit
+field says which thing you are changing — *Shared value -- used by dev,
+staging* on the shared row, *Override for dev only* on a profile's — so
+editing a `shared` value is never mistaken for creating an override. A secret's
+field is masked while you type. `v` reveals one secret's value, and `v` again
+hides it. `d` on an override removes it, so the profile falls back to `shared`;
+`d` on a variable in the list marks it deleted, and again restores it. `a`
+adds a variable: its name, then `p` plain or `s` secret, then its first value.
+
+`.` opens the actions for the selection: *Make secret*, *Mark optional* (or
+*Mark required*), *Rename*, *Project info* and *Switch project*. Two of these
+are listed but unavailable, and say why when you press `enter` on them:
+*Rename*, because renaming a variable is not supported yet, and *Switch
+project* while no other project is registered. *Project info* is where the
+manifest, worktree and backend paths went.
+
+*Make secret* is one way **inside the interface**. A variable carrying a
+shared value confirms first, naming that it becomes one keyring item per
+declared profile, which can drift apart once any one of them is edited later;
+declining stages nothing. A variable with only per-profile overrides stages at
+once, with no such prompt. The way back is the command line:
+`trenvy secret demote <NAME>` reads each profile's keyring value, writes it
+into the manifest as plain text, and then deletes the keyring items. It asks
+first unless you pass `--yes`, and it refuses a variable that is not a secret.
+
+### Outputs
 
 ```console
-Editing membership for local
+ myapp · dev (default)                                                                ! 3 problems
+  Variables  [ Outputs ]
+╭──────────────────────────────╮╭──────────────────────────────────────────────────────────────────╮
+│  local default STALE        !││  web                                                        json │
+│> web           FOREIGN      !││                                                                  │
+│                              ││  format        json                                              │
+│                              ││  path          web.json                                          │
+│                              ││  state         FOREIGN  a file trenvy did not write is at this   │
+│                              ││                         path                                     │
+│                              ││                                                                  │
+│                              ││  new variables not included -- only the checked ones             │
+│                              ││                                                                  │
+│                              ││  [ ] API_TOKEN                                                   │
+╰──────────────────────────────╯╰──────────────────────────────────────────────────────────────────╯
 
-> [x] API_TOKEN
-  [x] APP_MODE
-  [x] DATABASE_URL
-  [x] PUBLIC_URL
-
-everything except: a variable added later WILL appear in this file
-
-space toggle · m switch mode · enter save · esc cancel
+ enter open   d remove   a add   . more   ? keys
 ```
 
-`space` toggles the variable under the cursor. `m` switches which of two
-futures a variable that does not exist yet falls into — *everything except*,
-shown above, where it lands in the file automatically, or *only these*,
-where it does not — and the sentence on screen changes with it; switching
-modes never moves any of today's checked boxes, only what a future addition
-does. `enter` saves the result as a staged glob change; `esc` abandons the
-whole edit. A row with a staged delete refuses to open the editor, and the
-reverse holds too: marking a row deleted while its membership edit is open is
-also refused, since editing and removing the same output in one batch has no
-single right answer.
+The list is every output with its state; the detail is its format, path,
+state, what new variables do, and the membership grid. The state is the word
+`trenvy status` prints, with a muted gloss after it:
 
-**Profiles** remains a placeholder in this release — it names `trenvy
-profile` as the command that does that job today.
+| state | gloss |
+|---|---|
+| `fresh` | up to date with the manifest |
+| `not rendered` | not rendered in this worktree |
+| `STALE` | out of date -- render to update it |
+| `MODIFIED` | edited by hand since the last render |
+| `FOREIGN` | a file trenvy did not write is at this path |
+| `unverified` | not checked, holds secrets -- `.` then *Check now* |
+| `unknown` | can't tell -- a secret is missing or the file can't be read |
 
-Keys: `1`-`4` or `tab`/`shift+tab` switch tabs; `j`/`k`/`h`/`l` and the arrow
-keys move the cursor (clamped at the edges, not wrapping); `e` edits the
-selected cell, masked while typing if it is a secret; `r` reveals a cell's
-real value on the Variables tab, or renames the selected row on the Outputs
-tab; `a` adds a variable or an output; `d` marks the selected variable or
-output deleted; `D` makes the selected output the default; `s` promotes the
-selected variable to a secret; `enter` jumps to a problem's cell on the
-Overview tab, or opens the membership editor on the Outputs tab; `/` filters
-rows by substring; `p` opens a switcher over every registered project and
-reloads the session against your choice, asking first if you have staged
-changes; `w` commits everything staged; `q` quits, asking first if anything
-is staged; `ctrl+c` quits immediately from anywhere, without asking, and
-without writing anything; `?` shows the full key list. A short reminder of
-the relevant keys stays on screen on every tab, so none of this has to be
-memorized up front.
+`unverified` is this interface's word for what `trenvy status --quick` prints
+as `unknown (--quick)`: the file is there, but telling a match from a changed
+secret means reading secrets, and opening the interface does not.
 
-Nothing reaches disk until `w`. It commits in phases: a new variable or
-output is added first, so a row this same session also renames, defaults or
-removes has something to act on; keyring writes follow, then keyring
-deletes — a deleted variable's secret is removed under every profile, not
-just the active one; the render-state file comes next, so a renamed output's
-already-rendered file keeps reading as fresh, and a removed output's render
-records are forgotten in every worktree that ever rendered it, naming any
-file the removal leaves on disk; every remaining edit and removal follows in
-its own pass; and only then is the whole manifest validated and saved. A
-commit that fails partway reports exactly how far it got — secrets stored,
-secrets deleted, render records repointed or forgotten — rather than one
-number that cannot say which kind stalled, and there is no rollback: a
-deleted keyring item cannot be undeleted. Quitting any other way — `q`
-confirmed, or `ctrl+c` — writes nothing at all.
+**Membership** is edited in place. `→` enters the grid of checkboxes, `space`
+toggles one, and a `~` marks a box you changed. The sentence above the grid says
+what a variable added *later* does — `new variables included automatically`
+or `new variables not included -- only the checked ones` — and the `.` menu
+item *New variables* flips it, without moving any checked box.
+
+`enter` on `format` or `path` edits it. `a` adds an output: name, then format,
+then path, and a path git does not ignore is warned about in the field before
+you confirm it. `d` marks an output for removal.
+
+`.` on an output offers *Make default*, *Rename*, *New variables*, *Render
+now*, *Remove rendered file* and *Check now (reads secrets)*. The last three
+act **immediately**, not staged, because they touch this worktree's file and
+not the manifest:
+
+- *Render now* is `trenvy render` for that output, guards included: a path git
+  does not ignore, or a file trenvy did not write, is refused with the
+  command's own message, and nothing is written.
+- *Remove rendered file* is `trenvy clean`, and asks first.
+- *Check now* reads the secrets, which may prompt the keyring, and settles
+  `unverified` into one of the other words until the next reload.
+
+All three are unavailable while that output has staged changes, since they
+would act on what is on disk rather than what the screen shows; the reason is
+shown when you press `enter` on one — *save or undo local's staged changes
+first -- they are not on disk yet*.
+
+A variable that reaches several outputs is not a problem. It shows on the
+variable's own `written to` line instead.
+
+### Saving
+
+Nothing reaches disk until you press `w`, and the review shows exactly what
+would happen:
+
+```console
+ myapp · dev (default)                                          ! 2 problems    4 unsaved  w review
+ [ Variables ]  Outputs
+            ╭──────────────────────────────────────────────────────────────────────────╮
+            │Review  4 changes                                                         │
+            │                                                                          │
+            │API_TOKEN                                                                 │
+            │> ~ prod                  store new value (keyring)                       │
+            │APP_MODE                                                                  │
+            │  ~ shared value          development  ->  debug                          │
+            │  ~ dev override          development  ->  staging                        │
+            │PUBLIC_URL                                                                │
+            │  x delete variable       its values leave the manifest                   │
+            │                          ! cannot be undone after saving                 │
+            ╰──────────────────────────────────────────────────────────────────────────╯
+
+
+ enter save all   u drop this change   esc keep editing
+```
+
+Changes are grouped by what they touch, and every line reads *before -> after*.
+A plain value is shown in full. A secret's never is — its line says `store new
+value (keyring)`. Lines that cannot be undone after saving (a deleted
+variable, a variable turned into a secret) carry `!` and say so. Every line
+can be dropped with `u`, and anything that depended on it goes with it and
+says so, so dropping a new variable also drops its value edits. Dropping the
+last change closes the review.
+
+`enter` saves everything left. While it writes, input is ignored except
+`ctrl+c`. On success the review closes, the screen reloads from disk, and the
+message line says `saved 3 changes`, and you are still in the interface. If a
+save fails partway, the review stays open with how far it got, and the **whole
+batch stays staged**: `enter` retries all of it, which is safe because the
+manifest is saved last and everything before it can be repeated. A batch the
+manifest refuses outright wrote nothing, and the review says so, pointing at
+the change to drop with `u` or to edit instead of offering a retry. `esc`
+leaves the review with nothing written.
+
+The commit's order is unchanged from the interface it replaced, and is
+described in [architecture.md](docs/architecture.md#the-staged-commit). A
+batch the manifest would refuse is caught **before** the first keyring write.
+`q` with unsaved changes asks first (`w` review, `q` discard and quit, `esc`
+cancel). `ctrl+c` quits at once, from anywhere, writing nothing. There is no
+rollback: a deleted keyring item cannot be undeleted.
+
+### Keys
+
+Press `?` for the list. It wraps rather than truncates:
+
+```console
+ myapp · dev (default)                                                                 ! 1 problem
+ [ Variables ]  Outputs
+            ╭──────────────────────────────────────────────────────────────────────────╮
+            │Keys                                                                      │
+            │                                                                          │
+            │↑↓  j k   move                                                            │
+            │←→  h l   switch pane                                                     │
+            │1 2  tab  switch screen (shift+tab goes back)                             │
+            │enter     the primary action on the selection                             │
+            │a         add                                                             │
+            │d         mark deleted, or remove a value (again to unmark)               │
+            │u         undo the staged change on the selection                         │
+            │v         reveal or hide the value under the cursor                       │
+            │/         filter by name                                                  │
+            │!         show only rows with problems                                    │
+            │.         more actions for the selection                                  │
+            │w         review and save                                                 │
+            │q         quit (asks first if anything is unsaved)                        │
+            │ctrl+c    quit now, writing nothing                                       │
+            │esc       close the panel on top                                          │
+            │?         this list                                                       │
+            ╰──────────────────────────────────────────────────────────────────────────╯
+ esc close
+```
+
+These mean the same on every screen. A key that does nothing for the current
+selection is left out of the footer.
+
+Anything that needs more than a key — a field to type into, the `.` menu, the
+review, a confirmation, `?` — opens as one panel over the body, and `esc`
+closes that panel and does nothing else. In a text field, `ctrl+u` clears
+what is there.
+
+### Colour
+
+The interface uses its own palette, light or dark by detecting the terminal's
+background. Detection can guess wrong, and a wrong guess makes text hard to
+read, so `TRENVY_THEME=light` or `TRENVY_THEME=dark` overrides it; any other
+value is an error rather than a guess. With `NO_COLOR` set, or output that is
+not a terminal, every state still reads in words.
 
 ## Configuration
 
@@ -549,6 +702,7 @@ Directories are created `0700`; every file is written atomically at `0600`.
 | `TRENVY_CONFIG_DIR` | overrides the config directory entirely; ahead of `XDG_CONFIG_HOME` |
 | `TRENVY_PROFILE` | names the profile, unless `--profile` is passed; outranks the active selection and the manifest default |
 | `TRENVY_BACKEND` | the secret backend, unless `--backend` is passed |
+| `TRENVY_THEME` | `light` or `dark` forces the interface's palette instead of detecting the terminal's background; any other value is an error |
 | `TRENVY_PASSPHRASE` | unlocks the `file` backend (**stripped from `exec`'s child environment**) |
 | `TRENVY_PROJECT` | *set by* `trenvy shell` in the subshell, so your prompt can mark it |
 
@@ -613,7 +767,7 @@ and how to report a vulnerability.
   process via `ps`, and lands in shell history. Success reports the length,
   never the value: `stored API_TOKEN (16 bytes)`.
 - **Listing secrets does not prompt on macOS.** Presence checks use a separate
-  `Has` operation, not a read, so `trenvy status` and the interactive table do
+  `Has` operation, not a read, so `trenvy status` and the interface do
   not raise one authorization dialog per secret. A masked `trenvy show` does
   not open the keyring at all.
 - **Rendered files are `0600`, written atomically** via temp-file-and-rename,
@@ -699,7 +853,7 @@ The guard working as intended. Add the named line to `.gitignore`, or pass
 
 **`.env was modified after trenvy wrote it`**
 Someone hand-edited the rendered file. Inspect it, then either fold the change
-back into the manifest with `trenvy edit`, or discard it with
+back into the manifest with `trenvy ui`, or discard it with
 `trenvy render <output> --force`.
 
 **`.env exists and trenvy has no record of writing it`** (`FOREIGN`)
@@ -720,7 +874,7 @@ running, so the error names the escape hatch: `trenvy profile use --clear`.
 **`no output given and project.output is not set`**
 The first output any `import` creates claims the default, so this usually
 means either no output was ever created that way — every `import` ran with
-`--no-output`, or the manifest was built up with `trenvy edit` — or the output
+`--no-output`, or the manifest was built up with `trenvy ui` — or the output
 that held the default was removed with `trenvy output rm`. Name the output —
 `trenvy render local` — or run `trenvy output default local` to make it the
 default again.

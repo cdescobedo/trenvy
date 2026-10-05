@@ -16,7 +16,8 @@ packages mean the shape below can change without breaking a consumer.
                       |
     +-----------------+-----------------+
     |          internal/cli             |   delivery: commands, flags, output
-    |   internal/render   internal/tui  |
+    | internal/render    internal/manage|
+    | internal/session   internal/tui   |
     +-----------------+-----------------+
                       |
               internal/resolve              precedence: what is a value?
@@ -45,45 +46,76 @@ why its tests need no store at all.
 
 **`render` / `cli` — where does it go?** `render` turns resolved values into
 bytes (dotenv or JSON) and computes the digests. `cli` wires the commands and
-owns everything user-facing. `tui` is the interactive table behind `edit` and
-`import`; `ui` is the tabbed management interface behind `trenvy ui`.
+owns everything user-facing. `manage` is the interactive interface behind both
+`trenvy ui` and `trenvy edit`; `session` is the UI-free logic it stands on;
+`tui` is the flat table that is left, used only by the interactive review in
+`trenvy import`.
 
-### `internal/ui` and `internal/tui`
+### `internal/manage`, `internal/session` and `internal/tui`
 
-`internal/cli` drives two interactive views. `tui` is the flat table `edit`
-and `import` open: one profile, one column of values per variable. `ui` is
-the matrix `trenvy ui` opens: every variable against every profile, with an
-Overview tab of detected problems, an Outputs tab for defining and editing
-which files get written and what each one selects, and a placeholder
-Profiles tab around them -- profile management is still `trenvy profile`'s
-job from the command line.
+`trenvy ui` and `trenvy edit` run the same function, `runManage`
+(`internal/cli/manage.go`), which builds a `manage.Snapshot` from disk and hands
+the interface a `manage.Deps`. `manage` is the interface: a root shell (header,
+screen switch, message line, footer, a stack of overlays) with one file per
+screen. Variables is `variables.go` and `varedit.go`, Outputs is `outputs.go`,
+`outedit.go` and `outactions.go`, and the save review is `review.go`. The line
+editor (`lineedit.go`), the `.` menu and the key table (`keys.go`) are shared.
+Only two screens exist; a profile is still managed with `trenvy profile`.
 
-The two packages share no code and no state. A list of one profile's
-variables and a matrix over every profile are different shapes, so each
-package owns its own model, view and `Update`; a change to one cannot alter
-what the other renders. `ui` loads secret presence through `Has` only, never
-`Get`, the same rule `cli`'s `status` command and its completion paths
-already follow, so opening `trenvy ui` never raises a keyring authorization
-prompt by itself.
+`session` holds everything the interface needs that is not drawing: the staged
+set (`Staged`, with `Change`), `Problems` and the state words, the
+variable-by-profile `Matrix`, and the glob helpers behind output membership. It
+imports no UI package, so its tests need no terminal and `cli` can use it
+without pulling the interface in.
+
+`manage` does no I/O inside `Update`. The keyring, the disk and the render
+path are `Deps` functions — `Reveal`, `Commit`, `Reload`, `Ignored`, `Render`,
+`Clean` and `Check` — each run inside a `tea.Cmd`, so a test drives the model
+with key messages and feeds each command's result back itself. Saving does not
+end the session: `Commit` runs, `Reload` rebuilds the snapshot from disk, the
+staged set empties, and the cursor stays. `cli.Options` carries a swappable
+`RunManage`, the way it carries `RunTUI`, so command tests never open a
+terminal.
+
+Presence is loaded through `Has` only, never `Get`, the same rule `status` and
+the completion paths follow, so opening the interface never raises a keyring
+authorization prompt by itself. A secret is read only by an explicit reveal,
+by *Check now* on an output (its menu label says it reads secrets), and by
+`trenvy secret demote`.
+
+`tui` is what is left of the first interactive view: one profile's variables
+as a flat table. Its only caller is `reviewImport` (`internal/cli/edit.go`), the
+review `trenvy import` opens before saving. It shares no code with `manage`.
 
 ### `internal/style`
 
-`internal/style` owns the token vocabulary (the colour each of `MISSING`,
-`stored`, `STALE`, `FOREIGN` and the rest is drawn in) and both containers: the
-aligned-column layout and the bordered panel. It is shared between
-`internal/ui` and `internal/cli` so the same word cannot mean different things
-in `trenvy status` and `trenvy ui`. A `Styler` is built over an injected
-renderer rather than lipgloss's global, which keeps `internal/ui` free of I/O
-and makes the colour profile testable. Colour is additive: the Ascii profile
-(`NO_COLOR`, or output that is not a terminal) removes escape sequences and
-nothing else. The panel borders carry no colour, so that output still contains
-box-drawing characters.
+`internal/style` owns the token vocabulary and the layout helpers, in two
+layers. A `Styler` colours the status words
+(`MISSING`, `stored`, `STALE`, `FOREIGN` and the rest) for the non-interactive
+commands, and `Columns` aligns their tables. A `Theme` is every visual role the
+interface uses — title, text, muted, accent, danger, ok, warn, staged, the key
+and pill styles and the surfaces — and `Pane` draws a bordered box around a
+screen's list or detail. The state words themselves are one set, defined in
+`session` and printed by `trenvy status`, so a word cannot mean different things
+in `trenvy status` and `trenvy ui`; the interface adds a muted gloss after each,
+and `unverified` for what quick mode prints as `unknown (--quick)`.
 
-Known limit: a panel keeps its border straight, but lipgloss word-wraps any
-body line wider than the panel's inner width. A long path wraps, and so does a
-profile matrix with enough profiles to exceed the panel, which breaks its
-*columns* across lines inside the border. Below 72 columns the flat layout
-draws no panel and does no wrapping of its own.
+Both are built over an injected `*lipgloss.Renderer` rather than lipgloss's
+global, which keeps `internal/manage` free of I/O and makes the colour profile
+testable: the global renderer resolves to Ascii under `go test`. A zero `Theme`
+renders plain text with no escapes, which is the form the word-level tests use.
+Screens reference roles, never colours; the hexadecimal values live only in
+`internal/style/theme.go`, so a later palette only has to produce a `Theme`.
+`TRENVY_THEME` (`light` or `dark`) overrides the background detection through
+`style.ThemeFor`, and any other value is an error. Colour is additive: the Ascii
+profile (`NO_COLOR`, or output that is not a terminal) removes escape sequences
+and nothing else, and every state in the interface still reads as a word.
+
+Known limit: `Pane` cuts a line to its width rather than wrapping it, and drops
+lines beyond its height. Wrapping and scrolling belong to the caller
+(`internal/manage`'s layout), which wraps long values with a hanging indent and
+scrolls lists and detail panes, so no value is cut and no drawn line is wider
+than the terminal.
 
 **Beneath:** `store` holds secret values behind one small interface with an
 implementation per platform. `config` owns everything in the config directory —
@@ -267,18 +299,23 @@ rest untouched.
 
 ## The staged commit
 
-`trenvy ui` holds every edit — a cell value, a secret promotion, an added or
-removed variable, an added, renamed, defaulted, deleted or re-membered
-output — as a `ui.Change` in memory, and applies none of them until `w`.
-`commitStaged` (`internal/cli/ui.go`) then applies the whole staged slice in
-six phases, in a fixed order that does not depend on the order the changes
-were staged in:
+The interface holds every edit — a shared or per-profile value, a secret's new
+value, a secret promotion, an added or removed variable, an added, renamed,
+defaulted, deleted, re-formatted, re-pathed or re-membered output — as a
+`session.Change` in `session.Staged`, and applies none of them until the review's
+`enter`. `Staged` is a set, not a log: a change deciding the same thing as an
+earlier one replaces it, so the review lists what will happen rather than every
+keypress that led there. `commitStaged` (`internal/cli/ui.go`) then applies the
+whole staged slice, in a fixed order that does not depend on the order the
+changes were staged in. First it validates the manifest half of the batch on a
+clone, so a batch the manifest refuses writes nothing at all; then it runs six
+phases:
 
 1. **Structural additions.** A staged `add-var` or `add-output` inserts the
    new entry before anything else runs, so a row this same session also
    renames, sets a value on or removes has an entry to act on from the start.
 2. **Keyring writes.** Every staged secret value lands in the keyring —
-   `set-secret`'s own value, and the value or values an `s` promotion moves
+   `set-secret`'s own value, and the value or values *Make secret* moves
    out of the manifest.
 3. **Keyring deletes.** A deleted variable's secret is removed under every
    declared profile, not only the one active in this session, built through
@@ -289,9 +326,10 @@ were staged in:
    removal leaves on disk. Both are saved to `state/<id>.toml` here, ahead of
    the manifest edit in phase 5 — the same state-before-manifest order
    `trenvy output rename` already uses on its own.
-5. **Every remaining manifest edit and removal.** Cell values, secret
-   promotions (flipping `Secret` and clearing `Value`/`Profiles`), output
-   defaults, output removals and glob changes are applied to the in-memory
+5. **Every remaining manifest edit and removal.** Value edits, optional
+   flags, secret promotions (flipping `Secret` and clearing `Value`/`Profiles`), output
+   defaults, output format and path edits, output removals and glob changes
+   are applied to the in-memory
    manifest. An output staged as both added and removed in the same session
    has no entry left after this phase, regardless of which the session did
    first, because phase 1 already created it and this phase deletes it.
@@ -317,11 +355,31 @@ repointed versus forgotten, never folded into one count that could not say
 which kind stalled. Once a keyring write, a keyring delete or the state
 file's save has landed, it stays; there is no rollback across phases.
 
+Because the manifest is saved last and atomically, a failure leaves the manifest
+on disk as it was before the commit, and every earlier phase can be repeated: a
+keyring write overwrites, a keyring delete treats an absent item as done, an
+addition checks whether the entry exists, and a render-record repoint that
+already happened moves none. That is why the interface keeps the whole batch
+staged after a partial failure and retries all of it, rather than tracking
+which changes landed. A batch the manifest refuses before the first write
+returns `manage.ErrNothingWritten`, which the review reports as "nothing was
+written" instead of offering a retry that cannot succeed.
+
+`commitStaged` returns its result (the count saved, and the files left in place
+by output removals) instead of printing it, because stdout belongs to the
+interface while it runs.
+
 ## The render guards
 
 `render` writes secrets into a working repository. Two things can go wrong that
 the user will not notice until much later: the file gets committed, or trenvy
 silently destroys something.
+
+Render now and Remove rendered file, on the interface's Outputs screen, call the
+same `renderOutput` and `cleanOutput` the `render` and `clean` commands do, so
+both guards below apply to them unchanged and a refusal reaches the screen as
+the command's own message. They act on the definition on disk, not on staged
+edits, which is why they are unavailable while an output has any.
 
 **The git guard.** `render` refuses a path `git check-ignore` does not report
 as ignored, and names the line to add to `.gitignore`. `--allow-tracked`
