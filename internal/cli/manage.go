@@ -18,8 +18,10 @@ import (
 
 // runManage is `trenvy ui` and `trenvy edit`: the interface (spec
 // 2026-09-30). Saving happens inside the session, so commit and reload are
-// handed to the model as Deps rather than run after it returns.
-func runManage(opts *Options, app *appContext) error {
+// handed to the model as Deps rather than run after it returns. first, when
+// given, shapes only the first model the loop builds: setup lands on a
+// message and a filter, and a project switch must start plain.
+func runManage(opts *Options, app *appContext, first ...func(manage.Model) manage.Model) error {
 	th, err := style.ThemeFor(lipgloss.NewRenderer(opts.Stdout), os.Getenv("TRENVY_THEME"))
 	if err != nil {
 		return err
@@ -93,7 +95,12 @@ func runManage(opts *Options, app *appContext) error {
 			Clean: func(id string) (string, error) { return cleanOutput(current(), id, false) },
 			Check: func(id string) (string, error) { return checkOutput(&quiet, current(), id), nil },
 		}
-		final, err := opts.RunManage(manage.New(snap, deps, th))
+		model := manage.New(snap, deps, th)
+		for _, shape := range first {
+			model = shape(model)
+		}
+		first = nil
+		final, err := opts.RunManage(model)
 		if err != nil {
 			return err
 		}

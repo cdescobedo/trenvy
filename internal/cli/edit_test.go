@@ -38,14 +38,6 @@ func TestUiOpensTheInterfaceWithoutAFlag(t *testing.T) {
 	}
 }
 
-func TestUiOutsideAProjectFailsWithRegisterHint(t *testing.T) {
-	h := newHarness(t)
-	err := h.run("ui")
-	if err == nil || !strings.Contains(err.Error(), "trenvy project init") {
-		t.Errorf("err = %v", err)
-	}
-}
-
 // failOnSetStore fails a store for one variable's item, so a test can arrange
 // a partial success -- some writes applied, one not -- rather than an
 // all-or-nothing failure.

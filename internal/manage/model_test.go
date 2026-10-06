@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/cdescobedo/trenvy/internal/manage"
+	"github.com/cdescobedo/trenvy/internal/manifest"
 	"github.com/cdescobedo/trenvy/internal/style"
 )
 
@@ -260,5 +261,20 @@ func TestHelpKeyColumnNeverRunsIntoItsDescription(t *testing.T) {
 	}
 	if !strings.Contains(v, "1 2 3  tab ") {
 		t.Errorf("the screen-switch key has no space after it:\n%s", v)
+	}
+}
+
+func TestAfterSetupFiltersToWhatIsMissing(t *testing.T) {
+	m := manage.New(fixture(), (&fakeDeps{}).deps(), noTheme()).AfterSetup("app")
+	m = sized(m, 100, 30)
+	v := m.View()
+	if !strings.Contains(v, "created app -- 1 secret to store") || strings.Contains(v, "DATABASE_URL") {
+		t.Errorf("after setup, Variables should show only what is missing:\n%s", v)
+	}
+	clean := fixtureManifest()
+	clean.Vars["API_TOKEN"] = manifest.Var{Secret: true, Optional: true}
+	m = sized(manage.New(snapshotOf(clean, nil), (&fakeDeps{}).deps(), noTheme()).AfterSetup("app"), 100, 30)
+	if v := m.View(); !strings.Contains(v, "DATABASE_URL") || !strings.Contains(v, "created app") {
+		t.Errorf("with nothing missing, Variables should be unfiltered:\n%s", v)
 	}
 }

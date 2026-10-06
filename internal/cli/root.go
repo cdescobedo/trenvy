@@ -54,6 +54,10 @@ type Options struct {
 	// RunManage drives the interface (`trenvy ui` and `trenvy edit`).
 	// Swappable so tests drive a model with keys instead of a terminal.
 	RunManage func(manage.Model) (manage.Model, error)
+
+	// RunSetup drives the setup flow `trenvy ui` and `trenvy edit` open
+	// outside a project. Swappable like RunManage.
+	RunSetup func(manage.Setup) (manage.Setup, error)
 }
 
 // Default returns Options wired to the real process.
@@ -82,6 +86,7 @@ func Default() Options {
 		RunTUI: tui.Run,
 
 		RunManage: manage.Run,
+		RunSetup:  manage.RunSetup,
 	}
 }
 

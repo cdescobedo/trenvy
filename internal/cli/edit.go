@@ -17,6 +17,9 @@ func newEditCmd(opts *Options) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			app, err := opts.resolveApp()
+			if errors.Is(err, ErrNotRegistered) {
+				return runSetup(opts)
+			}
 			if err != nil {
 				return err
 			}

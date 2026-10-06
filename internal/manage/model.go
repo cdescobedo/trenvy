@@ -132,6 +132,30 @@ func New(snap Snapshot, deps Deps, th style.Theme) Model {
 
 func (m Model) Init() tea.Cmd { return nil }
 
+// AfterSetup shapes the first screen after setup created project id: it
+// points at the next thing to do rather than at a list that looks done.
+// With values missing, Variables shows only those (a list filtered to
+// nothing would read as broken, so the filter is on only when there is
+// something to show); otherwise it is unfiltered.
+func (m Model) AfterSetup(id string) Model {
+	missing := map[string]bool{}
+	for _, p := range m.snap.Problems {
+		if p.Kind == "missing" {
+			missing[p.Name] = true
+		}
+	}
+	switch {
+	case len(missing) > 0:
+		m.vars.problemsOnly = true
+		m.msg = message{"created " + id + " -- " + plural(len(missing), "secret") + " to store: enter on each", false}
+	case len(m.allNames()) == 0:
+		m.msg = message{"created " + id + " -- a to add a variable", false}
+	default:
+		m.msg = message{"created " + id, false}
+	}
+	return m
+}
+
 // Staged is every change staged, for tests and the CLI.
 func (m Model) Staged() []session.Change { return m.staged.All() }
 
