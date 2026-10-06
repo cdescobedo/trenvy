@@ -517,12 +517,13 @@ func TestImportRefusesToClobberExistingVariables(t *testing.T) {
 	}
 }
 
-// sameVar treats {Secret:false, Value:nil} as equal to any other nil-Value
-// var only when Secret also matches. An optional plain variable with no
-// default has exactly that shape, and a sample placeholder for the same name
-// parses to {Secret:true, Value:nil} -- same Value, different Secret. Without
-// the Secret comparison, sameVar would call that "unchanged" and import would
-// silently flip the user's optional plain variable into a secret.
+// manifest.SameVar treats {Secret:false, Value:nil} as equal to any other
+// nil-Value var only when Secret also matches. An optional plain variable
+// with no default has exactly that shape, and a sample placeholder for the
+// same name parses to {Secret:true, Value:nil} -- same Value, different
+// Secret. Without the Secret comparison, SameVar would call that "unchanged"
+// and import would silently flip the user's optional plain variable into a
+// secret.
 func TestImportRefusesToFlipAnOptionalVariableToSecret(t *testing.T) {
 	h := newHarness(t)
 	h.initProject(t, "p")
@@ -649,8 +650,8 @@ func TestInteractiveImportAppliesTheReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := h.manifest(t, "vpb")
-	if v := m.Vars["APP_MODE"]; !v.Secret {
-		t.Errorf("APP_MODE = %+v, want secret", v)
+	if v := m.Vars["APP_MODE"]; !v.Secret || v.Value != nil {
+		t.Errorf("APP_MODE = %+v, want secret with no stored value", v)
 	}
 	if _, ok := m.Vars["APP_URL"]; ok {
 		t.Error("APP_URL was imported though it was left out")

@@ -518,3 +518,27 @@ func TestSetupReviewFooterKeepsEnterAndEscAtFortyColumns(t *testing.T) {
 		}
 	}
 }
+
+// A sample value guessed secret is never shown and never stored: unticking
+// the row makes it plain with an empty value, for e to fill.
+func TestUntickingAGuessedSecretDropsItsSampleValue(t *testing.T) {
+	s := setupKeys(newSetupAt(setupInput(), 100, 30), "enter", "enter", "j", "space")
+	v := s.View()
+	if strings.Contains(v, "changeme") || !strings.Contains(v, "empty") {
+		t.Errorf("an unticked secret should read empty and never show its sample value:\n%s", v)
+	}
+	if got := strings.Join(s.FooterKeys(), " "); got != "enter space e d esc" {
+		t.Errorf("footer = %q; the unticked row should offer e", got)
+	}
+	s = setupKeys(s, "enter")
+	if strings.Contains(s.View(), "changeme") {
+		t.Errorf("the summary shows the sample value:\n%s", s.View())
+	}
+	res, ok := setupKeys(s, "enter").Result()
+	if !ok || len(res.Entries) != 3 {
+		t.Fatalf("result = %+v %v", res, ok)
+	}
+	if e := res.Entries[1]; e.Name != "API_TOKEN" || e.GuessSecret || e.Value != "" {
+		t.Errorf("API_TOKEN = %+v, want plain with an empty value", e)
+	}
+}

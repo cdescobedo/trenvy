@@ -112,6 +112,11 @@ func (s *Setup) load(i int) {
 	}
 	s.rows, s.cursor, s.loaded = nil, 0, i
 	for _, e := range s.in.Samples[i].Entries {
+		// A sample value guessed secret is never shown and never stored, so
+		// it is dropped here: unticking the row leaves it plain and empty.
+		if e.GuessSecret {
+			e.Value = ""
+		}
 		s.rows = append(s.rows, setupRow{entry: e})
 	}
 }
