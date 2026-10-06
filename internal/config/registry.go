@@ -41,7 +41,7 @@ func (r *Registry) Lookup(dir string) (Entry, bool) {
 
 	for _, e := range r.Projects {
 		root := filepath.Clean(e.Root)
-		if !underOrEqual(dir, root) {
+		if !UnderOrEqual(dir, root) {
 			continue
 		}
 		if !found || len(root) > bestLen {
@@ -51,7 +51,12 @@ func (r *Registry) Lookup(dir string) (Entry, bool) {
 	return best, found
 }
 
-func underOrEqual(dir, root string) bool {
+// UnderOrEqual reports that dir is root or inside it, on path boundaries:
+// /w/repo-old is not under /w/repo. It is Lookup's rule, exported so setup
+// accepts only a root the project will then be found under. Both paths are
+// taken as clean. A root of "/" holds only itself, as Lookup has always had
+// it.
+func UnderOrEqual(dir, root string) bool {
 	if dir == root {
 		return true
 	}

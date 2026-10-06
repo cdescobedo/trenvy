@@ -94,7 +94,7 @@ func (s *State) Record(e RenderEntry) {
 // classifies an already-rendered file as FOREIGN because it has no record --
 // the very guard meant to protect the user starts fighting them.
 //
-// Matching reuses underOrEqual, the same path-boundary check Registry.Lookup
+// Matching reuses UnderOrEqual, the same path-boundary check Registry.Lookup
 // uses, so /old/proj-other is not treated as inside /old/proj just because it
 // shares a string prefix.
 func (s *State) RebaseWorktrees(oldRoot, newRoot string) int {
@@ -103,7 +103,7 @@ func (s *State) RebaseWorktrees(oldRoot, newRoot string) int {
 	moved := 0
 	for i, e := range s.Renders {
 		wt := filepath.Clean(e.Worktree)
-		if !underOrEqual(wt, oldRoot) {
+		if !UnderOrEqual(wt, oldRoot) {
 			continue
 		}
 		rel, err := filepath.Rel(oldRoot, wt)

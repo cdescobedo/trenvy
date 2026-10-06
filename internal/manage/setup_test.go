@@ -353,13 +353,15 @@ func TestSetupNeverSplitsADashAcrossLines(t *testing.T) {
 	}
 }
 
-// Ruling 4 compares paths, not strings: "/" holds every directory, and a
-// sibling that shares a prefix ("/code/app-old") is not under "/code/app".
+// Ruling 4 uses the registry's own containment rule, so setup accepts only
+// a root the project can then be found under: a sibling that shares a
+// prefix ("/code/app-old") is not under "/code/app", and nothing below "/"
+// is under "/", since Registry.Lookup would not find it there.
 func TestSetupRootContainmentComparesPaths(t *testing.T) {
 	in := setupInput()
 	in.Root = "/"
-	if s := setupKeys(newSetupAt(in, 100, 30), "enter"); !strings.Contains(s.View(), "Start empty") {
-		t.Errorf("the root / holds this directory and should be accepted:\n%s", s.View())
+	if s := setupKeys(newSetupAt(in, 100, 30), "enter"); !strings.Contains(s.View(), "this directory is not under /;") {
+		t.Errorf("the root / would orphan the project and should be refused:\n%s", s.View())
 	}
 	in.Root, in.Dir = "/code/app", "/code/app-old/main"
 	if s := setupKeys(newSetupAt(in, 100, 30), "enter"); !strings.Contains(s.View(), "this directory is not under /code/app") {

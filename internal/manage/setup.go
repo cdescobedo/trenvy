@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/cdescobedo/trenvy/internal/config"
 	"github.com/cdescobedo/trenvy/internal/manifest"
 	"github.com/cdescobedo/trenvy/internal/sample"
 	"github.com/cdescobedo/trenvy/internal/style"
@@ -242,18 +243,12 @@ func (s Setup) rootProblem() string {
 		return "the root must be an absolute path"
 	case slices.ContainsFunc(s.in.TakenRoots, func(r string) bool { return filepath.Clean(r) == root }):
 		return "another project is registered at " + root
-	case !underOrEqual(filepath.Clean(s.in.Dir), root):
+	case !config.UnderOrEqual(filepath.Clean(s.in.Dir), root):
+		// The registry's own rule, so setup never writes a project that
+		// Lookup would then not find from here.
 		return "this directory is not under " + root + "; trenvy would not find the project from here"
 	}
 	return ""
-}
-
-// underOrEqual reports that dir is root or inside it, comparing paths
-// rather than strings, so "/" holds everything and "/code/app-old" is not
-// under "/code/app".
-func underOrEqual(dir, root string) bool {
-	rel, err := filepath.Rel(root, dir)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func (s Setup) seedKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
