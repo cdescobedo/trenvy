@@ -64,58 +64,9 @@ func newImportCmd(opts *Options) *cobra.Command {
 				}
 			}
 
-			var created string
-			for _, e := range entries {
-				v := manifest.Var{Secret: e.GuessSecret}
-				if !e.GuessSecret {
-					// Only a plain value is carried over. A placeholder is not
-					// a secret, so storing it would be worse than storing
-					// nothing: status would report the secret as present.
-					value := e.Value
-					v.Value = &value
-				}
-				if existing, exists := app.Manifest.Vars[e.Name]; exists && !force && !sameVar(existing, v) {
-					return fmt.Errorf(
-						"%s is already in the manifest; re-run with --force to overwrite", e.Name)
-				}
-				app.Manifest.Vars[e.Name] = v
-			}
-
-			if !noOutput {
-				o, err := outputFor(samplePath, app.Worktree)
-				if err != nil {
-					return err
-				}
-				name := outputName
-				if existing, ok := outputAtPath(app.Manifest, o.Path); ok {
-					// Two outputs on one path clobber each other on render,
-					// and the newcomer's state record would make the
-					// incumbent look MODIFIED.
-					name = existing
-				} else {
-					if name == "" {
-						name = deriveOutputName(o.Path, o.Format, app.Manifest.Outputs)
-					} else if _, exists := app.Manifest.Outputs[name]; exists {
-						// Different rule from the path-reuse branch above:
-						// reusing an output whose Path already matches is
-						// correct, but redefining one by NAME -- same name,
-						// different path -- would silently replace its
-						// format and path and orphan whatever it used to
-						// render. output add refuses this at output.go:123;
-						// import must too.
-						return fmt.Errorf("output %q is already defined", name)
-					}
-					if app.Manifest.Outputs == nil {
-						app.Manifest.Outputs = map[string]manifest.Output{}
-					}
-					app.Manifest.Outputs[name] = o
-					created = name
-				}
-				// Claim the default only when nothing already holds that
-				// role -- a user who picked one keeps it.
-				if app.Manifest.Project.Output == "" {
-					app.Manifest.Project.Output = name
-				}
+			rep, err := importInto(app.Manifest, app.Worktree, samplePath, entries, outputName, noOutput, force)
+			if err != nil {
+				return err
 			}
 			if err := app.Manifest.Validate(); err != nil {
 				return err
@@ -124,23 +75,17 @@ func newImportCmd(opts *Options) *cobra.Command {
 				return err
 			}
 
-			secrets := 0
-			for _, e := range entries {
-				if e.GuessSecret {
-					secrets++
-				}
-			}
 			fmt.Fprintf(opts.Stdout, "imported %d variables (%d secret) from %s\n",
-				len(entries), secrets, samplePath)
-			if secrets > 0 {
+				len(entries), rep.Secrets, samplePath)
+			if rep.Secrets > 0 {
 				fmt.Fprintf(opts.Stdout,
 					"next: trenvy -p %s secret set <NAME> for each secret, then trenvy status\n",
 					app.Profile.Name)
 			}
-			if created != "" {
-				o := app.Manifest.Outputs[created]
-				fmt.Fprintf(opts.Stdout, "created output %q  %s -> %s\n", created, o.Format, o.Path)
-				fmt.Fprintf(opts.Stdout, "  rename it with: trenvy output rename %s <name>\n", created)
+			if rep.Created != "" {
+				o := app.Manifest.Outputs[rep.Created]
+				fmt.Fprintf(opts.Stdout, "created output %q  %s -> %s\n", rep.Created, o.Format, o.Path)
+				fmt.Fprintf(opts.Stdout, "  rename it with: trenvy output rename %s <name>\n", rep.Created)
 			}
 			return nil
 		},
@@ -153,6 +98,80 @@ func newImportCmd(opts *Options) *cobra.Command {
 	return cmd
 }
 
+// importReport is what importInto did to the manifest. Output is the output
+// the sample renders to, whether created or reused ("" with noOutput);
+// Created is set only when a new one was made.
+type importReport struct {
+	Output, Created string
+	Secrets         int
+}
+
+// importInto applies a parsed sample to m in memory: the variables (refusing
+// a conflict without force), then the output (reusing one on the same path,
+// deriving or checking the name, claiming the default when none). It neither
+// validates nor saves.
+func importInto(m *manifest.Manifest, worktree, samplePath string, entries []sample.Entry, outputName string, noOutput, force bool) (importReport, error) {
+	var rep importReport
+	for _, e := range entries {
+		v := manifest.Var{Secret: e.GuessSecret}
+		if !e.GuessSecret {
+			// Only a plain value is carried over. A placeholder is not
+			// a secret, so storing it would be worse than storing
+			// nothing: status would report the secret as present.
+			value := e.Value
+			v.Value = &value
+		}
+		if existing, exists := m.Vars[e.Name]; exists && !force && !manifest.SameVar(existing, v) {
+			return rep, fmt.Errorf(
+				"%s is already in the manifest; re-run with --force to overwrite", e.Name)
+		}
+		m.Vars[e.Name] = v
+		if e.GuessSecret {
+			rep.Secrets++
+		}
+	}
+
+	if noOutput {
+		return rep, nil
+	}
+	o, err := outputFor(samplePath, worktree)
+	if err != nil {
+		return rep, err
+	}
+	name := outputName
+	if existing, ok := outputAtPath(m, o.Path); ok {
+		// Two outputs on one path clobber each other on render,
+		// and the newcomer's state record would make the
+		// incumbent look MODIFIED.
+		name = existing
+	} else {
+		if name == "" {
+			name = deriveOutputName(o.Path, o.Format, m.Outputs)
+		} else if _, exists := m.Outputs[name]; exists {
+			// Different rule from the path-reuse branch above:
+			// reusing an output whose Path already matches is
+			// correct, but redefining one by NAME -- same name,
+			// different path -- would silently replace its
+			// format and path and orphan whatever it used to
+			// render. output add refuses this at output.go:123;
+			// import must too.
+			return rep, fmt.Errorf("output %q is already defined", name)
+		}
+		if m.Outputs == nil {
+			m.Outputs = map[string]manifest.Output{}
+		}
+		m.Outputs[name] = o
+		rep.Created = name
+	}
+	// Claim the default only when nothing already holds that
+	// role -- a user who picked one keeps it.
+	if m.Project.Output == "" {
+		m.Project.Output = name
+	}
+	rep.Output = name
+	return rep, nil
+}
+
 // outputAtPath returns the name of the output already rendering to path.
 func outputAtPath(m *manifest.Manifest, path string) (string, bool) {
 	for name, o := range m.Outputs {
@@ -161,20 +180,6 @@ func outputAtPath(m *manifest.Manifest, path string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-// sameVar reports whether importing incoming would change nothing about an
-// existing variable. Re-running import against a sample that has not changed
-// must not demand --force: there is nothing to overwrite, only the same
-// value written back.
-func sameVar(existing, incoming manifest.Var) bool {
-	if existing.Secret != incoming.Secret {
-		return false
-	}
-	if existing.Value == nil || incoming.Value == nil {
-		return existing.Value == incoming.Value
-	}
-	return *existing.Value == *incoming.Value
 }
 
 // outputFor guesses an output from the sample's own location: a sample at

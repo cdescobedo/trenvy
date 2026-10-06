@@ -40,41 +40,11 @@ func newInitCmd(opts *Options) *cobra.Command {
 				return fmt.Errorf("--id %q: %v", id, err)
 			}
 
-			reg, err := config.LoadRegistry()
+			m, err := newProjectManifest(id)
 			if err != nil {
 				return err
 			}
-			if err := reg.Add(config.Entry{ID: id, Root: abs}); err != nil {
-				return err
-			}
-
-			salt, err := manifest.NewSalt()
-			if err != nil {
-				return err
-			}
-			// No outputs, and no project.output. An output is a file --
-			// its format, path and subset -- and a fresh project has no way
-			// to guess any of the three. It needs none either: exec and
-			// shell are the verb, so a manifest with one profile and nothing
-			// else is valid and immediately usable. `trenvy import --output`
-			// or a hand edit adds a file destination when there is one.
-			m := &manifest.Manifest{
-				Project: manifest.Project{
-					ID:             id,
-					Profiles:       []string{"dev"},
-					DefaultProfile: "dev",
-					Salt:           salt,
-				},
-				Outputs: map[string]manifest.Output{},
-				Vars:    map[string]manifest.Var{},
-			}
-			if err := m.Validate(); err != nil {
-				return err
-			}
-			if err := manifest.Save(config.ManifestPath(id), m); err != nil {
-				return err
-			}
-			if err := reg.Save(); err != nil {
+			if err := registerProject(id, abs, m); err != nil {
 				return err
 			}
 
@@ -90,4 +60,50 @@ func newInitCmd(opts *Options) *cobra.Command {
 	cmd.Flags().StringVar(&root, "root", "",
 		"project root: the directory holding every worktree (default: the current directory)")
 	return cmd
+}
+
+// newProjectManifest is `project init`'s manifest: one profile, a fresh
+// salt, nothing else.
+//
+// No outputs, and no project.output. An output is a file -- its format,
+// path and subset -- and a fresh project has no way to guess any of the
+// three. It needs none either: exec and shell are the verb, so a manifest
+// with one profile and nothing else is valid and immediately usable.
+// `trenvy import --output` or a hand edit adds a file destination when
+// there is one.
+func newProjectManifest(id string) (*manifest.Manifest, error) {
+	salt, err := manifest.NewSalt()
+	if err != nil {
+		return nil, err
+	}
+	return &manifest.Manifest{
+		Project: manifest.Project{
+			ID:             id,
+			Profiles:       []string{"dev"},
+			DefaultProfile: "dev",
+			Salt:           salt,
+		},
+		Outputs: map[string]manifest.Output{},
+		Vars:    map[string]manifest.Var{},
+	}, nil
+}
+
+// registerProject adds id at root to the registry in memory (refusing a
+// taken id or root), validates m, saves the manifest, then saves the
+// registry. Nothing is written when the add or the validation fails.
+func registerProject(id, root string, m *manifest.Manifest) error {
+	reg, err := config.LoadRegistry()
+	if err != nil {
+		return err
+	}
+	if err := reg.Add(config.Entry{ID: id, Root: root}); err != nil {
+		return err
+	}
+	if err := m.Validate(); err != nil {
+		return err
+	}
+	if err := manifest.Save(config.ManifestPath(id), m); err != nil {
+		return err
+	}
+	return reg.Save()
 }

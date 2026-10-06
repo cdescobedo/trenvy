@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -112,6 +113,18 @@ type appContext struct {
 	storeErr  error
 }
 
+// ErrNotRegistered is what resolving a project reports outside every
+// registered root: `trenvy ui` and `trenvy edit` open setup on it instead of
+// failing (spec §6).
+var ErrNotRegistered = errors.New("not inside a registered trenvy project")
+
+type notRegisteredError struct{ dir string }
+
+func (e notRegisteredError) Error() string {
+	return e.dir + " is not inside a registered trenvy project\n  register one with: trenvy project init"
+}
+func (e notRegisteredError) Is(target error) bool { return target == ErrNotRegistered }
+
 // resolveApp locates the project owning Opts.Dir and loads everything about it.
 func (o Options) resolveApp() (*appContext, error) {
 	cfg, err := config.Load()
@@ -124,8 +137,7 @@ func (o Options) resolveApp() (*appContext, error) {
 	}
 	entry, ok := reg.Lookup(o.Dir)
 	if !ok {
-		return nil, fmt.Errorf(
-			"%s is not inside a registered trenvy project\n  register one with: trenvy project init", o.Dir)
+		return nil, notRegisteredError{o.Dir}
 	}
 	return o.appContextFor(cfg, entry)
 }

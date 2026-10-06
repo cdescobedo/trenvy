@@ -217,8 +217,7 @@ func resolveActiveEntry(opts *Options) (config.Entry, error) {
 	}
 	entry, ok := reg.Lookup(opts.Dir)
 	if !ok {
-		return config.Entry{}, fmt.Errorf(
-			"%s is not inside a registered trenvy project\n  register one with: trenvy project init", opts.Dir)
+		return config.Entry{}, notRegisteredError{opts.Dir}
 	}
 	return entry, nil
 }
