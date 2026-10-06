@@ -239,3 +239,23 @@ func TestSetupTakesTheLastOfARepeatedName(t *testing.T) {
 		t.Errorf("A = %+v, want the last value 2", v)
 	}
 }
+
+// ui and edit open setup outside a project, and their help says so, as the
+// README's command table quotes it.
+func TestUiAndEditHelpMentionSetup(t *testing.T) {
+	h := newHarness(t)
+	if err := h.run("--help"); err != nil {
+		t.Fatal(err)
+	}
+	for _, cmd := range []string{"ui", "edit"} {
+		found := false
+		for _, l := range strings.Split(h.out.String(), "\n") {
+			if f := strings.Fields(l); len(f) > 0 && f[0] == cmd {
+				found = strings.HasSuffix(l, "; outside a project, open setup")
+			}
+		}
+		if !found {
+			t.Errorf("trenvy --help lacks %s's setup note:\n%s", cmd, h.out.String())
+		}
+	}
+}

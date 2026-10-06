@@ -465,13 +465,14 @@ Every description below is the command's own `Short` text. Run
 
 | command | does |
 |---|---|
-| `trenvy project init` | Register this project and create its manifest (non-interactive; `trenvy ui` outside a project does it interactively) |
+| `trenvy project init` | Register this project and create its manifest |
 | `trenvy project list` | List registered projects and their roots |
 | `trenvy project move <id> <new-root>` | Repoint a project at a new root after its directory moved |
 | `trenvy project rm <id>` | Delete a project: its manifest, state, registration and its secrets in the current backend |
 
 `project init` takes `--id` (default: the root directory's name) and `--root`
-(default: the current directory). `project rm` takes `--yes`.
+(default: the current directory); it asks nothing, while `trenvy ui` outside a
+project does the same interactively. `project rm` takes `--yes`.
 
 ### Profiles
 
@@ -504,7 +505,7 @@ active selection instead of setting one.
 
 | command | does |
 |---|---|
-| `trenvy import <sample file>` | Seed the manifest from a sample `.env` or `.json` file, after a review (`--no-tui` skips it) |
+| `trenvy import <sample file>` | Seed the manifest from a sample `.env` or `.json` file |
 | `trenvy set <NAME> <VALUE>` | Set a plain value for the active profile |
 | `trenvy get <NAME>` | Print one variable's value |
 | `trenvy show [output]` | List the profile's variables, or one output's subset, secrets masked |
@@ -515,10 +516,10 @@ active selection instead of setting one.
 | `trenvy edit` | Open the interactive interface (the same as trenvy ui); outside a project, open setup |
 | `trenvy ui` | Manage this project's variables, outputs and profiles, interactively; outside a project, open setup |
 
-Flags: `import` takes `--output <name>`, `--no-output`, `--no-tui` and
-`--force`; `set` takes `--shared`; `show` takes `--reveal` and `--format
-dotenv|json`; `secret set` takes `--stdin`; `secret demote`, `secret rm` and
-`unset` take `--yes`.
+Flags: `import` takes `--output <name>`, `--no-output`, `--no-tui` (skip the
+review) and `--force`; `set` takes `--shared`; `show` takes `--reveal` and
+`--format dotenv|json`; `secret set` takes `--stdin`; `secret demote`, `secret
+rm` and `unset` take `--yes`.
 
 ### Delivery
 

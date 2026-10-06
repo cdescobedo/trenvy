@@ -9,7 +9,7 @@ import (
 func newEditCmd(opts *Options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "edit",
-		Short: "Open the interactive interface (the same as trenvy ui)",
+		Short: "Open the interactive interface (the same as trenvy ui); outside a project, open setup",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			app, err := opts.resolveApp()
