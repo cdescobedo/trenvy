@@ -46,6 +46,7 @@ outputs
 - [Shell completion](#shell-completion)
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
+- [Further reading](#further-reading)
 - [Licence](#licence)
 
 ---
@@ -1162,6 +1163,19 @@ change looks like here, and [`docs/architecture.md`](docs/architecture.md) for
 the data model and why it is shaped the way it is.
 
 Security issues: **do not open a public issue.** See [SECURITY.md](SECURITY.md).
+
+## Further reading
+
+For contributors, beside [`docs/architecture.md`](docs/architecture.md):
+
+- [`docs/development.md`](docs/development.md) — how to build, test and
+  check a change in a real terminal, and the invariants a change must keep.
+- [`docs/tui-design.md`](docs/tui-design.md) — the interface's design rules
+  and the tests that hold them.
+- [`docs/design-history.md`](docs/design-history.md) — how trenvy came to be
+  what it is, and why.
+- [`docs/roadmap.md`](docs/roadmap.md) — what is next, including the polish
+  backlog.
 
 ## Licence
 

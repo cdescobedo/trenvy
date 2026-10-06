@@ -5,6 +5,8 @@ and what depends on each one.
 
 Users want the [README](../README.md) instead.
 
+See also [development.md](development.md), [tui-design.md](tui-design.md), [design-history.md](design-history.md) and [roadmap.md](roadmap.md).
+
 Everything except `cmd/trenvy` lives under `internal/`, so nothing here is
 importable and none of it is a public API. trenvy is a binary, and internal
 packages mean the shape below can change without breaking a consumer.
