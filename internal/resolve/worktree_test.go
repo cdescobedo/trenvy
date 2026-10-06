@@ -112,3 +112,55 @@ func assertSamePath(t *testing.T, got, want string) {
 		t.Errorf("WorktreeRoot = %q, want %q", g, w)
 	}
 }
+
+func requireGit(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+}
+
+// bareLayout builds <root>/.bare with worktrees <root>/main and <root>/other,
+// the layout this project itself uses.
+func bareLayout(t *testing.T) string {
+	t.Helper()
+	requireGit(t)
+	src := newRepo(t)
+	root := t.TempDir()
+	run(t, root, "git", "clone", "-q", "--bare", src, ".bare")
+	if err := os.WriteFile(filepath.Join(root, ".git"), []byte("gitdir: ./.bare\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(t, root, "git", "worktree", "add", "-q", "main")
+	run(t, root, "git", "worktree", "add", "-q", "-b", "other", "other")
+	return root
+}
+
+func TestProjectRootGuessInABareLayout(t *testing.T) {
+	root := bareLayout(t)
+	for _, dir := range []string{filepath.Join(root, "main"), filepath.Join(root, "other")} {
+		if got := resolve.ProjectRootGuess(dir); got != root {
+			t.Errorf("ProjectRootGuess(%s) = %s, want %s", dir, got, root)
+		}
+	}
+	sub := filepath.Join(root, "main", "src")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := resolve.ProjectRootGuess(sub); got != root {
+		t.Errorf("from a subdirectory: %s, want %s", got, root)
+	}
+}
+
+func TestProjectRootGuessElsewhereIsTheDirectory(t *testing.T) {
+	requireGit(t)
+	plain := t.TempDir()
+	if got := resolve.ProjectRootGuess(plain); got != plain {
+		t.Errorf("outside git: %s, want %s", got, plain)
+	}
+	repo := t.TempDir()
+	run(t, repo, "git", "init", "-q")
+	if got := resolve.ProjectRootGuess(repo); got != repo {
+		t.Errorf("ordinary repository: %s, want %s", got, repo)
+	}
+}

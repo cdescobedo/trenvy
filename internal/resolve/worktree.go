@@ -60,3 +60,39 @@ func cleanFallback(dir string) string {
 	}
 	return filepath.Clean(resolved)
 }
+
+// ProjectRootGuess is the project root setup offers for dir. In a bare-repo
+// layout -- <root>/.bare beside sibling worktrees -- that is <root>, so every
+// worktree finds the project; anywhere else it is dir, as `project init`
+// defaults. The answer is spelled from dir as given rather than from git's
+// symlink-resolved paths, so the registry's root matches what a shell inside
+// it reports as its working directory.
+func ProjectRootGuess(dir string) string {
+	top, ok := GitWorktreeRoot(dir)
+	if !ok {
+		return dir
+	}
+	cmd := exec.Command("git", "rev-parse", "--path-format=absolute", "--git-common-dir")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return dir
+	}
+	common := filepath.Clean(strings.TrimSpace(string(out)))
+	if resolved, err := filepath.EvalSymlinks(common); err == nil {
+		common = resolved
+	}
+	// An ordinary repository keeps its common dir inside the worktree
+	// (<top>/.git); a bare layout keeps it beside the worktrees.
+	if filepath.Dir(common) != filepath.Dir(top) {
+		return dir
+	}
+	for a := filepath.Clean(dir); ; a = filepath.Dir(a) {
+		if r, err := filepath.EvalSymlinks(a); err == nil && r == top {
+			return filepath.Dir(a)
+		}
+		if filepath.Dir(a) == a {
+			return dir
+		}
+	}
+}
