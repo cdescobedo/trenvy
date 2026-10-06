@@ -418,17 +418,21 @@ func (s Setup) headerLines(w int) []string {
 		}
 	}
 	lines := wrap(title, w-2)
-	if len(lines) > headerMax {
+	if len(lines) > headerMax && s.in.Mode == SetupImport && len(s.in.Samples) > 0 {
 		// Packed rather than wrapped at the space after "Import", which
 		// would leave its first line nearly empty, and the path cut a cell
 		// at a time until it fits: a two-cell rune may not fill a line.
 		path := display(s.in.Samples[0].Path)
-		for budget := min(lipgloss.Width(path), headerMax*(w-2)); ; budget-- {
-			if lines = packLines("Import "+cutFront(path, budget), w-2); len(lines) <= headerMax {
+		for budget := min(lipgloss.Width(path), headerMax*(w-2)); budget > 0; budget-- {
+			if packed := packLines("Import "+cutFront(path, budget), w-2); len(packed) <= headerMax {
+				lines = packed
 				break
 			}
 		}
 	}
+	// Whatever is left over wraps past headerMax only below the interface's
+	// minimum width, where View shows the too-small sentence instead.
+	lines = lines[:min(len(lines), headerMax)]
 	for i, l := range lines {
 		lines[i] = " " + s.th.Title.Render(l)
 	}

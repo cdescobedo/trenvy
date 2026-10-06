@@ -1,10 +1,12 @@
 package manage_test
 
 import (
+	"fmt"
 	"regexp"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -604,5 +606,55 @@ func TestImportViewFitsTheMinimumTerminalWithALongPath(t *testing.T) {
 		if head := strings.Join(lines[:2], ""); !strings.Contains(head, "…") || !strings.Contains(flatten(head), "service.env.example") {
 			t.Errorf("w=%d %v: the header should cut the path's front and keep its name:\n%s", c.w, c.keys, v)
 		}
+	}
+}
+
+// survives runs f and fails the test, rather than crashing the suite, when f
+// panics or does not return within two seconds.
+func survives(t *testing.T, name string, f func()) {
+	t.Helper()
+	done := make(chan any, 1)
+	go func() {
+		defer func() { done <- recover() }()
+		f()
+	}()
+	select {
+	case p := <-done:
+		if p != nil {
+			t.Errorf("%s: panicked: %v", name, p)
+		}
+	case <-time.After(2 * time.Second):
+		t.Errorf("%s: did not finish within 2s (hang)", name)
+	}
+}
+
+// Below the interface's minimum width the title wraps past the header's two
+// lines. With no sample to pack, setup must still not panic.
+func TestSetupNewWithNoSamplesSurvivesNarrowWidths(t *testing.T) {
+	in := setupInput()
+	in.Samples = nil
+	for w := 1; w <= 40; w++ {
+		survives(t, fmt.Sprintf("w=%d", w), func() {
+			s := newSetupAt(in, w, 24)
+			s = setupKeys(s, "enter", "enter") // project accepted, Start empty
+			_ = s.View()
+			s = setupKeys(s, "j", "k")
+			_ = s.View()
+		})
+	}
+}
+
+// A path that fits no header line at a tiny width must end the packing, not
+// loop on it.
+func TestImportWithALongPathSurvivesNarrowWidths(t *testing.T) {
+	in := importInput()
+	in.Samples[0].Path = strings.Repeat("a", 120)
+	for w := 1; w <= 40; w++ {
+		survives(t, fmt.Sprintf("w=%d", w), func() {
+			s := newSetupAt(in, w, 24)
+			_ = s.View()
+			s = setupKeys(s, "enter", "j")
+			_ = s.View()
+		})
 	}
 }
