@@ -60,6 +60,16 @@ the command surface may still move under you.
   `trenvy edit`'s single-profile table is gone; to turn a secret back into a
   plain variable, use `trenvy secret demote`.
 
+- **`trenvy import`'s interactive review is the interface's review, and its
+  keys changed.** `space` marks a variable secret (was `s`), `e` edits a plain
+  value, and `d` leaves a variable out. `w` (write) and `q` (quit) are gone:
+  `enter` shows a summary -- the manifest, the output and whether git ignores
+  it, and any variable that would be overwritten -- and `enter` there writes;
+  `esc` cancels and writes nothing. Adding a variable (`a`), the filter (`/`)
+  and reveal (`r`) are gone from the review; add variables in `trenvy ui`
+  afterwards. A sample value guessed secret is never shown: unticking the
+  variable leaves it plain and empty. `--no-tui` is unchanged.
+
 ### Added
 
 - **`trenvy secret demote <NAME>`** turns a secret back into a plain
@@ -339,13 +349,6 @@ the command surface may still move under you.
   directory holding the worktrees), a sample to seed from or none, a review of
   its variables, and a summary before anything is written. The interface then
   opens on what is left to fill in.
-- **`trenvy import`'s interactive review is the interface's review.** `space`
-  marks a variable secret (was `s`), `e` edits a plain value, `d` leaves a
-  variable out, and `enter` shows a summary -- the manifest, the output and
-  whether git ignores it, and any variable that would be overwritten --
-  before anything is written; `esc` cancels it and writes nothing. Adding a
-  variable and the filter are gone from the review; add variables in
-  `trenvy ui` afterwards. `--no-tui` is unchanged.
 - **`TRENVY_THEME=light|dark`** overrides the interface's light/dark detection.
 - **`trenvy ui` validates a whole batch before writing anything.** A batch
   the manifest would refuse -- a new variable with no value, say -- used to
