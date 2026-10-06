@@ -214,8 +214,8 @@ func TestSetupFooterListsOnlyKeysThatAct(t *testing.T) {
 	}{
 		{nil, "enter tab esc"},
 		{[]string{"enter"}, "enter j/k esc"},
-		{[]string{"enter", "enter"}, "space e d enter esc"},
-		{[]string{"enter", "enter", "j"}, "space d enter esc"}, // a secret row: no e
+		{[]string{"enter", "enter"}, "enter space e d esc"},
+		{[]string{"enter", "enter", "j"}, "enter space d esc"}, // a secret row: no e
 		{[]string{"enter", "enter", "enter"}, "enter esc"},
 	}
 	for _, c := range cases {
@@ -264,7 +264,7 @@ func TestNarrowFootersDropWholeHints(t *testing.T) {
 		{"setup project", func(w int) string { return lastLine(newSetupAt(setupInput(), w, 24).View()) }, "enter next", "esc cancel"},
 		{"setup review", func(w int) string {
 			return lastLine(setupKeys(newSetupAt(setupInput(), w, 24), "enter", "enter").View())
-		}, "space secret", "esc back"},
+		}, "enter continue", "esc back"},
 		{"model variables", model, "enter open", "? keys"},
 	}
 	for _, c := range cases {
@@ -412,9 +412,9 @@ func TestSetupFooterPerSelectionKind(t *testing.T) {
 		want    string
 		escDesc string
 	}{
-		{"left-out row", setupInput(), []string{"enter", "enter", "d"}, "d enter esc", "esc back"},
+		{"left-out row", setupInput(), []string{"enter", "enter", "d"}, "enter d esc", "esc back"},
 		{"editing", setupInput(), []string{"enter", "enter", "e"}, "enter esc", "esc cancel edit"},
-		{"import review", importInput(), nil, "space e d enter esc", "esc cancel"},
+		{"import review", importInput(), nil, "enter space e d esc", "esc cancel"},
 		{"import summary blocked", importInput(), []string{"enter"}, "esc", "esc back"},
 		{"import summary forced", forced, []string{"enter"}, "enter esc", "esc back"},
 	}
@@ -504,6 +504,17 @@ func TestSetupSummaryOutputLine(t *testing.T) {
 		}
 		if name != "not ignored" && strings.Contains(v, "git ") {
 			t.Errorf("%s: no git note expected:\n%s", name, v)
+		}
+	}
+}
+
+// Setup orders its hints by importance, enter first and esc last, so a
+// narrow footer drops the others and keeps the way forward and back.
+func TestSetupReviewFooterKeepsEnterAndEscAtFortyColumns(t *testing.T) {
+	for _, keys := range [][]string{{"enter", "enter"}, {"enter", "enter", "j"}, {"enter", "enter", "d"}} {
+		f := lastLine(setupKeys(newSetupAt(setupInput(), 40, 24), keys...).View())
+		if !strings.HasPrefix(strings.TrimSpace(f), "enter continue") || !strings.HasSuffix(f, "esc back") {
+			t.Errorf("%v: footer %q should keep enter continue and esc back", keys, f)
 		}
 	}
 }

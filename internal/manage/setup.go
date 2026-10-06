@@ -437,7 +437,9 @@ func (s Setup) stepRow(w int) string {
 // FooterKeys lists the keys the footer shows now, for tests.
 func (s Setup) FooterKeys() []string { return hintKeys(s.hints()) }
 
-// hints is the footer: only keys that act at this moment.
+// hints is the footer: only keys that act at this moment, ordered by
+// importance as Model's are -- the step's enter first, esc last -- so a
+// narrow footer, which drops hints from the right, keeps both.
 func (s Setup) hints() []hint {
 	if s.editing {
 		return []hint{{"enter", "keep"}, {"esc", "cancel edit"}}
@@ -452,7 +454,7 @@ func (s Setup) hints() []hint {
 	case stepSeed:
 		return []hint{{"enter", "choose"}, {"j/k", "move"}, esc}
 	case stepReview:
-		var hs []hint
+		hs := []hint{{"enter", "continue"}}
 		if len(s.rows) > 0 {
 			r := s.rows[s.cursor]
 			if !r.left {
@@ -467,7 +469,7 @@ func (s Setup) hints() []hint {
 				hs = append(hs, hint{"d", "leave out"})
 			}
 		}
-		return append(hs, hint{"enter", "continue"}, esc)
+		return append(hs, esc)
 	}
 	var hs []hint
 	if !s.blocked() {
