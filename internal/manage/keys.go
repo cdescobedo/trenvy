@@ -66,11 +66,21 @@ func hintKeys(hs []hint) []string {
 	return out
 }
 
-// footerLine draws hs as the footer line, in at most w cells.
+// footerLine draws hs as the footer line, in at most w cells. When the
+// hints do not fit, whole hints are dropped from the right, keeping the
+// first and the last (callers order hints by importance and end with ? or
+// esc), so a narrow footer shows fewer hints, never a cut one. Only if the
+// first and last alone are too wide is the line cut.
 func footerLine(th style.Theme, hs []hint, w int) string {
-	var parts []string
-	for _, h := range hs {
-		parts = append(parts, th.Key.Render(h.key)+" "+th.KeyDesc.Render(h.desc))
+	line := func(hs []hint) string {
+		var parts []string
+		for _, h := range hs {
+			parts = append(parts, th.Key.Render(h.key)+" "+th.KeyDesc.Render(h.desc))
+		}
+		return " " + strings.Join(parts, "   ")
 	}
-	return lipgloss.NewStyle().MaxWidth(w).Render(" " + strings.Join(parts, "   "))
+	for len(hs) > 2 && lipgloss.Width(line(hs)) > w {
+		hs = append(hs[:len(hs)-2:len(hs)-2], hs[len(hs)-1])
+	}
+	return lipgloss.NewStyle().MaxWidth(w).Render(line(hs))
 }

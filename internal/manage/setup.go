@@ -84,6 +84,7 @@ type Setup struct {
 	loaded        int // the sample rows were loaded from; -1 none
 	rows          []setupRow
 	cursor        int
+	scroll        int // the summary's first visible line
 	editing       bool
 	edit          field
 	msg           message
@@ -91,11 +92,16 @@ type Setup struct {
 	quit          bool
 }
 
+// NewSetup starts the flow. In SetupImport, in.Samples must hold exactly
+// one sample, the file being imported; only the first is used, and with
+// none the review is empty and the result carries no entries.
 func NewSetup(in SetupInput, th style.Theme) Setup {
 	s := Setup{th: th, in: in, id: newField(in.ID, false), root: newField(in.Root, false), loaded: -1}
 	if in.Mode == SetupImport {
 		s.step = stepReview
-		s.load(0)
+		if len(in.Samples) > 0 {
+			s.load(0)
+		}
 	}
 	return s
 }
@@ -217,7 +223,7 @@ func (s Setup) idProblem() string {
 		return "project id " + strconv.Quote(id) + ": " + err.Error()
 	}
 	if slices.Contains(s.in.TakenIDs, id) {
-		return id + " is already a registered project -- pick another id"
+		return id + " is already a registered project; pick another id"
 	}
 	return ""
 }
@@ -232,13 +238,17 @@ func (s Setup) rootProblem() string {
 	case slices.ContainsFunc(s.in.TakenRoots, func(r string) bool { return filepath.Clean(r) == root }):
 		return "another project is registered at " + root
 	case !underOrEqual(filepath.Clean(s.in.Dir), root):
-		return "this directory is not under " + root + " -- trenvy would not find the project from here"
+		return "this directory is not under " + root + "; trenvy would not find the project from here"
 	}
 	return ""
 }
 
+// underOrEqual reports that dir is root or inside it, comparing paths
+// rather than strings, so "/" holds everything and "/code/app-old" is not
+// under "/code/app".
 func underOrEqual(dir, root string) bool {
-	return dir == root || strings.HasPrefix(dir, root+string(filepath.Separator))
+	rel, err := filepath.Rel(root, dir)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func (s Setup) seedKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -249,7 +259,7 @@ func (s Setup) seedKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		s.seed = max(s.seed-1, 0)
 	case keyIs(k, "enter"):
 		if s.startEmpty() {
-			s.step = stepSummary
+			s.step, s.scroll = stepSummary, 0
 		} else {
 			s.load(s.seed)
 			s.step = stepReview
@@ -260,7 +270,7 @@ func (s Setup) seedKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (s Setup) reviewKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if keyIs(k, "enter") {
-		s.step = stepSummary
+		s.step, s.scroll = stepSummary, 0
 		return s, nil
 	}
 	if len(s.rows) == 0 {
@@ -274,7 +284,7 @@ func (s Setup) reviewKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		s.cursor = max(s.cursor-1, 0)
 	case keyIs(k, " "):
 		if r.left {
-			s.msg = message{r.entry.Name + " is left out -- d to bring it back", true}
+			s.msg = message{r.entry.Name + " is left out; d brings it back", true}
 		} else {
 			r.entry.GuessSecret = !r.entry.GuessSecret
 		}
@@ -283,7 +293,7 @@ func (s Setup) reviewKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyIs(k, "e"):
 		switch {
 		case r.left:
-			s.msg = message{r.entry.Name + " is left out -- d to bring it back", true}
+			s.msg = message{r.entry.Name + " is left out; d brings it back", true}
 		case r.entry.GuessSecret:
 			s.msg = message{"a secret's value is stored after setup, never from the sample", true}
 		default:
@@ -325,7 +335,15 @@ func (s Setup) conflicts() []string {
 func (s Setup) blocked() bool { return len(s.conflicts()) > 0 && !s.in.Force }
 
 func (s Setup) summaryKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if !keyIs(k, "enter") {
+	switch {
+	case keyIs(k, "j", "down"):
+		s.scroll = min(s.scroll+1, s.summaryOverflow())
+		return s, nil
+	case keyIs(k, "k", "up"):
+		// Clamped first: a resize may have shrunk the overflow.
+		s.scroll = max(min(s.scroll, s.summaryOverflow())-1, 0)
+		return s, nil
+	case !keyIs(k, "enter"):
 		return s, nil
 	}
 	if s.blocked() {
@@ -355,20 +373,47 @@ func (s Setup) View() string {
 		return small
 	}
 	msg := messageLines(s.th, s.msg, w)
-	bodyH := h - chromeLines + 1 - len(msg)
-	// The content column: the pane's inner width less the two-cell cursor
-	// lead and a cell of margin, as outDetailBody leaves.
-	lines, first, last := s.body(w - 5)
+	bodyH := s.bodyHeight(w, h)
+	lines, first, last := s.body(contentWidth(w))
+	if s.step == stepSummary {
+		first, last = s.scroll, s.scroll+bodyH-3
+	}
 	body := s.th.Pane(strings.Join(windowRow(lines, first, last, bodyH-2), "\n"), w, bodyH, true)
-	return strings.Join(append(append([]string{s.viewHeader(w), s.stepRow(w), body}, msg...), footerLine(s.th, s.hints(), w)), "\n")
+	head := append(s.headerLines(w), s.stepRow(w), body)
+	return strings.Join(append(append(head, msg...), footerLine(s.th, s.hints(), w)), "\n")
 }
 
-func (s Setup) viewHeader(w int) string {
+// contentWidth is the body's content column: the pane's inner width less
+// the two-cell cursor lead and a cell of margin, as outDetailBody leaves.
+func contentWidth(w int) int { return w - 5 }
+
+// bodyHeight is the pane's height, borders included: what the header, the
+// step row, the message and the footer leave.
+func (s Setup) bodyHeight(w, h int) int {
+	return h - chromeLines + 1 - len(messageLines(s.th, s.msg, w)) - (len(s.headerLines(w)) - 1)
+}
+
+// summaryOverflow is how many summary lines do not fit the pane at once.
+func (s Setup) summaryOverflow() int {
+	w, h := termSize(s.width, s.height)
+	return max(0, len(s.summaryBody(contentWidth(w)))-(s.bodyHeight(w, h)-2))
+}
+
+// headerLines is the header, wrapped rather than cut: in import mode it
+// names the file, a value.
+func (s Setup) headerLines(w int) []string {
 	title := "Set up a project"
 	if s.in.Mode == SetupImport {
-		title = "Import " + display(s.in.Samples[0].Path)
+		title = "Import"
+		if len(s.in.Samples) > 0 {
+			title += " " + display(s.in.Samples[0].Path)
+		}
 	}
-	return " " + s.th.Title.Render(cutTo(title, w-1))
+	var lines []string
+	for _, l := range wrap(title, w-2) {
+		lines = append(lines, " "+s.th.Title.Render(l))
+	}
+	return lines
 }
 
 // stepRow draws the steps as viewTabs draws the tabs: the current one
@@ -424,14 +469,18 @@ func (s Setup) hints() []hint {
 		}
 		return append(hs, hint{"enter", "continue"}, esc)
 	}
-	if s.blocked() {
-		return []hint{esc}
+	var hs []hint
+	if !s.blocked() {
+		verb := "create"
+		if s.in.Mode == SetupImport {
+			verb = "import"
+		}
+		hs = append(hs, hint{"enter", verb})
 	}
-	verb := "create"
-	if s.in.Mode == SetupImport {
-		verb = "import"
+	if s.summaryOverflow() > 0 {
+		hs = append(hs, hint{"j/k", "scroll"})
 	}
-	return []hint{{"enter", verb}, esc}
+	return append(hs, esc)
 }
 
 // body is the current step's lines, each led by "> " or two spaces, with
@@ -604,9 +653,9 @@ func (s Setup) summaryBody(inner int) []string {
 	}
 	switch {
 	case s.startEmpty() || plain+secret == 0:
-		add("variables", "none -- add them in Variables afterwards")
+		add("variables", "none; add them in Variables afterwards")
 	case secret > 0:
-		add("variables", fmt.Sprintf("%d plain, %d secret -- you'll store the secrets next", plain, secret))
+		add("variables", fmt.Sprintf("%d plain, %d secret; you'll store the secrets next", plain, secret))
 	default:
 		add("variables", fmt.Sprintf("%d plain, %d secret", plain, secret))
 	}
@@ -617,9 +666,9 @@ func (s Setup) summaryBody(inner int) []string {
 		case len(c) == 0:
 			add("conflicts", "none")
 		case s.in.Force:
-			add("conflicts", strings.Join(c, ", ")+" -- already in the manifest with a different definition; --force overwrites them")
+			add("conflicts", strings.Join(c, ", ")+": already in the manifest with a different definition; --force overwrites them")
 		default:
-			add("conflicts", strings.Join(c, ", ")+" -- already in the manifest with a different definition; re-run with --force to overwrite")
+			add("conflicts", strings.Join(c, ", ")+": already in the manifest with a different definition; re-run with --force to overwrite")
 		}
 	}
 	for i := range lines {
@@ -631,7 +680,7 @@ func (s Setup) summaryBody(inner int) []string {
 // outputLines is the summary's output: what it renders to, and whether
 // render's gitignore guard will let it.
 func (s Setup) outputLines() []string {
-	if s.startEmpty() {
+	if s.startEmpty() || s.loaded < 0 {
 		return []string{"none"}
 	}
 	smp := s.in.Samples[s.loaded]
@@ -643,7 +692,7 @@ func (s Setup) outputLines() []string {
 	case smp.Ignored:
 		return []string{smp.OutputName + " -> " + smp.OutputPath, "git ignores it"}
 	}
-	return []string{smp.OutputName + " -> " + smp.OutputPath, "git does not ignore it -- render will refuse until it does"}
+	return []string{smp.OutputName + " -> " + smp.OutputPath, "git does not ignore it; render will refuse until it does"}
 }
 
 // RunSetup drives s in the terminal's alternate screen until it quits.

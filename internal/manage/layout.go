@@ -51,13 +51,52 @@ func (m Model) listWidth(w int) int {
 }
 
 // wrap breaks s into lines of at most width cells, at spaces where it can
-// and inside a word where it must, so nothing is cut.
+// and inside a word where it must, so nothing is cut. It never breaks after
+// a hyphen: "--" and "--force" stay whole. Runs of spaces inside a line are
+// kept, since a value's spacing is part of the value; the space a line
+// breaks at is dropped, and trailing spaces are trimmed.
 func wrap(s string, width int) []string {
-	lines := strings.Split(lipgloss.NewStyle().Width(max(1, width)).Render(s), "\n")
+	width = max(1, width)
+	var lines []string
+	for _, para := range strings.Split(s, "\n") {
+		cur, started := "", false
+		for _, word := range strings.Split(para, " ") {
+			if !started {
+				cur, started = word, true
+			} else if lipgloss.Width(cur+" "+word) <= width {
+				cur += " " + word
+			} else {
+				lines = append(lines, cur)
+				cur = word
+			}
+			for lipgloss.Width(cur) > width {
+				head, rest := splitCells(cur, width)
+				lines = append(lines, head)
+				cur = rest
+			}
+		}
+		lines = append(lines, cur)
+	}
 	for i, l := range lines {
 		lines[i] = strings.TrimRight(l, " ")
 	}
 	return lines
+}
+
+// splitCells splits s after as many runes as fit in width cells, at least
+// one, so a rune wider than width still makes progress.
+func splitCells(s string, width int) (string, string) {
+	rs := []rune(s)
+	n, used := 0, 0
+	for n < len(rs) {
+		rw := lipgloss.Width(string(rs[n]))
+		if n > 0 && used+rw > width {
+			break
+		}
+		used += rw
+		n++
+	}
+	return string(rs[:n]), string(rs[n:])
 }
 
 // window returns at most height of lines, scrolled so that line focus is

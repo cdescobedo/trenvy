@@ -2,6 +2,7 @@ package manage_test
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -196,7 +197,7 @@ func TestSetupLayoutNeverExceedsTheTerminal(t *testing.T) {
 					t.Errorf("w=%d %v: line %d is %d wide: %q", w, keys, i, lw, l)
 				}
 			}
-			if len(keys) == 5 && w >= 60 {
+			if len(keys) == 5 {
 				flat := strings.NewReplacer("│", "", " ", "", "\n", "").Replace(v)
 				if !strings.Contains(flat, long) {
 					t.Errorf("w=%d: the long value is cut:\n%s", w, v)
@@ -240,5 +241,269 @@ func TestSetupWrapsNotesAndPathsAtFortyColumns(t *testing.T) {
 	review := setupKeys(newSetupAt(in, 40, 24), "enter", "enter").View()
 	if flat := strings.NewReplacer("│", "", " ", "", "\n", "").Replace(review); !strings.Contains(flat, "you'llstorethisnext") {
 		t.Errorf("the secret's note is cut:\n%s", review)
+	}
+}
+
+func lastLine(v string) string {
+	lines := strings.Split(v, "\n")
+	return lines[len(lines)-1]
+}
+
+// A footer too wide for the terminal drops whole hints from the right,
+// keeping the first and the last; it never cuts one mid-word. Each narrow
+// part must be a whole part of the same screen's footer at 120 columns.
+func TestNarrowFootersDropWholeHints(t *testing.T) {
+	model := func(w int) string {
+		return lastLine(sized(manage.New(fixture(), (&fakeDeps{}).deps(), noTheme()), w, 24).View())
+	}
+	cases := []struct {
+		name        string
+		at          func(w int) string
+		first, last string
+	}{
+		{"setup project", func(w int) string { return lastLine(newSetupAt(setupInput(), w, 24).View()) }, "enter next", "esc cancel"},
+		{"setup review", func(w int) string {
+			return lastLine(setupKeys(newSetupAt(setupInput(), w, 24), "enter", "enter").View())
+		}, "space secret", "esc back"},
+		{"model variables", model, "enter open", "? keys"},
+	}
+	for _, c := range cases {
+		narrow, wide := c.at(40), c.at(120)
+		if !strings.HasPrefix(strings.TrimSpace(narrow), c.first) || !strings.HasSuffix(narrow, c.last) {
+			t.Errorf("%s: footer %q should start with %q and end with %q", c.name, narrow, c.first, c.last)
+		}
+		whole := strings.Split(strings.TrimSpace(wide), "   ")
+		for _, part := range strings.Split(strings.TrimSpace(narrow), "   ") {
+			if !slices.Contains(whole, part) {
+				t.Errorf("%s: footer part %q is not a whole hint of %q", c.name, part, wide)
+			}
+		}
+	}
+}
+
+func flatten(v string) string { return strings.NewReplacer("│", "", " ", "", "\n", "").Replace(v) }
+
+// The summary is where enter writes, so every line of it is reachable on a
+// short terminal: j scrolls it, and the footer offers j/k only when it
+// overflows.
+func TestSetupSummaryScrollsToEveryLine(t *testing.T) {
+	fresh := setupInput()
+	fresh.Root = "/Users/cescobedo/workspace/personal/envctl"
+	fresh.Dir = fresh.Root + "/main"
+	fresh.Samples[0].Ignored = false
+	imp := importInput()
+	imp.Samples[0].Ignored = false
+	cases := []struct {
+		name string
+		in   manage.SetupInput
+		h    int
+		keys []string
+		want []string
+	}{
+		{"new", fresh, 14, []string{"enter", "enter", "enter"},
+			[]string{"project", "app", "root", fresh.Root, "manifest", "/cfg/projects/app.toml", "output", "local -> .env",
+				"render will refuse until it does", "variables", "you'll store the secrets next"}},
+		{"import", imp, 16, []string{"enter"},
+			[]string{"manifest", "output", "render will refuse until it does", "variables", "conflicts", "re-run with --force to overwrite"}},
+	}
+	for _, c := range cases {
+		s := setupKeys(newSetupAt(c.in, 40, c.h), c.keys...)
+		if !slices.Contains(s.FooterKeys(), "j/k") {
+			t.Errorf("%s: an overflowing summary should offer j/k: %v", c.name, s.FooterKeys())
+		}
+		seen := ""
+		for range 30 {
+			seen += s.View() + "\n"
+			s = setupKeys(s, "j")
+		}
+		for _, w := range c.want {
+			if !strings.Contains(flatten(seen), flatten(w)) {
+				t.Errorf("%s at 40x%d: %q is never on screen:\n%s", c.name, c.h, w, s.View())
+			}
+		}
+	}
+}
+
+// Wrapping breaks at spaces, so "--" and "--force" are never split across
+// lines.
+func TestSetupNeverSplitsADashAcrossLines(t *testing.T) {
+	fresh := setupInput()
+	fresh.Samples[0].Ignored = false
+	imp := importInput()
+	old := "y"
+	imp.Existing["DATABASE_URL"] = manifest.Var{Value: &old}
+	views := map[string]func(w int) string{
+		"summary": func(w int) string { return setupKeys(newSetupAt(fresh, w, 40), "enter", "enter", "enter").View() },
+		"import":  func(w int) string { return setupKeys(newSetupAt(imp, w, 40), "enter", "enter").View() },
+		"root": func(w int) string {
+			return setupKeys(setupType(setupKeys(newSetupAt(fresh, w, 40), "tab"), "/elsewhere"), "enter").View()
+		},
+		"taken": func(w int) string { return setupType(newSetupAt(fresh, w, 40), "other").View() },
+	}
+	for name, view := range views {
+		for w := 40; w <= 120; w++ {
+			v := view(w)
+			for _, l := range strings.Split(v, "\n") {
+				l = strings.TrimSpace(strings.Trim(strings.TrimSpace(l), "│"))
+				if strings.HasSuffix(l, "-") || strings.HasPrefix(l, "-") && !strings.HasPrefix(l, "--force") {
+					t.Errorf("%s at w=%d: a dash is split at a line break: %q\n%s", name, w, l, v)
+				}
+			}
+		}
+	}
+}
+
+// Ruling 4 compares paths, not strings: "/" holds every directory, and a
+// sibling that shares a prefix ("/code/app-old") is not under "/code/app".
+func TestSetupRootContainmentComparesPaths(t *testing.T) {
+	in := setupInput()
+	in.Root = "/"
+	if s := setupKeys(newSetupAt(in, 100, 30), "enter"); !strings.Contains(s.View(), "Start empty") {
+		t.Errorf("the root / holds this directory and should be accepted:\n%s", s.View())
+	}
+	in.Root, in.Dir = "/code/app", "/code/app-old/main"
+	if s := setupKeys(newSetupAt(in, 100, 30), "enter"); !strings.Contains(s.View(), "this directory is not under /code/app") {
+		t.Errorf("a prefix-sharing sibling is not under the root:\n%s", s.View())
+	}
+}
+
+// The import header's path is a value: it wraps, and the view keeps to the
+// terminal's height.
+func TestImportHeaderWrapsItsPath(t *testing.T) {
+	in := importInput()
+	in.Samples[0].Path = "config/" + strings.Repeat("nested/", 8) + "service.env.example"
+	v := newSetupAt(in, 40, 24).View()
+	if !strings.Contains(flatten(v), flatten("Import "+in.Samples[0].Path)) {
+		t.Errorf("the header cuts the path:\n%s", v)
+	}
+	lines := strings.Split(v, "\n")
+	if len(lines) != 24 {
+		t.Errorf("view is %d lines, want 24:\n%s", len(lines), v)
+	}
+	for i, l := range lines {
+		if lipgloss.Width(l) > 40 {
+			t.Errorf("line %d is %d wide: %q", i, lipgloss.Width(l), l)
+		}
+	}
+}
+
+// NewSetup's import precondition is exactly one sample. Without one it
+// must not panic: the review is empty and the result carries no entries.
+func TestImportWithNoSampleDoesNotPanic(t *testing.T) {
+	in := importInput()
+	in.Samples = nil
+	s := newSetupAt(in, 80, 24)
+	_ = s.View()
+	s = setupKeys(s, "space", "d", "e", "enter")
+	_ = s.View()
+	s = setupKeys(s, "enter")
+	if res, ok := s.Result(); !ok || len(res.Entries) != 0 || res.Sample != -1 {
+		t.Errorf("result = %+v %v", res, ok)
+	}
+}
+
+func TestSetupFooterPerSelectionKind(t *testing.T) {
+	forced := importInput()
+	forced.Force = true
+	cases := []struct {
+		name    string
+		in      manage.SetupInput
+		keys    []string
+		want    string
+		escDesc string
+	}{
+		{"left-out row", setupInput(), []string{"enter", "enter", "d"}, "d enter esc", "esc back"},
+		{"editing", setupInput(), []string{"enter", "enter", "e"}, "enter esc", "esc cancel edit"},
+		{"import review", importInput(), nil, "space e d enter esc", "esc cancel"},
+		{"import summary blocked", importInput(), []string{"enter"}, "esc", "esc back"},
+		{"import summary forced", forced, []string{"enter"}, "enter esc", "esc back"},
+	}
+	for _, c := range cases {
+		s := setupKeys(newSetupAt(c.in, 100, 30), c.keys...)
+		if got := strings.Join(s.FooterKeys(), " "); got != c.want {
+			t.Errorf("%s: footer = %q, want %q", c.name, got, c.want)
+		}
+		if !strings.HasSuffix(lastLine(s.View()), c.escDesc) {
+			t.Errorf("%s: footer %q should end with %q", c.name, lastLine(s.View()), c.escDesc)
+		}
+	}
+}
+
+// Import names an existing project; its result's root is the caller's, not
+// a cleaned empty field (".").
+func TestImportResultKeepsTheCallersRoot(t *testing.T) {
+	in := importInput()
+	in.Force, in.Root = true, ""
+	res, ok := setupKeys(newSetupAt(in, 100, 30), "enter", "enter").Result()
+	if !ok || res.Root != "" || res.ID != "app" {
+		t.Errorf("result = %+v %v", res, ok)
+	}
+}
+
+func TestSetupProjectFocusMovesWithTabShiftTabAndArrows(t *testing.T) {
+	for _, k := range []string{"tab", "shift+tab", "down", "up"} {
+		s := setupKeys(setupType(setupKeys(newSetupAt(setupInput(), 100, 30), k), "/code/app2"), "enter")
+		if !strings.Contains(s.View(), "this directory is not under /code/app2") {
+			t.Errorf("%s should move focus to the root field:\n%s", k, s.View())
+		}
+	}
+}
+
+func TestSetupDBringsALeftOutRowBack(t *testing.T) {
+	s := setupKeys(newSetupAt(setupInput(), 100, 30), "enter", "enter", "d")
+	if !strings.Contains(s.View(), "x left out") {
+		t.Fatalf("d should leave the row out:\n%s", s.View())
+	}
+	s = setupKeys(s, "d")
+	if strings.Contains(s.View(), "x left out") {
+		t.Errorf("d again should bring the row back:\n%s", s.View())
+	}
+	res, _ := setupKeys(s, "enter", "enter").Result()
+	if len(res.Entries) != 3 || res.Entries[0].Name != "APP_MODE" {
+		t.Errorf("entries = %+v", res.Entries)
+	}
+}
+
+func TestSetupEscDropsAnEditAndStaysInTheReview(t *testing.T) {
+	s := setupKeys(setupType(setupKeys(newSetupAt(setupInput(), 100, 30), "enter", "enter", "e"), "prod"), "esc")
+	if s.Quitting() || !strings.Contains(s.View(), "development") || strings.Contains(s.View(), "prod") {
+		t.Errorf("esc should drop the edit and keep the review:\n%s", s.View())
+	}
+	res, _ := setupKeys(s, "enter", "enter").Result()
+	if res.Entries[0].Value != "development" {
+		t.Errorf("entries = %+v", res.Entries)
+	}
+}
+
+func TestSetupReenteringTheSameSampleKeepsTheReview(t *testing.T) {
+	s := setupKeys(newSetupAt(setupInput(), 100, 30), "enter", "enter", "space", "esc")
+	if !strings.Contains(s.View(), "Start empty") {
+		t.Fatalf("esc from the review should return to the seed step:\n%s", s.View())
+	}
+	res, _ := setupKeys(s, "enter", "enter", "enter").Result()
+	if len(res.Entries) == 0 || !res.Entries[0].GuessSecret {
+		t.Errorf("the review's choices were lost on re-entering the sample: %+v", res.Entries)
+	}
+}
+
+func TestSetupSummaryOutputLine(t *testing.T) {
+	cases := map[string]struct {
+		edit func(*manage.SetupSample)
+		want string
+	}{
+		"reused":      {func(s *manage.SetupSample) { s.Reused = true }, "local already renders to .env"},
+		"no output":   {func(s *manage.SetupSample) { s.NoOutput, s.OutputName = true, "" }, "output     none"},
+		"not ignored": {func(s *manage.SetupSample) { s.Ignored = false }, "git does not ignore it; render will refuse until it does"},
+	}
+	for name, c := range cases {
+		in := setupInput()
+		c.edit(&in.Samples[0])
+		v := setupKeys(newSetupAt(in, 100, 30), "enter", "enter", "enter").View()
+		if !strings.Contains(v, c.want) {
+			t.Errorf("%s: summary lacks %q:\n%s", name, c.want, v)
+		}
+		if name != "not ignored" && strings.Contains(v, "git ") {
+			t.Errorf("%s: no git note expected:\n%s", name, v)
+		}
 	}
 }
