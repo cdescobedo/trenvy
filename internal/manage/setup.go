@@ -346,32 +346,21 @@ func (s Setup) summaryKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // --- view ---
 
-func (s Setup) size() (int, int) {
-	w, h := s.width, s.height
-	if w == 0 {
-		w = 100
-	}
-	if h == 0 {
-		h = 30
-	}
-	return w, h
-}
-
 func (s Setup) View() string {
 	if s.Quitting() {
 		return ""
 	}
-	w, h := s.size()
-	if w < minWidth || h < minHeight {
-		return fmt.Sprintf("trenvy needs at least %d×%d -- this terminal is %d×%d", minWidth, minHeight, w, h)
+	w, h := termSize(s.width, s.height)
+	if small := tooSmall(w, h); small != "" {
+		return small
 	}
-	msg := s.messageLines(w)
+	msg := messageLines(s.th, s.msg, w)
 	bodyH := h - chromeLines + 1 - len(msg)
 	// The content column: the pane's inner width less the two-cell cursor
 	// lead and a cell of margin, as outDetailBody leaves.
 	lines, first, last := s.body(w - 5)
 	body := s.th.Pane(strings.Join(windowRow(lines, first, last, bodyH-2), "\n"), w, bodyH, true)
-	return strings.Join(append(append([]string{s.viewHeader(w), s.stepRow(w), body}, msg...), s.viewFooter(w)), "\n")
+	return strings.Join(append(append([]string{s.viewHeader(w), s.stepRow(w), body}, msg...), footerLine(s.th, s.hints(), w)), "\n")
 }
 
 func (s Setup) viewHeader(w int) string {
@@ -400,39 +389,8 @@ func (s Setup) stepRow(w int) string {
 	return lipgloss.NewStyle().MaxWidth(w).Render(" " + strings.Join(parts, " "))
 }
 
-// messageLines is Model.messageLines: wrapped, at most maxMessageLines.
-func (s Setup) messageLines(w int) []string {
-	st := s.th.Text
-	if s.msg.isErr {
-		st = s.th.Danger
-	}
-	lines := wrap(display(s.msg.text), w-2)
-	if len(lines) > maxMessageLines {
-		rest := strings.Join(lines[maxMessageLines-1:], " ")
-		lines = append(lines[:maxMessageLines-1], cutTo(rest, w-2))
-	}
-	for i, l := range lines {
-		lines[i] = " " + st.Render(l)
-	}
-	return lines
-}
-
-func (s Setup) viewFooter(w int) string {
-	var parts []string
-	for _, h := range s.hints() {
-		parts = append(parts, s.th.Key.Render(h.key)+" "+s.th.KeyDesc.Render(h.desc))
-	}
-	return lipgloss.NewStyle().MaxWidth(w).Render(" " + strings.Join(parts, "   "))
-}
-
 // FooterKeys lists the keys the footer shows now, for tests.
-func (s Setup) FooterKeys() []string {
-	var out []string
-	for _, h := range s.hints() {
-		out = append(out, h.key)
-	}
-	return out
-}
+func (s Setup) FooterKeys() []string { return hintKeys(s.hints()) }
 
 // hints is the footer: only keys that act at this moment.
 func (s Setup) hints() []hint {
@@ -686,24 +644,6 @@ func (s Setup) outputLines() []string {
 		return []string{smp.OutputName + " -> " + smp.OutputPath, "git ignores it"}
 	}
 	return []string{smp.OutputName + " -> " + smp.OutputPath, "git does not ignore it -- render will refuse until it does"}
-}
-
-// windowRow is window for a row that may span several lines: it shows
-// lines first..last whole when they fit, and the row's start when not.
-func windowRow(lines []string, first, last, height int) []string {
-	if height <= 0 {
-		return nil
-	}
-	if len(lines) <= height {
-		return lines
-	}
-	start := 0
-	if last >= height {
-		start = last - height + 1
-	}
-	start = min(start, first)
-	start = clamp(start, 0, len(lines)-height)
-	return lines[start : start+height]
 }
 
 // RunSetup drives s in the terminal's alternate screen until it quits.

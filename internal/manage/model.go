@@ -142,13 +142,7 @@ func (m Model) SwitchTo() (string, bool) { return m.switchTo, m.switchTo != "" }
 func (m Model) Quitting() bool { return m.quit }
 
 // FooterKeys lists the keys the footer shows now, for tests.
-func (m Model) FooterKeys() []string {
-	var out []string
-	for _, h := range m.footerHints() {
-		out = append(out, h.key)
-	}
-	return out
-}
+func (m Model) FooterKeys() []string { return hintKeys(m.footerHints()) }
 
 func (m *Model) push(o overlay) {
 	m.overlays = append(m.overlays[:len(m.overlays):len(m.overlays)], o)
@@ -262,26 +256,17 @@ func (m *Model) quitConfirm() overlay {
 	}
 }
 
-func (m Model) size() (int, int) {
-	w, h := m.width, m.height
-	if w == 0 {
-		w = 100
-	}
-	if h == 0 {
-		h = 30
-	}
-	return w, h
-}
+func (m Model) size() (int, int) { return termSize(m.width, m.height) }
 
 func (m Model) View() string {
 	if m.quit {
 		return ""
 	}
 	w, h := m.size()
-	if w < minWidth || h < minHeight {
-		return fmt.Sprintf("trenvy needs at least %d×%d -- this terminal is %d×%d", minWidth, minHeight, w, h)
+	if small := tooSmall(w, h); small != "" {
+		return small
 	}
-	msg := m.messageLines(w)
+	msg := messageLines(m.th, m.msg, w)
 	bodyH := m.bodyHeight()
 	body := m.screenView(w, bodyH)
 	if top := m.top(); top != nil {
@@ -290,14 +275,14 @@ func (m Model) View() string {
 			body = lipgloss.Place(w, bodyH, lipgloss.Center, lipgloss.Center, o)
 		}
 	}
-	return strings.Join(append(append([]string{m.viewHeader(w), m.viewTabs(w), body}, msg...), m.viewFooter(w)), "\n")
+	return strings.Join(append(append([]string{m.viewHeader(w), m.viewTabs(w), body}, msg...), footerLine(m.th, m.footerHints(), w)), "\n")
 }
 
 // bodyHeight is the rows left for the body under the current message,
 // which may take more than the one line chromeLines counts.
 func (m Model) bodyHeight() int {
 	w, h := m.size()
-	return h - chromeLines + 1 - len(m.messageLines(w))
+	return h - chromeLines + 1 - len(messageLines(m.th, m.msg, w))
 }
 
 // viewHeader draws the header. The right side -- the problem pill, the
@@ -348,36 +333,9 @@ func (m Model) headerLeft(avail int) string {
 	return left
 }
 
-// messageLines is the message, wrapped rather than cut so its end -- often
-// the way to undo or recover -- survives. Past maxMessageLines the last line
-// is cut, ending in ….
-func (m Model) messageLines(w int) []string {
-	st := m.th.Text
-	if m.msg.isErr {
-		st = m.th.Danger
-	}
-	lines := wrap(display(m.msg.text), w-2)
-	if len(lines) > maxMessageLines {
-		rest := strings.Join(lines[maxMessageLines-1:], " ")
-		lines = append(lines[:maxMessageLines-1], cutTo(rest, w-2))
-	}
-	for i, l := range lines {
-		lines[i] = " " + st.Render(l)
-	}
-	return lines
-}
-
 func (m Model) footerHints() []hint {
 	if top := m.top(); top != nil {
 		return top.hints(&m)
 	}
 	return footer(m.screenHints())
-}
-
-func (m Model) viewFooter(w int) string {
-	var parts []string
-	for _, h := range m.footerHints() {
-		parts = append(parts, m.th.Key.Render(h.key)+" "+m.th.KeyDesc.Render(h.desc))
-	}
-	return lipgloss.NewStyle().MaxWidth(w).Render(" " + strings.Join(parts, "   "))
 }

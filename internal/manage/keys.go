@@ -1,6 +1,13 @@
 package manage
 
-import tea "github.com/charmbracelet/bubbletea"
+import (
+	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/cdescobedo/trenvy/internal/style"
+)
 
 // hint is one footer entry: a key and what it does right now.
 type hint struct{ key, desc string }
@@ -48,4 +55,22 @@ func keyIs(k tea.KeyMsg, names ...string) bool {
 		}
 	}
 	return false
+}
+
+// hintKeys is the keys of hs, for tests' FooterKeys.
+func hintKeys(hs []hint) []string {
+	var out []string
+	for _, h := range hs {
+		out = append(out, h.key)
+	}
+	return out
+}
+
+// footerLine draws hs as the footer line, in at most w cells.
+func footerLine(th style.Theme, hs []hint, w int) string {
+	var parts []string
+	for _, h := range hs {
+		parts = append(parts, th.Key.Render(h.key)+" "+th.KeyDesc.Render(h.desc))
+	}
+	return lipgloss.NewStyle().MaxWidth(w).Render(" " + strings.Join(parts, "   "))
 }
