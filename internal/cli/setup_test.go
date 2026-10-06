@@ -99,6 +99,7 @@ func TestCancellingSetupWritesNothing(t *testing.T) {
 	h := newHarness(t)
 	writeFile(t, filepath.Join(h.root, ".env.example"), "APP_MODE=development\n")
 	for _, keys := range [][]tea.KeyMsg{{esc}, {enter, enter, tea.KeyMsg{Type: tea.KeyCtrlC}}} {
+		h.errb.Reset()
 		h.opts.RunSetup = func(s manage.Setup) (manage.Setup, error) { return driveSetup(s, keys...), nil }
 		h.opts.RunManage = func(m manage.Model) (manage.Model, error) {
 			t.Fatal("the interface opened after a cancelled setup")
@@ -109,6 +110,9 @@ func TestCancellingSetupWritesNothing(t *testing.T) {
 		}
 		if reg, _ := config.LoadRegistry(); len(reg.Projects) != 0 {
 			t.Errorf("registry = %+v after a cancel", reg.Projects)
+		}
+		if _, err := os.Stat(config.ManifestPath(filepath.Base(h.root))); !os.IsNotExist(err) {
+			t.Errorf("a manifest exists after a cancel (stat err = %v)", err)
 		}
 		if !strings.Contains(h.errb.String(), "nothing was written") {
 			t.Errorf("stderr = %q", h.errb.String())
@@ -121,6 +125,7 @@ func TestSetupSkipsAnUnparsableSample(t *testing.T) {
 	h := newHarness(t)
 	writeFile(t, filepath.Join(h.root, ".env.example"), "APP_MODE=development\n")
 	writeFile(t, filepath.Join(h.root, "appsettings.json.example"), "{ not json")
+	writeFile(t, filepath.Join(h.root, ".env.sample"), "# nothing here\n")
 	var seed string
 	h.opts.RunSetup = func(s manage.Setup) (manage.Setup, error) {
 		s = driveSetup(s, enter)
@@ -130,7 +135,7 @@ func TestSetupSkipsAnUnparsableSample(t *testing.T) {
 	if err := h.run("ui"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(seed, ".env.example") || strings.Contains(seed, "appsettings") || !strings.Contains(seed, "Start empty") {
+	if !strings.Contains(seed, ".env.example") || strings.Contains(seed, "appsettings") || strings.Contains(seed, ".env.sample") || !strings.Contains(seed, "Start empty") {
 		t.Errorf("seed step:\n%s", seed)
 	}
 }
