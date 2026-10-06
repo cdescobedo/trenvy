@@ -36,11 +36,11 @@ func runSetup(opts *Options) error {
 	}
 
 	root := resolve.ProjectRootGuess(opts.Dir)
-	// Outside a repository there is no worktree: the directory stands in, so
-	// detection still looks where the user is.
+	// Outside a repository WorktreeRoot already answers the directory itself
+	// (symlinks resolved), so detection still looks where the user is.
 	wt, err := resolve.WorktreeRoot(opts.Dir)
 	if err != nil {
-		wt = opts.Dir
+		return err
 	}
 	samples := detectSamples(wt)
 	var note string
