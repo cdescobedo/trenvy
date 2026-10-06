@@ -9,6 +9,7 @@ import (
 
 	"github.com/cdescobedo/trenvy/internal/manifest"
 	"github.com/cdescobedo/trenvy/internal/session"
+	"github.com/cdescobedo/trenvy/internal/style"
 )
 
 type pane int
@@ -363,10 +364,20 @@ func (m Model) listBody(inner, height int, wide bool) string {
 		head = append(head, " "+t.Muted.Render("filter: ")+t.Text.Render(display(m.vars.filter)))
 	}
 	if m.vars.problemsOnly {
-		head = append(head, " "+t.Muted.Render("problems only -- ! to show all"))
+		head = append(head, mutedNote(t, "problems only -- ! to show all", inner)...)
 	}
 	body := m.listRows(inner, height-len(head), wide)
 	return strings.Join(append(head, body), "\n")
+}
+
+// mutedNote is a note in the list pane, wrapped to its inner width behind
+// a one-cell margin rather than cut: the end of it is the way out.
+func mutedNote(t style.Theme, note string, inner int) []string {
+	var lines []string
+	for _, l := range wrap(note, inner-1) {
+		lines = append(lines, " "+t.Muted.Render(l))
+	}
+	return lines
 }
 
 func (m Model) listRows(inner, height int, wide bool) string {
@@ -377,7 +388,7 @@ func (m Model) listRows(inner, height int, wide bool) string {
 		if m.vars.filter != "" || m.vars.problemsOnly {
 			msg = "Nothing matches -- / to change the filter, ! to show all"
 		}
-		return " " + t.Muted.Render(msg)
+		return strings.Join(window(mutedNote(t, msg, inner), 0, height), "\n")
 	}
 	nameW := inner - (listChrome - 2)
 	if wide {

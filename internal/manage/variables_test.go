@@ -245,3 +245,31 @@ func TestPromotionSkipsARemovedProfile(t *testing.T) {
 		t.Errorf("set-secret profiles = %v, want dev,staging (prod is being removed)", secrets)
 	}
 }
+
+// listPane is the text of the list pane, the view's first bordered column,
+// with its lines joined and spaces dropped so wrapping is undone.
+func listPane(v string) string {
+	var b strings.Builder
+	for _, l := range strings.Split(v, "\n") {
+		if parts := strings.Split(l, "│"); len(parts) > 2 {
+			b.WriteString(parts[1])
+		}
+	}
+	return strings.ReplaceAll(b.String(), " ", "")
+}
+
+// The list pane's notes wrap rather than being cut: setup lands on the
+// problems-only filter, and its banner is the one place that says how to
+// leave it.
+func TestListNotesWrapInANarrowListPane(t *testing.T) {
+	for _, w := range []int{40, 60, 80, 100, 120} {
+		banner := sized(press(newModel(&fakeDeps{}), "!"), w, 30).View()
+		if want := "problemsonly--!toshowall"; !strings.Contains(listPane(banner), want) {
+			t.Errorf("w=%d: the problems-only banner is cut:\n%s", w, banner)
+		}
+		none := sized(press(typeText(press(newModel(&fakeDeps{}), "/"), "zzz"), "esc"), w, 30).View()
+		if want := "Nothingmatches--/tochangethefilter,!toshowall"; !strings.Contains(listPane(none), want) {
+			t.Errorf("w=%d: the empty filter note is cut:\n%s", w, none)
+		}
+	}
+}
