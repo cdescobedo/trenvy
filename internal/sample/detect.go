@@ -6,10 +6,11 @@ import (
 	"strings"
 )
 
-// placeholderSuffixes are the endings a sample carries over the file it is a
-// sample of -- the same list cli's outputFor strips to guess the rendered
-// path, so every detected sample can become an output.
-var placeholderSuffixes = []string{".example", "_example", ".sample", ".dist"}
+// PlaceholderSuffixes are the endings a sample carries over the file it is
+// a sample of. Detect looks for them, and cli's outputFor strips them to
+// guess the rendered path, so every detected sample can become an output.
+// Read it; never change it.
+var PlaceholderSuffixes = []string{".example", "_example", ".sample", ".dist"}
 
 // Detect returns the base names of the sample files directly in dir, sorted
 // (spec §6: samples detected in the worktree root). A name counts when it
@@ -32,7 +33,7 @@ func Detect(dir string) ([]string, error) {
 }
 
 func isSampleName(name string) bool {
-	for _, s := range placeholderSuffixes {
+	for _, s := range PlaceholderSuffixes {
 		if !strings.HasSuffix(name, s) {
 			continue
 		}

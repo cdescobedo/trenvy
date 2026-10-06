@@ -279,7 +279,7 @@ func outputFor(samplePath, fallbackRoot string) (manifest.Output, error) {
 	// "app.dist.example", strip ".example" and then also ".dist" from what's
 	// left, over-stripping a name that only ever had one placeholder suffix.
 	dir, base := filepath.Split(rel)
-	for _, suffix := range []string{".example", "_example", ".sample", ".dist"} {
+	for _, suffix := range sample.PlaceholderSuffixes {
 		if strings.HasSuffix(base, suffix) {
 			base = strings.TrimSuffix(base, suffix)
 			break
