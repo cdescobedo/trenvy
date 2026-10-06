@@ -210,3 +210,32 @@ func TestSetupAtABareRootSaysToRunFromAWorktree(t *testing.T) {
 		t.Errorf("an ordinary directory should get no note: %s", seed)
 	}
 }
+
+// A sample that names a variable twice is read as dotenv reads it, the last
+// one winning: the review shows one row, and the project is created with
+// the last value rather than failing on a conflict with itself.
+func TestSetupTakesTheLastOfARepeatedName(t *testing.T) {
+	h := newHarness(t)
+	writeFile(t, filepath.Join(h.root, ".env.example"), "A=1\nB=x\nA=2\n")
+	var review string
+	h.opts.RunSetup = func(s manage.Setup) (manage.Setup, error) {
+		s = driveSetup(s, enter, enter) // project, seed
+		review = s.View()
+		return driveSetup(s, enter, enter), nil // review, create
+	}
+	h.opts.RunManage = func(m manage.Model) (manage.Model, error) { return m, nil }
+	err := h.run("ui")
+	if n := strings.Count(review, "[ ] A "); n != 1 {
+		t.Errorf("the review shows %d rows for A, want 1:\n%s", n, review)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := manifest.Load(config.ManifestPath(filepath.Base(h.root)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := m.Vars["A"]; v.Value == nil || *v.Value != "2" {
+		t.Errorf("A = %+v, want the last value 2", v)
+	}
+}

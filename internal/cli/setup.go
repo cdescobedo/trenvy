@@ -102,6 +102,7 @@ func detectSamples(wt string) []manage.SetupSample {
 		if err != nil || len(entries) == 0 {
 			continue
 		}
+		entries = lastOfEachName(entries)
 		// force: the preview is of an empty manifest, so there is nothing to
 		// conflict with, and it must not fail on a name it will overwrite.
 		scratch := &manifest.Manifest{Vars: map[string]manifest.Var{}, Outputs: map[string]manifest.Output{}}
@@ -114,6 +115,23 @@ func detectSamples(wt string) []manage.SetupSample {
 		out = append(out, manage.SetupSample{
 			Path: name, Entries: entries, OutputName: rep.Output, OutputPath: outPath, Ignored: ignored,
 		})
+	}
+	return out
+}
+
+// lastOfEachName drops every entry a later one of the same name overrides,
+// as dotenv reads a repeated name, so the review shows one row per name and
+// the apply cannot conflict with itself.
+func lastOfEachName(entries []sample.Entry) []sample.Entry {
+	last := map[string]int{}
+	for i, e := range entries {
+		last[e.Name] = i
+	}
+	var out []sample.Entry
+	for i, e := range entries {
+		if last[e.Name] == i {
+			out = append(out, e)
+		}
 	}
 	return out
 }
