@@ -21,7 +21,6 @@ import (
 	"github.com/cdescobedo/trenvy/internal/resolve"
 	"github.com/cdescobedo/trenvy/internal/store"
 	"github.com/cdescobedo/trenvy/internal/style"
-	"github.com/cdescobedo/trenvy/internal/tui"
 )
 
 // Options are the seams that make the CLI testable: streams, the working
@@ -45,11 +44,6 @@ type Options struct {
 	// Run executes a prepared child process. Swappable so tests can assert on
 	// the environment and argv without spawning anything.
 	Run func(*exec.Cmd) error
-
-	// RunTUI drives the interactive table `trenvy import` reviews with.
-	// Swappable so tests can supply a finished model instead of a terminal
-	// session.
-	RunTUI func(tui.Model, func(string) (string, error)) (tui.Model, error)
 
 	// RunManage drives the interface (`trenvy ui` and `trenvy edit`).
 	// Swappable so tests drive a model with keys instead of a terminal.
@@ -83,7 +77,6 @@ func Default() Options {
 			c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
 			return c.Run()
 		},
-		RunTUI: tui.Run,
 
 		RunManage: manage.Run,
 		RunSetup:  manage.RunSetup,

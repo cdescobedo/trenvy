@@ -283,8 +283,8 @@ the command surface may still move under you.
   the changes and the current project exactly as they were. A registry of
   exactly one project -- the current one -- says plainly there is nothing to
   switch to, instead of a panel with nothing useful in it. `q` asks first when
-  staged changes are present, the same y/anything-else gate `internal/tui`
-  already uses for its own quit confirmation; declining leaves the staged
+  staged changes are present, the same y/anything-else gate the
+  import review once used; declining leaves the staged
   changes and the cursor exactly where they were. Ctrl+C still cancels
   unconditionally, including from that confirmation itself, so a user who
   cannot remember any other key always has an exit that writes nothing. A
@@ -334,6 +334,12 @@ the command surface may still move under you.
 
 ### Changed
 
+- **`trenvy import`'s interactive review is the interface's review.** `space`
+  marks a variable secret (was `s`), `e` edits a plain value, `d` leaves a
+  variable out, and `enter` shows a summary -- the manifest, the output and
+  whether git ignores it, and any variable that would be overwritten --
+  before anything is written. Adding a variable and the filter are gone from
+  the review; add variables in `trenvy ui` afterwards. `--no-tui` is unchanged.
 - **`TRENVY_THEME=light|dark`** overrides the interface's light/dark detection.
 - **`trenvy ui` validates a whole batch before writing anything.** A batch
   the manifest would refuse -- a new variable with no value, say -- used to

@@ -17,7 +17,7 @@ packages mean the shape below can change without breaking a consumer.
     +-----------------+-----------------+
     |          internal/cli             |   delivery: commands, flags, output
     | internal/render    internal/manage|
-    | internal/session   internal/tui   |
+    | internal/session                  |
     +-----------------+-----------------+
                       |
               internal/resolve              precedence: what is a value?
@@ -47,11 +47,10 @@ why its tests need no store at all.
 **`render` / `cli` — where does it go?** `render` turns resolved values into
 bytes (dotenv or JSON) and computes the digests. `cli` wires the commands and
 owns everything user-facing. `manage` is the interactive interface behind both
-`trenvy ui` and `trenvy edit`; `session` is the UI-free logic it stands on;
-`tui` is the flat table that is left, used only by the interactive review in
-`trenvy import`.
+`trenvy ui` and `trenvy edit`; `session` is the UI-free logic it stands on.
+The interactive review in `trenvy import` is `manage`'s setup flow.
 
-### `internal/manage`, `internal/session` and `internal/tui`
+### `internal/manage` and `internal/session`
 
 `trenvy ui` and `trenvy edit` run the same function, `runManage`
 (`internal/cli/manage.go`), which builds a `manage.Snapshot` from disk and hands
@@ -77,7 +76,7 @@ path are `Deps` functions — `Reveal`, `Commit`, `Reload`, `Ignored`, `Render`,
 with key messages and feeds each command's result back itself. Saving does not
 end the session: `Commit` runs, `Reload` rebuilds the snapshot from disk, the
 staged set empties, and the cursor stays. `cli.Options` carries a swappable
-`RunManage`, the way it carries `RunTUI`, so command tests never open a
+`RunManage` and `RunSetup`, so command tests never open a
 terminal.
 
 Presence is loaded through `Has` only, never `Get`, the same rule `status` and
@@ -87,9 +86,8 @@ by *Render now* on an output (it is `trenvy render`, which resolves every
 value it writes), by *Check now* on an output (its menu label says it reads
 secrets), and by `trenvy secret demote`.
 
-`tui` is what is left of the first interactive view: one profile's variables
-as a flat table. Its only caller is `reviewImport` (`internal/cli/edit.go`), the
-review `trenvy import` opens before saving. It shares no code with `manage`.
+Interactive `trenvy import` runs `manage.Setup` in `SetupImport` mode (review,
+then a summary), through `RunSetup`.
 
 ### `internal/style`
 
@@ -506,18 +504,18 @@ no real configuration can be read or written.
 Together those make the suite hermetic: it needs no unlocked login keychain,
 which CI runners do not have, and it can run anywhere in any order.
 
-`cli.Options` is the rest of the seam — streams, working directory, and two
-function fields:
+`cli.Options` is the rest of the seam — streams, working directory, and
+function fields such as:
 
 ```go
 Run    func(*exec.Cmd) error                                     // spawn a child
-RunTUI func(tui.Model, func(string) (string, error)) (tui.Model, error)
+RunManage func(manage.Model) (manage.Model, error)                // drive the interface
 ```
 
 Swapping `Run` lets a test assert on a child's `argv` and environment without
 spawning anything, which is how the "`exec` strips `TRENVY_PASSPHRASE`" and
-"`exec` exports `TRENVY_PROFILE`" guarantees are pinned. Swapping `RunTUI` lets
-a test supply a finished model instead of a terminal session.
+"`exec` exports `TRENVY_PROFILE`" guarantees are pinned. Swapping `RunManage` or `RunSetup` lets
+a test drive a model with keys instead of a terminal session.
 
 Everything runs through `cli.Execute(opts, args)`, so tests drive the whole CLI
 in-process rather than shelling out to a binary.

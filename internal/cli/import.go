@@ -1,17 +1,22 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
 	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/guard"
+	"github.com/cdescobedo/trenvy/internal/manage"
 	"github.com/cdescobedo/trenvy/internal/manifest"
 	"github.com/cdescobedo/trenvy/internal/resolve"
 	"github.com/cdescobedo/trenvy/internal/sample"
+	"github.com/cdescobedo/trenvy/internal/style"
 )
 
 func newImportCmd(opts *Options) *cobra.Command {
@@ -58,7 +63,7 @@ func newImportCmd(opts *Options) *cobra.Command {
 			}
 
 			if !noTUI {
-				entries, err = reviewImport(opts, app.Entry.ID, entries)
+				entries, err = reviewImport(opts, app, samplePath, entries, outputName, noOutput, force)
 				if err != nil {
 					return err
 				}
@@ -96,6 +101,44 @@ func newImportCmd(opts *Options) *cobra.Command {
 	cmd.Flags().BoolVar(&noTUI, "no-tui", false, "skip the interactive review")
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite variables already in the manifest")
 	return cmd
+}
+
+// reviewImport runs the setup flow's review and summary over a sample and
+// returns the entries the user kept. The preview runs on a clone because
+// importInto mutates the manifest before a mid-list conflict; its output is
+// what the summary shows, and a refusal (e.g. --output naming an existing
+// output) surfaces before the review, as the end-of-run refusal would.
+func reviewImport(opts *Options, app *appContext, samplePath string, entries []sample.Entry, outputName string, noOutput, force bool) ([]sample.Entry, error) {
+	preview, err := app.Manifest.Clone()
+	if err != nil {
+		return nil, err
+	}
+	rep, err := importInto(preview, app.Worktree, samplePath, entries, outputName, noOutput, true)
+	if err != nil {
+		return nil, err
+	}
+	s := manage.SetupSample{Path: samplePath, Entries: entries, NoOutput: noOutput, OutputName: rep.Output}
+	if rep.Output != "" {
+		s.OutputPath = preview.Outputs[rep.Output].Path
+		s.Reused = rep.Created == ""
+		s.Ignored, _ = guard.GitIgnored(app.Worktree, s.OutputPath)
+	}
+	th, err := style.ThemeFor(lipgloss.NewRenderer(opts.Stdout), os.Getenv("TRENVY_THEME"))
+	if err != nil {
+		return nil, err
+	}
+	final, err := opts.RunSetup(manage.NewSetup(manage.SetupInput{
+		Mode: manage.SetupImport, ID: app.Entry.ID, ManifestPath: config.ManifestPath,
+		Samples: []manage.SetupSample{s}, Existing: app.Manifest.Vars, Force: force,
+	}, th))
+	if err != nil {
+		return nil, err
+	}
+	res, ok := final.Result()
+	if !ok {
+		return nil, errors.New("import cancelled")
+	}
+	return res.Entries, nil
 }
 
 // importReport is what importInto did to the manifest. Output is the output

@@ -7,7 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/cdescobedo/trenvy/internal/config"
+	"github.com/cdescobedo/trenvy/internal/manage"
 	"github.com/cdescobedo/trenvy/internal/manifest"
 )
 
@@ -631,5 +634,70 @@ func TestImportOutputRejectsASampleOutsideTheProject(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not inside a") {
 		t.Errorf("error = %v, want it to name the containment problem", err)
+	}
+}
+
+func TestInteractiveImportAppliesTheReview(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "vpb")
+	sample := filepath.Join(h.root, ".env.example")
+	writeFile(t, sample, "APP_MODE=development\nAPP_URL=http://x\n")
+	h.opts.RunSetup = func(s manage.Setup) (manage.Setup, error) {
+		return driveSetup(s, r(" "), r("j"), r("d"), enter, enter), nil // APP_MODE secret, APP_URL left out, summary, import
+	}
+	if err := h.run("import", sample); err != nil {
+		t.Fatal(err)
+	}
+	m := h.manifest(t, "vpb")
+	if v := m.Vars["APP_MODE"]; !v.Secret {
+		t.Errorf("APP_MODE = %+v, want secret", v)
+	}
+	if _, ok := m.Vars["APP_URL"]; ok {
+		t.Error("APP_URL was imported though it was left out")
+	}
+}
+
+func TestInteractiveImportCancelWritesNothing(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "vpb")
+	sample := filepath.Join(h.root, ".env.example")
+	writeFile(t, sample, "APP_MODE=development\n")
+	h.opts.RunSetup = func(s manage.Setup) (manage.Setup, error) { return driveSetup(s, esc), nil }
+	if err := h.run("import", sample); err == nil || !strings.Contains(err.Error(), "import cancelled") {
+		t.Fatalf("err = %v", err)
+	}
+	if _, ok := h.manifest(t, "vpb").Vars["APP_MODE"]; ok {
+		t.Error("a cancelled import wrote APP_MODE")
+	}
+}
+
+// Review Focus 5, end to end.
+func TestInteractiveImportConflictWritesNothing(t *testing.T) {
+	h := newHarness(t)
+	h.initProject(t, "vpb")
+	if err := h.run("set", "APP_MODE", "x"); err != nil {
+		t.Fatal(err)
+	}
+	sample := filepath.Join(h.root, ".env.example")
+	writeFile(t, sample, "APP_MODE=development\n")
+	h.opts.RunSetup = func(s manage.Setup) (manage.Setup, error) {
+		s = driveSetup(s, enter, enter) // the summary refuses
+		if _, ok := s.Result(); ok {
+			t.Error("the summary accepted a conflict without --force")
+		}
+		return driveSetup(s, tea.KeyMsg{Type: tea.KeyCtrlC}), nil
+	}
+	if err := h.run("import", sample); err == nil {
+		t.Fatal("a refused import returned nil")
+	}
+	if v := h.manifest(t, "vpb").Vars["APP_MODE"]; v.Value != nil || v.Profiles["dev"] != "x" {
+		t.Errorf("APP_MODE = %+v, want the dev value x untouched", v)
+	}
+	h.opts.RunSetup = func(s manage.Setup) (manage.Setup, error) { return driveSetup(s, enter, enter), nil }
+	if err := h.run("import", sample, "--force"); err != nil {
+		t.Fatalf("with --force: %v", err)
+	}
+	if v := h.manifest(t, "vpb").Vars["APP_MODE"]; v.Value == nil || *v.Value != "development" {
+		t.Errorf("with --force APP_MODE = %+v", v)
 	}
 }
