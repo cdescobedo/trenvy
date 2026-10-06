@@ -93,10 +93,13 @@ Setup is a second, smaller model beside `Model`, in `internal/manage/setup.go`.
 It is pure in the same way: `manage.NewSetup` takes a `SetupInput` — every fact
 it shows or checks (the prefilled id and root, the directory trenvy runs in,
 the registered ids and roots, the detected samples with their output preview,
-the manifest's existing variables and `--force` for an import) — and a
-finished run hands back a `SetupResult` (id, root, which sample, the rows
-kept with their secret flags and edited values). It reads no file, runs no git
-and touches no registry; `Update` only moves state. It has two modes:
+a note for the seed step when none was found, the manifest's existing
+variables and `--force` for an import) — and a finished run hands back a
+`SetupResult` (id, root, which sample, the rows kept with their secret flags
+and edited values). It reads no file, runs no git and touches no registry;
+`Update` only moves state. It checks the root with `config.UnderOrEqual`,
+`Registry.Lookup`'s own containment rule, so it never accepts a root the
+project could not then be found under. It has two modes:
 `SetupNew` (Project, Seed, Review, Create) and `SetupImport` (Review, Import),
 the latter being what interactive `trenvy import` runs, through `RunSetup`.
 
@@ -115,9 +118,12 @@ is the root to prefill: in a bare-repo layout (`<root>/.bare` beside sibling
 worktrees) it is `<root>`, so every worktree finds the project; elsewhere it is
 the directory itself, as `project init` defaults. `sample.Detect`
 (`internal/sample/detect.go`) lists the sample files directly in the worktree
-root, by the placeholder suffixes `outputFor` strips, so every sample it
-returns can become an output; `detectSamples` then drops any that does not
-parse or holds no variables.
+root, by `sample.PlaceholderSuffixes`, the list `outputFor` strips, so every
+sample it returns can become an output; `detectSamples` then drops any that
+does not parse or holds no variables, and keeps only the last entry of a
+repeated name. A bare layout's root, which holds `.bare`, is no worktree, so
+detection looks in the root itself; when it finds nothing there, `runSetup`
+passes the seed step a note saying to run from a worktree.
 
 ### `internal/style`
 

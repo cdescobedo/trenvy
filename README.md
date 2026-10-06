@@ -161,7 +161,7 @@ first and `esc` last; on a narrow terminal whole hints are dropped, `enter` and
 `esc` last of all, rather than one being cut.
 
 ```console
-$ cd ~/code/myapp && trenvy ui
+$ cd /tmp/t6/proj/myapp && trenvy ui
  Set up a project
  [ Project ]  Seed   Review   Create
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
@@ -191,11 +191,15 @@ refused, with the reason shown under the field, when:
 - the directory you are in is not inside the root (the new project could not
   be found from here).
 
-**The seed.** Setup lists the sample files in the worktree root: a name that
-ends in `.example`, `_example`, `.sample` or `.dist` and, without that ending,
-is `.env`, starts with `.env.`, ends with `.env` or contains `.json` — the same
-names `import` can turn into an output path. A sample that fails to parse or
-holds no variables is left out of the list, and *Start empty* is always there.
+**The seed.** Setup lists the sample files in the worktree root, or in the
+current directory outside git: a name that ends in `.example`, `_example`,
+`.sample` or `.dist` and, without that ending, is `.env`, starts with `.env.`,
+ends with `.env` or contains `.json` — the same names `import` can turn into an
+output path. A sample that fails to parse or holds no variables is left out of
+the list, and *Start empty* is always there. A sample that names a variable
+twice is read as dotenv reads it: the last one wins. A bare layout's root is
+not a worktree, so setup run there looks only in the root itself and, finding
+nothing, says to run trenvy from a worktree to seed from its samples.
 
 ```console
  Set up a project
@@ -214,7 +218,8 @@ holds no variables is left out of the list, and *Start empty* is always there.
 
 **The review.** One row per variable, `[x]` for a secret. A value that looks
 like a secret is marked for you and its value is never shown and never stored;
-you store secrets after setup. Move with `j`/`k`, and:
+you store secrets after setup. Unticking such a row makes it plain with an
+empty value, for `e` to fill. Move with `j`/`k`, and:
 
 | key | does |
 |---|---|
@@ -272,8 +277,8 @@ message points at `a` to add a variable.
  [ Variables ]  Outputs   Profiles
 ╭──────────────────────╮╭──────────────────────────────────────────────────────────────────────────╮
 │ problems only -- ! to││  API_TOKEN                                             secret · required │
-│> API_TOKEN   secret !││                                                                          │
-│                      ││  dev *       -                                            MISSING !      │
+│ show all             ││                                                                          │
+│> API_TOKEN   secret !││  dev *       -                                            MISSING !      │
 │                      ││                                                                          │
 │                      ││  ! no value under dev -- enter on dev to store it                        │
 │                      ││  written to  root (.env)                                                 │
