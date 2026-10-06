@@ -49,6 +49,25 @@ func TestRegisterProjectWritesTheManifestThenTheRegistry(t *testing.T) {
 	}
 }
 
+// Write order is the project rule: the manifest is saved before the
+// registry, so a manifest that cannot be saved leaves no registry entry
+// pointing at it.
+func TestRegisterProjectSavesNoRegistryWhenTheManifestSaveFails(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("TRENVY_CONFIG_DIR", cfg)
+	// A file where the projects directory belongs: the manifest save fails.
+	if err := os.WriteFile(filepath.Join(cfg, "projects"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := newProjectManifest("app")
+	if err := registerProject("app", t.TempDir(), m); err == nil {
+		t.Fatal("the manifest save was blocked, yet registerProject succeeded")
+	}
+	if reg, _ := config.LoadRegistry(); len(reg.Projects) != 0 {
+		t.Errorf("registry = %+v, want empty: it was saved before the manifest", reg.Projects)
+	}
+}
+
 func TestRegisterProjectWritesNothingForAnInvalidManifest(t *testing.T) {
 	t.Setenv("TRENVY_CONFIG_DIR", t.TempDir())
 	m, _ := newProjectManifest("app")
