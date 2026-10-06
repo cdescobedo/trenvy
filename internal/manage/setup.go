@@ -420,20 +420,28 @@ func (s Setup) headerLines(w int) []string {
 	lines := wrap(title, w-2)
 	if len(lines) > headerMax {
 		// Packed rather than wrapped at the space after "Import", which
-		// would leave its first line nearly empty.
-		room := headerMax * (w - 2)
-		if lipgloss.Width(title) > room {
-			title = "Import " + cutFront(display(s.in.Samples[0].Path), room-len("Import "))
-		}
-		lines = nil
-		for title != "" {
-			var l string
-			l, title = splitCells(title, w-2)
-			lines = append(lines, l)
+		// would leave its first line nearly empty, and the path cut a cell
+		// at a time until it fits: a two-cell rune may not fill a line.
+		path := display(s.in.Samples[0].Path)
+		for budget := min(lipgloss.Width(path), headerMax*(w-2)); ; budget-- {
+			if lines = packLines("Import "+cutFront(path, budget), w-2); len(lines) <= headerMax {
+				break
+			}
 		}
 	}
 	for i, l := range lines {
 		lines[i] = " " + s.th.Title.Render(l)
+	}
+	return lines
+}
+
+// packLines splits s into lines of at most w cells, filling each.
+func packLines(s string, w int) []string {
+	var lines []string
+	for s != "" {
+		var l string
+		l, s = splitCells(s, w)
+		lines = append(lines, l)
 	}
 	return lines
 }

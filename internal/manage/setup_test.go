@@ -580,19 +580,29 @@ func TestImportOfNothingSaysNothingWillBeImported(t *testing.T) {
 func TestImportViewFitsTheMinimumTerminalWithALongPath(t *testing.T) {
 	in := importInput()
 	in.Samples[0].Path = strings.Repeat("deep/", 60) + "service.env.example"
-	for _, keys := range [][]string{nil, {"enter"}} {
-		v := setupKeys(newSetupAt(in, 40, 10), keys...).View()
+	// Two-cell runes at an odd width, where a line cannot be filled exactly.
+	wide := importInput()
+	wide.Samples[0].Path = strings.Repeat("設定", 90) + "/service.env.example"
+	for _, c := range []struct {
+		in   manage.SetupInput
+		w    int
+		keys []string
+	}{{in, 40, nil}, {in, 40, []string{"enter"}}, {wide, 40, nil}, {wide, 41, nil}} {
+		v := setupKeys(newSetupAt(c.in, c.w, 10), c.keys...).View()
 		lines := strings.Split(v, "\n")
 		if len(lines) > 10 {
-			t.Errorf("%v: the view is %d lines on a 10-line terminal:\n%s", keys, len(lines), v)
+			t.Errorf("w=%d %v: the view is %d lines on a 10-line terminal:\n%s", c.w, c.keys, len(lines), v)
 		}
 		for i, l := range lines {
-			if lipgloss.Width(l) > 40 {
-				t.Errorf("%v: line %d is %d wide: %q", keys, i, lipgloss.Width(l), l)
+			if lipgloss.Width(l) > c.w {
+				t.Errorf("w=%d %v: line %d is %d wide: %q", c.w, c.keys, i, lipgloss.Width(l), l)
 			}
 		}
+		if !strings.Contains(lines[2], "Review") {
+			t.Errorf("w=%d %v: the header takes more than two lines:\n%s", c.w, c.keys, v)
+		}
 		if head := strings.Join(lines[:2], ""); !strings.Contains(head, "…") || !strings.Contains(flatten(head), "service.env.example") {
-			t.Errorf("%v: the header should cut the path's front and keep its name:\n%s", keys, v)
+			t.Errorf("w=%d %v: the header should cut the path's front and keep its name:\n%s", c.w, c.keys, v)
 		}
 	}
 }
