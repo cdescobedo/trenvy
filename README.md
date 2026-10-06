@@ -37,6 +37,7 @@ outputs
 
 - [Install](#install)
 - [Quickstart](#quickstart)
+- [Setting up a project](#setting-up-a-project)
 - [Concepts](#concepts) — **start here**
 - [Command reference](#command-reference)
 - [The management interface](#the-management-interface)
@@ -122,14 +123,14 @@ $ trenvy render local
 wrote .env  (3 vars, 1 from the keyring, 0600)
 ```
 
-Two things worth noticing. `import` normally opens an interactive table so you
-can review which variables are secret before anything is saved — `--no-tui`
-above skips it only so the block is pasteable; drop the flag and you get the
-review, or run `trenvy ui` later. And `--output local` names the output
-import creates, pointing at the sample file's real path; drop the flag and
-import still creates one, named from the sample's directory (`root` for a
-sample at the worktree root) — only `--no-output` gets you variables and
-nowhere to put them.
+Two things worth noticing. `import` normally opens a review of the sample's
+variables, so you can decide which are secret before anything is saved —
+`--no-tui` above skips it only so the block is pasteable; drop the flag and you
+get the review (see [Reviewing an import](#reviewing-an-import)). And
+`--output local` names the output import creates, pointing at the sample
+file's real path; drop the flag and import still creates one, named from the
+sample's directory (`root` for a sample at the worktree root) — only
+`--no-output` gets you variables and nowhere to put them.
 
 From here, a second worktree needs **no setup at all**:
 
@@ -137,6 +138,179 @@ From here, a second worktree needs **no setup at all**:
 git worktree add ../myapp-feature && cd ../myapp-feature
 trenvy render local                  # same manifest, same values
 ```
+
+## Setting up a project
+
+The quickstart above is the non-interactive path, and it stays: `trenvy project
+init` followed by `trenvy import <file> --no-tui` does the same work with no
+interface and is what scripts should use. If you would rather be walked
+through it, run `trenvy ui` (or `trenvy edit`) **outside** a registered
+project. Instead of failing, it opens setup, in four steps shown across the
+top with the current one in brackets:
+
+1. **Project** — the project id and its root.
+2. **Seed** — a sample to start from, or *Start empty*.
+3. **Review** — the sample's variables, one row each.
+4. **Create** — a summary of what will be written.
+
+Nothing is written until `enter` on the summary. `esc` goes back a step, and
+at the first step it cancels; `ctrl+c` cancels from anywhere. Cancelling
+prints `setup cancelled -- nothing was written` and leaves no manifest and no
+registry entry. Every footer lists the keys that work at that moment, `enter`
+first and `esc` last; on a narrow terminal whole hints are dropped, `enter` and
+`esc` last of all, rather than one being cut.
+
+```console
+$ cd ~/code/myapp && trenvy ui
+ Set up a project
+ [ Project ]  Seed   Review   Create
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│> project id  [myapp]                                                                             │
+│                                                                                                  │
+│  root        [/tmp/t6/proj/myapp]                                                                │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+ enter next   tab switch field   esc cancel
+```
+
+**The root.** The root is the directory trenvy registers: every worktree under
+it finds the project. It is prefilled from where you ran the command, and you
+can edit both fields (`tab` switches between them). In a bare-repo layout —
+`<root>/.bare` beside one directory per worktree — the root is prefilled with
+`<root>`, the directory that holds the worktrees, and the id with that
+directory's name, so a sibling worktree finds the project too. Anywhere else
+the root is the current directory, as `project init` defaults. `enter` is
+refused, with the reason shown under the field, when:
+
+- the id is not a valid project id, or another project already uses it;
+- the root is not an absolute path;
+- another project is registered at that root;
+- the directory you are in is not inside the root (the new project could not
+  be found from here).
+
+**The seed.** Setup lists the sample files in the worktree root: a name that
+ends in `.example`, `_example`, `.sample` or `.dist` and, without that ending,
+is `.env`, starts with `.env.`, ends with `.env` or contains `.json` — the same
+names `import` can turn into an output path. A sample that fails to parse or
+holds no variables is left out of the list, and *Start empty* is always there.
+
+```console
+ Set up a project
+  Project  [ Seed ]  Review   Create
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│> .env.example  3 variables                                                                       │
+│  Start empty   add variables yourself afterwards                                                 │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+ enter choose   j/k move   esc back
+```
+
+**The review.** One row per variable, `[x]` for a secret. A value that looks
+like a secret is marked for you and its value is never shown and never stored;
+you store secrets after setup. Move with `j`/`k`, and:
+
+| key | does |
+|---|---|
+| `space` | mark the row a secret, or plain again |
+| `e` | edit a plain row's value (not for a secret, nor a row left out) |
+| `d` | leave the row out of the import, or bring it back |
+| `enter` | continue to the summary |
+| `esc` | back a step |
+
+```console
+ Set up a project
+  Project   Seed  [ Review ]  Create
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│  [ ] APP_MODE      debug                                                                         │
+│> [ ] DATABASE_URL  x left out                                                                    │
+│  [x] API_TOKEN     you'll store this next                                                        │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+ enter continue   d bring back   esc back
+```
+
+**The summary.** It shows the project, the root, the manifest file, the output
+the sample creates and whether git ignores it (render refuses a file git would
+track), and how many variables are plain and how many are secret. If it is
+taller than the terminal, `j`/`k` scroll it. `enter` creates the project: it
+validates, saves the manifest, then saves the registry, the order `project
+init` uses.
+
+```console
+ Set up a project
+  Project   Seed   Review  [ Create ]
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│  project    myapp                                                                                │
+│  root       /tmp/t6/proj/myapp                                                                   │
+│  manifest   /tmp/t6/cfg/projects/myapp.toml                                                      │
+│  output     root -> .env                                                                         │
+│             git ignores it                                                                       │
+│  variables  1 plain, 1 secret; you'll store the secrets next                                     │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+ enter create   esc back
+```
+
+**Landing.** Setup then opens the interface on Variables. When any secret still
+has no value, the list is filtered to those (`!` toggles the filter) and the
+message says how many to store: `enter` on a row's profile stores its value.
+When nothing is missing the list is unfiltered, and when you started empty the
+message points at `a` to add a variable.
+
+```console
+ myapp · dev (default)                                                                 ! 1 problem
+ [ Variables ]  Outputs   Profiles
+╭──────────────────────╮╭──────────────────────────────────────────────────────────────────────────╮
+│ problems only -- ! to││  API_TOKEN                                             secret · required │
+│> API_TOKEN   secret !││                                                                          │
+│                      ││  dev *       -                                            MISSING !      │
+│                      ││                                                                          │
+│                      ││  ! no value under dev -- enter on dev to store it                        │
+│                      ││  written to  root (.env)                                                 │
+╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
+ created myapp -- 1 secret to store: enter on each
+ enter open   d delete   a add   . more   / filter   ? keys
+```
+
+### Reviewing an import
+
+`trenvy import <file>` without `--no-tui` runs the same review and summary
+over that file, as two steps, *Review* and *Import*, in an already registered
+project. The keys are the review's; `esc` cancels the import, so nothing is
+saved and the command exits with an `import cancelled` error. The summary has no
+project or root rows, and adds a *conflicts* row: variables already in the
+manifest with a different definition. Without `--force` the summary has no
+`enter import`, `enter` is refused, and nothing is written; with `--force` it
+says it will overwrite them.
+
+```console
+ Import .env.staging.example
+  Review  [ Import ]
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│  manifest   /tmp/t6/cfg/projects/myapp.toml                                                      │
+│  output     root-2 -> .env.staging                                                               │
+│             git does not ignore it; render will refuse until it does                             │
+│  variables  1 plain, 1 secret; you'll store the secrets next                                     │
+│  conflicts  APP_MODE: already in the manifest with a different definition; re-run with --force   │
+│             to overwrite                                                                         │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+ esc back
+```
+
+After the summary's `enter`, import saves and prints what it imported, as it
+always has, and exits; it does not open the interface. The review has no
+add-a-variable or filter keys: add variables in `trenvy ui` afterwards.
 
 ## Concepts
 
@@ -291,7 +465,7 @@ Every description below is the command's own `Short` text. Run
 
 | command | does |
 |---|---|
-| `trenvy project init` | Register this project and create its manifest |
+| `trenvy project init` | Register this project and create its manifest (non-interactive; `trenvy ui` outside a project does it interactively) |
 | `trenvy project list` | List registered projects and their roots |
 | `trenvy project move <id> <new-root>` | Repoint a project at a new root after its directory moved |
 | `trenvy project rm <id>` | Delete a project: its manifest, state, registration and its secrets in the current backend |
@@ -330,7 +504,7 @@ active selection instead of setting one.
 
 | command | does |
 |---|---|
-| `trenvy import <sample file>` | Seed the manifest from a sample `.env` or `.json` file |
+| `trenvy import <sample file>` | Seed the manifest from a sample `.env` or `.json` file, after a review (`--no-tui` skips it) |
 | `trenvy set <NAME> <VALUE>` | Set a plain value for the active profile |
 | `trenvy get <NAME>` | Print one variable's value |
 | `trenvy show [output]` | List the profile's variables, or one output's subset, secrets masked |
@@ -338,8 +512,8 @@ active selection instead of setting one.
 | `trenvy secret demote <NAME>` | Turn a secret back into a plain variable, moving its values into the manifest |
 | `trenvy secret rm <NAME>` | Delete a secret's value from the keyring, keeping the variable |
 | `trenvy unset <NAME>` | Remove a variable from the manifest and its secret from every profile's keyring |
-| `trenvy edit` | Open the interactive interface (the same as trenvy ui) |
-| `trenvy ui` | Manage this project's variables, outputs and profiles, interactively |
+| `trenvy edit` | Open the interactive interface (the same as trenvy ui); outside a project, open setup |
+| `trenvy ui` | Manage this project's variables, outputs and profiles, interactively; outside a project, open setup |
 
 Flags: `import` takes `--output <name>`, `--no-output`, `--no-tui` and
 `--force`; `set` takes `--shared`; `show` takes `--reveal` and `--format
@@ -921,6 +1095,7 @@ silent rather than an error.
 
 **`X is not inside a registered trenvy project`**
 You are outside any registered project root. Run `trenvy project init`, or
+`trenvy ui` to be walked through [setting it up](#setting-up-a-project), or
 `trenvy project list` to see what is registered and where.
 
 **`.env is not ignored by git`**

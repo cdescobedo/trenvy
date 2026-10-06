@@ -334,12 +334,18 @@ the command surface may still move under you.
 
 ### Changed
 
+- **`trenvy ui` and `trenvy edit` outside a project open setup** instead of
+  failing: a project id and root (in a bare-repo layout the root is the
+  directory holding the worktrees), a sample to seed from or none, a review of
+  its variables, and a summary before anything is written. The interface then
+  opens on what is left to fill in.
 - **`trenvy import`'s interactive review is the interface's review.** `space`
   marks a variable secret (was `s`), `e` edits a plain value, `d` leaves a
   variable out, and `enter` shows a summary -- the manifest, the output and
   whether git ignores it, and any variable that would be overwritten --
-  before anything is written. Adding a variable and the filter are gone from
-  the review; add variables in `trenvy ui` afterwards. `--no-tui` is unchanged.
+  before anything is written; `esc` cancels it and writes nothing. Adding a
+  variable and the filter are gone from the review; add variables in
+  `trenvy ui` afterwards. `--no-tui` is unchanged.
 - **`TRENVY_THEME=light|dark`** overrides the interface's light/dark detection.
 - **`trenvy ui` validates a whole batch before writing anything.** A batch
   the manifest would refuse -- a new variable with no value, say -- used to

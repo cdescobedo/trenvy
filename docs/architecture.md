@@ -48,7 +48,8 @@ why its tests need no store at all.
 bytes (dotenv or JSON) and computes the digests. `cli` wires the commands and
 owns everything user-facing. `manage` is the interactive interface behind both
 `trenvy ui` and `trenvy edit`; `session` is the UI-free logic it stands on.
-The interactive review in `trenvy import` is `manage`'s setup flow.
+The setup flow (`trenvy ui` outside a project, and the review in interactive
+`trenvy import`) is `manage`'s `Setup`, with its I/O in `cli`.
 
 ### `internal/manage` and `internal/session`
 
@@ -86,8 +87,37 @@ by *Render now* on an output (it is `trenvy render`, which resolves every
 value it writes), by *Check now* on an output (its menu label says it reads
 secrets), and by `trenvy secret demote`.
 
-Interactive `trenvy import` runs `manage.Setup` in `SetupImport` mode (review,
-then a summary), through `RunSetup`.
+### Setup: `manage/setup.go` and `cli/setup.go`
+
+Setup is a second, smaller model beside `Model`, in `internal/manage/setup.go`.
+It is pure in the same way: `manage.NewSetup` takes a `SetupInput` — every fact
+it shows or checks (the prefilled id and root, the directory trenvy runs in,
+the registered ids and roots, the detected samples with their output preview,
+the manifest's existing variables and `--force` for an import) — and a
+finished run hands back a `SetupResult` (id, root, which sample, the rows
+kept with their secret flags and edited values). It reads no file, runs no git
+and touches no registry; `Update` only moves state. It has two modes:
+`SetupNew` (Project, Seed, Review, Create) and `SetupImport` (Review, Import),
+the latter being what interactive `trenvy import` runs, through `RunSetup`.
+
+`internal/cli/setup.go` is the other half. `runSetup` — what `trenvy ui` and
+`trenvy edit` run when `resolveApp` reports `ErrNotRegistered` — gathers the
+facts, runs the flow through `Options.RunSetup`, and only after the summary's
+`enter` writes: it builds the manifest, applies the sample with `importInto`
+(the same function `trenvy import` uses), then `registerProject`, which
+validates, saves the manifest and saves the registry, in `project init`'s
+order. A cancelled run returns before any of that, so nothing is written. It
+then calls `runManage` with `Model.AfterSetup`, which opens Variables filtered
+to the secrets still missing, or unfiltered when there are none.
+
+Two helpers feed it. `resolve.ProjectRootGuess` (`internal/resolve/worktree.go`)
+is the root to prefill: in a bare-repo layout (`<root>/.bare` beside sibling
+worktrees) it is `<root>`, so every worktree finds the project; elsewhere it is
+the directory itself, as `project init` defaults. `sample.Detect`
+(`internal/sample/detect.go`) lists the sample files directly in the worktree
+root, by the placeholder suffixes `outputFor` strips, so every sample it
+returns can become an output; `detectSamples` then drops any that does not
+parse or holds no variables.
 
 ### `internal/style`
 
@@ -459,6 +489,10 @@ is not inside `/w/repo`.
 
 `resolve.WorktreeRoot` is a different thing: the specific checkout an output's
 relative path resolves against, from `git rev-parse --show-toplevel`.
+
+Setup prefills the root with `resolve.ProjectRootGuess`: in a bare-repo layout
+(`<root>/.bare` beside the worktrees) the directory holding `.bare`, so a
+sibling worktree finds the project; anywhere else the directory itself.
 
 Separating them lets one manifest serve every worktree, including ones created
 long after the project was registered: a new `git worktree add` needs no trenvy
