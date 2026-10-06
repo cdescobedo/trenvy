@@ -402,8 +402,13 @@ func (s Setup) summaryOverflow() int {
 	return max(0, len(s.summaryBody(contentWidth(w)))-(s.bodyHeight(w, h)-2))
 }
 
-// headerLines is the header, wrapped rather than cut: in import mode it
-// names the file, a value.
+// headerMax is the most lines the header takes, so a long import path
+// never pushes the view past a short terminal.
+const headerMax = 2
+
+// headerLines is the header. In import mode it names the file, a value, so
+// it wraps rather than being cut, up to headerMax lines; a path that cannot
+// fit them is cut at its front with …, keeping the file's name.
 func (s Setup) headerLines(w int) []string {
 	title := "Set up a project"
 	if s.in.Mode == SetupImport {
@@ -412,11 +417,40 @@ func (s Setup) headerLines(w int) []string {
 			title += " " + display(s.in.Samples[0].Path)
 		}
 	}
-	var lines []string
-	for _, l := range wrap(title, w-2) {
-		lines = append(lines, " "+s.th.Title.Render(l))
+	lines := wrap(title, w-2)
+	if len(lines) > headerMax {
+		// Packed rather than wrapped at the space after "Import", which
+		// would leave its first line nearly empty.
+		room := headerMax * (w - 2)
+		if lipgloss.Width(title) > room {
+			title = "Import " + cutFront(display(s.in.Samples[0].Path), room-len("Import "))
+		}
+		lines = nil
+		for title != "" {
+			var l string
+			l, title = splitCells(title, w-2)
+			lines = append(lines, l)
+		}
+	}
+	for i, l := range lines {
+		lines[i] = " " + s.th.Title.Render(l)
 	}
 	return lines
+}
+
+// cutFront shortens s to w cells by dropping its front, starting with …
+// when it had to cut, so a path keeps its file name.
+func cutFront(s string, w int) string {
+	if lipgloss.Width(s) <= w {
+		return s
+	}
+	rs := []rune(s)
+	used, i := 1, len(rs) // the … takes one cell
+	for i > 0 && used+lipgloss.Width(string(rs[i-1])) <= w {
+		i--
+		used += lipgloss.Width(string(rs[i]))
+	}
+	return "…" + string(rs[i:])
 }
 
 // stepRow draws the steps as viewTabs draws the tabs: the current one

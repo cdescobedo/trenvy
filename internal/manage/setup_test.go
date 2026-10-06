@@ -369,11 +369,11 @@ func TestSetupRootContainmentComparesPaths(t *testing.T) {
 	}
 }
 
-// The import header's path is a value: it wraps, and the view keeps to the
-// terminal's height.
+// The import header's path is a value: one that fits the header's two
+// lines wraps whole, and the view keeps to the terminal's height.
 func TestImportHeaderWrapsItsPath(t *testing.T) {
 	in := importInput()
-	in.Samples[0].Path = "config/" + strings.Repeat("nested/", 8) + "service.env.example"
+	in.Samples[0].Path = "config/" + strings.Repeat("nested/", 6) + "service.env.example"
 	v := newSetupAt(in, 40, 24).View()
 	if !strings.Contains(flatten(v), flatten("Import "+in.Samples[0].Path)) {
 		t.Errorf("the header cuts the path:\n%s", v)
@@ -571,5 +571,28 @@ func TestImportOfNothingSaysNothingWillBeImported(t *testing.T) {
 	v := setupKeys(newSetupAt(in, 100, 30), "d", "j", "d", "j", "d", "enter").View()
 	if !strings.Contains(v, "none; nothing will be imported") || strings.Contains(v, "Variables afterwards") {
 		t.Errorf("summary:\n%s", v)
+	}
+}
+
+// At the minimum size a very long import path must not push the view past
+// the terminal: the header takes at most two lines, and a path that cannot
+// fit them is cut with … at its front, keeping the file's name.
+func TestImportViewFitsTheMinimumTerminalWithALongPath(t *testing.T) {
+	in := importInput()
+	in.Samples[0].Path = strings.Repeat("deep/", 60) + "service.env.example"
+	for _, keys := range [][]string{nil, {"enter"}} {
+		v := setupKeys(newSetupAt(in, 40, 10), keys...).View()
+		lines := strings.Split(v, "\n")
+		if len(lines) > 10 {
+			t.Errorf("%v: the view is %d lines on a 10-line terminal:\n%s", keys, len(lines), v)
+		}
+		for i, l := range lines {
+			if lipgloss.Width(l) > 40 {
+				t.Errorf("%v: line %d is %d wide: %q", keys, i, lipgloss.Width(l), l)
+			}
+		}
+		if head := strings.Join(lines[:2], ""); !strings.Contains(head, "…") || !strings.Contains(flatten(head), "service.env.example") {
+			t.Errorf("%v: the header should cut the path's front and keep its name:\n%s", keys, v)
+		}
 	}
 }
