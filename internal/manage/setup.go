@@ -663,6 +663,9 @@ func (s Setup) summaryBody(inner int) []string {
 		}
 	}
 	switch {
+	case s.in.Mode == SetupImport && plain+secret == 0:
+		// Import exits after saving; it never opens Variables.
+		add("variables", "none; nothing will be imported")
 	case s.startEmpty() || plain+secret == 0:
 		add("variables", "none; add them in Variables afterwards")
 	case secret > 0:

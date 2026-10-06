@@ -562,3 +562,14 @@ func TestSetupSeedShowsTheNoSamplesNote(t *testing.T) {
 		t.Errorf("no note was given, none should show:\n%s", v)
 	}
 }
+
+// Import exits after it saves, so an import of nothing does not point at
+// Variables, which it never opens.
+func TestImportOfNothingSaysNothingWillBeImported(t *testing.T) {
+	in := importInput()
+	in.Force = true
+	v := setupKeys(newSetupAt(in, 100, 30), "d", "j", "d", "j", "d", "enter").View()
+	if !strings.Contains(v, "none; nothing will be imported") || strings.Contains(v, "Variables afterwards") {
+		t.Errorf("summary:\n%s", v)
+	}
+}
