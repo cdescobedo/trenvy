@@ -544,3 +544,21 @@ func TestUntickingAGuessedSecretDropsItsSampleValue(t *testing.T) {
 		t.Errorf("API_TOKEN = %+v, want plain with an empty value", e)
 	}
 }
+
+// With no samples, the seed step shows the caller's note on why, wrapped
+// rather than cut, above Start empty.
+func TestSetupSeedShowsTheNoSamplesNote(t *testing.T) {
+	note := "no samples here -- run trenvy from a worktree to seed from its samples"
+	in := setupInput()
+	in.Samples, in.NoSamplesNote = nil, note
+	for _, w := range []int{40, 100} {
+		v := setupKeys(newSetupAt(in, w, 24), "enter").View()
+		if !strings.Contains(flatten(v), flatten(note)) || !strings.Contains(v, "Start empty") {
+			t.Errorf("w=%d: the seed step lacks the note:\n%s", w, v)
+		}
+	}
+	in.NoSamplesNote = ""
+	if v := setupKeys(newSetupAt(in, 100, 24), "enter").View(); strings.Contains(v, "no samples here") {
+		t.Errorf("no note was given, none should show:\n%s", v)
+	}
+}

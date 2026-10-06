@@ -45,10 +45,13 @@ type SetupInput struct {
 	Dir          string // where trenvy runs; the root must contain it
 	TakenIDs     []string
 	TakenRoots   []string
-	ManifestPath func(id string) string  // pure: config.ManifestPath
-	Samples      []SetupSample           // SetupNew: detected; SetupImport: exactly one
-	Existing     map[string]manifest.Var // SetupImport: the manifest's variables, for conflicts
-	Force        bool                    // SetupImport: import --force
+	ManifestPath func(id string) string // pure: config.ManifestPath
+	Samples      []SetupSample          // SetupNew: detected; SetupImport: exactly one
+	// NoSamplesNote is the seed step's word on why no sample was found, shown
+	// only when Samples is empty; "" shows none.
+	NoSamplesNote string
+	Existing      map[string]manifest.Var // SetupImport: the manifest's variables, for conflicts
+	Force         bool                    // SetupImport: import --force
 }
 
 // SetupResult is what a finished setup asks the caller to write.
@@ -568,6 +571,12 @@ func (s Setup) seedBody(inner int) ([]string, int, int) {
 			first, last = len(lines), len(lines)+len(block)-1
 		}
 		lines = append(lines, s.lead(block, i == s.seed)...)
+	}
+	if len(s.in.Samples) == 0 && s.in.NoSamplesNote != "" {
+		for _, l := range wrap(display(s.in.NoSamplesNote), inner) {
+			lines = append(lines, "  "+s.th.Muted.Render(l))
+		}
+		lines = append(lines, "")
 	}
 	for i, smp := range s.in.Samples {
 		row(i, smp.Path, plural(len(smp.Entries), "variable"), s.th.Text)

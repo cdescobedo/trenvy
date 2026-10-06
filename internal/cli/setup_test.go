@@ -174,3 +174,39 @@ func TestSetupFromAWorktreeIsFoundFromItsSibling(t *testing.T) {
 		t.Errorf("profile from the sibling = %q", h.out.String())
 	}
 }
+
+// At a bare layout's root there is no worktree to find samples in, so the
+// seed step says where to run from; a worktree or an ordinary directory
+// with no samples gets no such note.
+func TestSetupAtABareRootSaysToRunFromAWorktree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	const note = "no samples here -- run trenvy from a worktree to seed from its samples"
+	seedAt := func(h *harness, dir string) string {
+		h.opts.Dir = dir
+		var seed string
+		h.opts.RunSetup = func(s manage.Setup) (manage.Setup, error) {
+			s = driveSetup(s, enter)
+			seed = s.View()
+			return driveSetup(s, esc, esc), nil
+		}
+		if err := h.run("ui"); err != nil {
+			t.Fatal(err)
+		}
+		return strings.NewReplacer("│", "", " ", "", "\n", "").Replace(seed)
+	}
+	flat := strings.NewReplacer(" ", "").Replace(note)
+	h := newHarness(t)
+	root := bareLayoutForCLI(t)
+	writeFile(t, filepath.Join(root, "main", ".env.example"), "APP_MODE=development\n")
+	if seed := seedAt(h, root); !strings.Contains(seed, flat) {
+		t.Errorf("at the bare root the seed step lacks the note: %s", seed)
+	}
+	if seed := seedAt(h, filepath.Join(root, "other")); strings.Contains(seed, "nosampleshere") {
+		t.Errorf("a worktree without samples should get no note: %s", seed)
+	}
+	if seed := seedAt(h, h.root); strings.Contains(seed, "nosampleshere") {
+		t.Errorf("an ordinary directory should get no note: %s", seed)
+	}
+}

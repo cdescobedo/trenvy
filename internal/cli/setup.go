@@ -43,10 +43,17 @@ func runSetup(opts *Options) error {
 		wt = opts.Dir
 	}
 	samples := detectSamples(wt)
+	var note string
+	if len(samples) == 0 && isDir(filepath.Join(opts.Dir, ".bare")) {
+		// A bare layout's root is no worktree: its samples are in the
+		// worktrees beside .bare.
+		note = "no samples here -- run trenvy from a worktree to seed from its samples"
+	}
 
 	final, err := opts.RunSetup(manage.NewSetup(manage.SetupInput{
 		Mode: manage.SetupNew, ID: filepath.Base(root), Root: root, Dir: opts.Dir,
 		TakenIDs: ids, TakenRoots: roots, ManifestPath: config.ManifestPath, Samples: samples,
+		NoSamplesNote: note,
 	}, th))
 	if err != nil {
 		return err
@@ -109,4 +116,9 @@ func detectSamples(wt string) []manage.SetupSample {
 		})
 	}
 	return out
+}
+
+func isDir(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && fi.IsDir()
 }
