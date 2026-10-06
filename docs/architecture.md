@@ -112,8 +112,9 @@ facts, runs the flow through `Options.RunSetup`, and only after the summary's
 (the same function `trenvy import` uses), then `registerProject`, which
 validates, saves the manifest and saves the registry, in `project init`'s
 order. A cancelled run returns before any of that, so nothing is written. It
-then calls `runManage` with `Model.AfterSetup`, which opens Variables filtered
-to the secrets still missing, or unfiltered when there are none.
+then calls `runManage` with `Model.AfterSetup`, which opens Variables with the
+problems-only filter on when any value is missing (the filter then shows every
+row with a problem), or unfiltered when nothing is missing.
 
 Two helpers feed it. `resolve.ProjectRootGuess` (`internal/resolve/worktree.go`)
 is the root to prefill: in a bare-repo layout (`<root>/.bare` beside sibling
@@ -322,6 +323,15 @@ reads as data loss.
 `profile rm` and `project rm` all clear keyring items before touching the
 manifest. Delete the manifest first and the surviving items become
 unreachable — you have lost the only record of what exists and where.
+
+**The one exception is `trenvy secret demote`**, which moves a secret's
+values out of the keyring and into the manifest. There the manifest is what
+gains the values, so it is saved first, and the keyring items are deleted
+after. A failure then leaves the values safe in the manifest and at worst
+some unreferenced keyring items, which the error counts. The rule underneath
+both orders is the same: a partial failure may leave an item nothing
+references, but never a manifest entry pointing at nothing, and never a value
+with no copy anywhere.
 
 This is also why a delete that fails partway reports how far it got. By the
 time one delete fails, every item before it is already gone permanently, and

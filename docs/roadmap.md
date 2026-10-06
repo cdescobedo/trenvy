@@ -7,116 +7,126 @@ interface's rules, which any of this has to keep.
 
 ## 1. Follow the system theme
 
-**Goal:** under Omarchy, the interface takes its colours from the current
-system theme, the way btop does, and changes with it.
+**Goal:** the interface takes its colours from the system theme — on
+Omarchy, macOS and Windows, in whatever terminal it runs in — and follows a
+theme change while it is open. The colours stay readable: every text role
+keeps at least 4.5:1 against the surface it is drawn on, tinted by the
+theme rather than copied from it.
 
 The interface already keeps every colour behind a named role on one
 `style.Theme`, with the values only in `internal/style/theme.go`, so a new
 colour source only has to produce those roles. Palette C stays as the
-fallback, and the contrast check (`TestThemeContrast`, every text role at
-least 4.5:1 on every surface) stays the gate any loaded palette must pass.
+fallback, and the contrast check (`TestThemeContrast`) stays the gate any
+loaded palette must pass.
 
-### What a read-only look at Omarchy found
+### The approach: ask the terminal
 
-Source: the `basecamp/omarchy` repository, default branch `quattro`, at
-commit `81145eb` (2026-10-05). The latest release at the time was v4.0.4;
-tags v3.0.0 to v3.8.4 were also checked. Nothing below has been tried on a
-machine running Omarchy.
+Whatever the platform, the terminal is what is already showing the system
+theme, so trenvy asks it:
 
-- **`colors.toml` is the source, not `btop.theme`.** We had believed each
-  theme ships a `btop.theme` that is swapped on a theme change. That held for
-  3.x and is wrong now: 4.x generates `btop.theme` from `colors.toml`, and
-  only 4 of its 22 themes still ship one. A `btop.theme` is a poor source
-  anyway: its background is often empty, its keys are optional, and it has
-  no red/green/yellow meanings and no light/dark mode. Every theme has had a
-  `colors.toml` since 3.4.
-- **Where to read it depends on the Omarchy version:**
-  - 4.x: `~/.local/state/omarchy/current/theme/colors.toml`;
-  - 3.4 to 3.8: `~/.config/omarchy/current/theme/colors.toml` (a copy);
-  - 3.0 to 3.2: the same path as a symlink, with no `colors.toml` before 3.4.
+- **OSC 10 and OSC 11** for the foreground and background colours, and
+  **OSC 4** for each of the 16 palette colours. Today lipgloss's detection
+  already asks for the background (OSC 11) but keeps only "light or dark".
+- **Nudge, then use.** Each role is built from those answers (mapping
+  below), and any role that falls below 4.5:1 on a surface it is drawn on is
+  moved toward white (on a dark background) or black (on a light one) just
+  until it passes. The result is readable and still tinted by the theme.
+- **Fall back to palette C** when the terminal does not answer in time, or
+  answers only in part. All or nothing: a screen is never half one palette
+  and half another.
+- **Follow changes live.** Re-query when the terminal reports that its
+  colour scheme changed (DEC private mode 2031; `CSI ? 996 n` asks for the
+  current scheme), or when Omarchy's theme-set hook signals trenvy (below).
+  Without either, the colours are read once at startup.
 
-  4.0 moved the directory with a migration and left no compatibility link,
-  so read the 4.x path first and fall back to the 3.x one.
-- **Light or dark comes from the file.** Since 4.0 every theme declares
-  `mode` (5 light, 17 dark). Omarchy's own order, which trenvy should copy:
-  the `mode` key, then the legacy `theme_type`, then a `light.mode` file,
-  then the background's brightness (r+g+b above 382 is light), else dark.
-- **The format is flat `key = "value"` lines.** Every 4.x theme has `mode`,
-  `accent`, `selection`, `muted`, `background`, `dark_background`,
-  `darker_background`, `lighter_background`, `foreground`,
-  `dark_foreground`, `light_foreground`, `bright_foreground`, `red`,
-  `yellow`, `green`, `cyan`, `blue`, `magenta` and the `bright_*` colours;
-  `orange` and `brown` are missing from three. Older themes use the ANSI
-  `color0`..`color15` layout. Omarchy's `bin/omarchy-theme-color` resolves
-  aliases, light/dark and the legacy layout; trenvy should resolve them the
-  same way rather than invent its own.
-- **A theme switch is not atomic.** Omarchy copies the theme into
-  `next-theme`, derives `colors.toml` from `alacritty.toml` when a theme
-  lacks one, renders its templates (never overwriting a file the theme
-  ships), then removes `current/theme` and moves `next-theme` into its
-  place, then writes `theme.name`. Between the remove and the move there is
-  no file, so a reader must fall back quietly rather than error.
+`TRENVY_THEME=light` or `dark` keeps forcing palette C and always wins,
+which remains the escape hatch when a terminal answers wrongly. Unset means
+"ask the terminal". Whether to add a value that refuses the fallback, for
+testing, is open.
 
-### The proposal
+Proposed role mapping from the terminal's answers (ANSI numbers are the OSC 4
+palette index):
 
-**Raw theme colours do not pass trenvy's contrast bar.** Measured against the
-22 shipped themes, 94 role and surface pairs fall below 4.5:1. Moving each
-failing role toward white (on a dark theme) or black (on a light one), just
-until it passes on every surface it is drawn on, fixed all 22; the largest
-shift was 44%, for muted on gruvbox. So: nudge per role, and use palette C
-only when the whole file is missing or malformed, never role by role, so a
-screen is never half one palette and half another.
-
-Role mapping:
-
-| trenvy role | from `colors.toml` |
+| trenvy role | from the terminal |
 |---|---|
-| title | `bright_foreground` |
-| text | `foreground` |
-| muted | derived: `foreground` mixed 40% toward `background` (Omarchy's `muted` is a border colour and fails as text in 19 of 22 themes) |
-| accent | `accent` |
-| danger, ok, warn, staged | `red`, `green`, `yellow`, `magenta` |
-| surface: header | `dark_background` |
-| surface: selection | `selection`, or `background` mixed 12% toward `foreground` |
-| border: unfocused | `muted` |
-| pills | `background` text on a `red` (danger) or `magenta` (staged) fill |
+| text | foreground (OSC 10) |
+| title | foreground, bold; nudged further from the background if it ties with text |
+| muted | derived: foreground mixed 40% toward background |
+| accent | blue (4), or bright blue (12) if blue fails |
+| danger, ok, warn, staged | red (1), green (2), yellow (3), magenta (5) |
+| surface: header | background mixed slightly toward foreground |
+| surface: selection | background mixed 12% toward foreground |
+| border: unfocused | foreground mixed most of the way toward background |
+| pills | background-coloured text on a red (danger) or magenta (staged) fill |
 
-`TRENVY_THEME` would become:
+The muted and selection derivations come from the Omarchy work below, where
+they were measured.
 
-- `light` or `dark`: palette C, forced, as today. Always wins.
-- `omarchy`: use the file; if it is missing or does not parse, warn once on
-  stderr and fall back to palette C.
-- unset: use the file when it exists and parses, otherwise palette C, with
-  no message.
+### Background: Omarchy's own theme files
 
-There is no operating-system check: the file is the signal.
+Under Omarchy the terminal (foot) already shows the current theme, so the
+terminal approach covers it. Omarchy's theme files were studied first and
+remain the reference for what a theme contains and for Omarchy's hook:
 
-**Read once at startup** for the first version. Following a live switch can
-come later, by watching `~/.local/state/omarchy/current/` or by handling
-`SIGUSR2` and documenting an Omarchy hook (a script in
-`~/.config/omarchy/hooks/theme-set.d/` running `pkill -USR2 -x trenvy`,
-which Omarchy's `bin/omarchy-hook` runs on every theme change). Omarchy
-already restarts btop this way.
+- Source: the `basecamp/omarchy` repository, default branch `quattro`, at
+  commit `81145eb` (2026-10-05); latest release v4.0.4; tags v3.0.0 to v3.8.4
+  also checked.
+- **`colors.toml` is the theme's source of truth, not `btop.theme`.** The old
+  belief that each theme ships a `btop.theme` swapped on a theme change held
+  for 3.x; 4.x generates `btop.theme` from `colors.toml`. It lives at
+  `~/.local/state/omarchy/current/theme/colors.toml` on 4.x and
+  `~/.config/omarchy/current/theme/colors.toml` on 3.4 to 3.8. Since 4.0 every
+  theme declares `mode` (light or dark). The keys are flat `key = "value"`
+  lines: `foreground`, `background`, `bright_foreground`, `selection`,
+  `accent`, the ANSI colour names and more.
+- **A theme switch is not atomic.** Omarchy removes `current/theme` and then
+  moves the new one into place, so anything reading the file must fall back
+  quietly in between.
+- **The hook.** Omarchy runs every script in
+  `~/.config/omarchy/hooks/theme-set.d/` on a theme change (its
+  `bin/omarchy-hook`), and restarts btop with `SIGUSR2`. A documented hook
+  running `pkill -USR2 -x trenvy`, with trenvy re-querying on `SIGUSR2`,
+  would follow a switch even in a terminal that sends no change notification.
+  This is Unix only; Windows relies on the notification or a restart.
 
-### Before building
+**Measured once, at that commit:** raw theme colours fail trenvy's bar — 94
+role and surface pairs across the 22 themes fall below 4.5:1 — and nudging
+each failing role in 1% steps fixed all 22, the largest shift being 44% (muted
+on gruvbox). Omarchy's own `muted` is a border colour and fails as text in 19
+of 22 themes, which is why muted is derived. To re-measure against a later
+Omarchy: take every theme's `colors.toml`, map it to trenvy's roles as above,
+compute WCAG contrast for each role on each surface it is drawn on, in both
+modes, and move each failing role toward white or black in 1% steps until it
+passes, recording the size of each move.
 
-None of this can be verified on macOS. On a machine running Omarchy, check:
+### Confirm with a terminal probe first
 
-- the installed version (`ls ~/.local/state/omarchy/current/theme/`);
-- whether lipgloss detects truecolor in Omarchy's terminals: rounding to 256
+Before building, a small probe run in real terminals settles what the
+approach assumes. Run it in Ghostty on macOS (outside and inside tmux), foot
+on Omarchy, and Windows Terminal, with the system theme set to light, then
+dark, then switched while the probe waits. Check:
+
+- whether OSC 10, 11 and 4 (for all 16 colours) are answered, how fast, and
+  in what format, and whether the answers match the theme on screen;
+- whether DEC mode 2031 is supported, whether `CSI ? 996 n` is answered, and
+  whether a notification actually arrives when the system theme changes;
+- what XTVERSION reports, so a terminal that answers wrongly can be
+  recognised;
+- inside tmux: whether the queries reach the outer terminal or tmux answers
+  them itself, and whether notifications pass through;
+- whether lipgloss detects truecolor in each terminal: rounding to 256
   colours could undo the 4.5:1 nudge;
 - what the nudged colours look like, and whether they still read as the
-  theme;
-- whether lipgloss re-detects the background inside tmux.
+  theme.
 
-Also unknown: how long the remove-then-move gap lasts, how `SIGUSR2` fits
-bubbletea's own signal handling, third-party themes, and how stable an
-undocumented path is (it moved once, in 2026-06).
+Also unknown until then: how `SIGUSR2` and terminal replies fit bubbletea's
+own input and signal handling, and how long Omarchy's remove-then-move gap
+lasts.
 
 The contrast gate has a gap to close first: `style.ContrastPairs` is kept by
-hand beside `NewTheme`, so a theme built from loaded colours needs its pairs
-derived from the same values, or the test proves nothing about it (backlog,
-Tests).
+hand beside `NewTheme`, so a theme built from answered colours needs its
+pairs derived from the same values, or the test proves nothing about it
+(backlog, Tests 1).
 
 ## 2. Polish backlog
 
@@ -135,7 +145,7 @@ tests and docs.
    inserts nothing (`internal/manage/lineedit.go`).
 2. **At 40 columns the detail header cuts its meta.** `x marked for
    deletion · secret · required` runs past the pane and is cut, losing the
-   end. The Outputs detail wraps the same kind of text under the name; do
+   end, and the variable's name above it drops to a bare `…`. The Outputs detail wraps the same kind of text under the name; do
    the same here (`detailBody`, `internal/manage/variables.go`).
 3. **`v` on a plain variable says "nothing stored to reveal".** It should say
    only secrets can be revealed. The footer does not offer `v` there.
@@ -179,8 +189,10 @@ tests and docs.
 
 1. **Below 40×10 the "needs at least 40×10" sentence is itself about 53
    cells wide**, wider than the terminal it describes. Wrap it.
-2. **The list mark column sits flush against the right border** on every
-   screen (`!`, `~` and `x` touch the `│`).
+2. **The list mark column sits flush against the right border** (`!`, `~`
+   and `x` touch the `│`) on the Outputs and Profiles lists, and on the
+   Variables list below 120 columns; from 120 the Variables preview column
+   follows the mark.
 3. **Overlay panels have no inner left padding**: titles such as `Review` and
    `More` touch the border.
 4. `style.Columns` reslices the caller's rows (`row[:end]`). Safe today,
@@ -269,8 +281,12 @@ tests and docs.
    Some are also stale: `matrix.go` still calls itself "behind the
    management TUI", a session test speaks of two membership conditions where
    one remains, and `commit_kinds_internal_test.go` describes the old
-   validate-after-keyring order in the present tense. Reword each to state
-   the reason itself.
+   validate-after-keyring order in the present tense. Another 54 comment
+   lines (42 outside tests) cite sections of the redesign's design document (`spec §1`,
+   `spec Risks`, `(spec, "Agreed")`) or the restyle's colour table, neither
+   of which is in the repository; [tui-design.md](tui-design.md#older-references-in-code-comments)
+   maps the old section numbers for now. Reword each to state the reason
+   itself, or to point at the doc that holds it.
 3. `outputStates` still documents and returns a flag for a "caveat" that
    nothing reads since the Overview went (`buildSnapshot` discards it).
 4. `commitStaged`'s doc does not say a retry must start from a re-resolved
@@ -284,12 +300,8 @@ tests and docs.
 
 Done by the owner, locally, and listed only so nothing is forgotten:
 
-- Every work branch is merged into `main`. Their worktrees can be removed:
-  `profiles`, `validate-project-id`, `outputs-management`,
-  `status-and-profile`, `management-tui`, `tui-phase-2a`, `active-profile`,
-  `lipgloss-restyle`, `tui-redesign`, `tui-redesign-phase2`,
-  `tui-redesign-phase3`, `tui-redesign-phase4` and
-  `fix-setup-narrow-panic`.
+- Every work branch so far is merged into `main`, so its local worktree and
+  branch can be removed (`git branch --merged main` lists them).
 - An old note said `trenvy profile use` printed an `export` instead of
   switching. That is resolved: it persists the active profile (design
   history, section 6).

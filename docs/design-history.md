@@ -57,8 +57,11 @@ and a table interface (`internal/tui`) for `init`, `import` and `edit`.
   machine does not fail on another.
 - **The manifest is the authoritative inventory.** macOS cannot list keyring
   items without a prompt per item, so trenvy never enumerates the keyring.
-  Every write and delete is ordered around that fact (keyring first,
-  manifest last); see [architecture.md](architecture.md#the-manifest-is-the-authoritative-inventory).
+  Every write and delete is ordered around that fact, so a partial failure
+  can leave an unreferenced keyring item but never a manifest entry pointing
+  at nothing (keyring first, manifest last; `secret demote`, added later,
+  saves the manifest first because the values move into it); see
+  [architecture.md](architecture.md#the-manifest-is-the-authoritative-inventory).
 - **`Has` and `Get` are separate operations, and the macOS backend is
   hand-rolled over `security(1)`.** Reading a Keychain value can raise an
   authorization prompt; checking that it exists cannot, but only if nothing
@@ -628,8 +631,9 @@ Decisions that still shape the code:
   manifest does not yet declare would break every command if the manifest
   save then failed. The commit refuses the same batch built by hand.
 - **Removal is refused** for the last profile, the default, the profile the
-  session is on, and when it would leave a required variable with no value;
-  edits on a removed profile's cells are refused.
+  session is on, and when it would leave a required plain variable with no
+  shared value whose only remaining override is on that profile; edits on a
+  removed profile's cells are refused.
 - **Each removal is confirmed by typing the profile's name**, in turn.
 - **Removal counts only keyring items `Has` finds**, in the review and in a
   partial failure's "deleted A of B", for removed profiles and deleted
@@ -676,11 +680,14 @@ Other decisions that still shape the code:
   `enter`.
 - **The review dropped the old table's add and filter keys**; both are one
   keystroke away in Variables after setup.
-- **After creating, Variables opens filtered to what is missing**, or
+- **After creating, Variables opens with the problems-only filter on** when
+  any value is missing (the filter then shows every row with a problem), or
   unfiltered when nothing is, because a list filtered to nothing reads as
   broken.
-- **Footers drop whole hints, ordered by importance** with `enter` first and
-  `esc` last, everywhere, so a narrow footer keeps the way forward and back.
+- **Footers drop whole hints, ordered by importance**, so a narrow footer
+  keeps the first hint and the last: on the main screens that is the primary
+  action and `? keys`; in setup and the overlays that ask something it is
+  `enter` and `esc`, the way forward and the way back.
 
 ### After phase 4
 

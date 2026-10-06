@@ -44,7 +44,9 @@ go install ./cmd/trenvy        # puts trenvy in $(go env GOPATH)/bin
 To try a build without replacing the installed one:
 
 ```bash
-go build -o "$(mktemp -d)/trenvy" ./cmd/trenvy
+T=$(mktemp -d)
+go build -o "$T/trenvy" ./cmd/trenvy
+"$T/trenvy" --help
 ```
 
 The Go version is the one in `go.mod` (`go 1.27`). There is no Makefile, no
@@ -98,7 +100,8 @@ produce.
 
 ```bash
 go test ./...                    # everything
-go test -race ./internal/...     # the race detector, as CI runs it
+go test -race ./internal/...     # the race detector over the packages that have tests
+go test ./... -race              # exactly what CI runs
 go vet ./...
 gofmt -l .                       # must print nothing
 ```
@@ -132,9 +135,12 @@ No test reads the real config directory or touches the real keyring.
 Tests that need a repository create one in a temp directory with `git init`
 (and `git worktree add` where a layout matters). The newer ones skip when
 `git` is not installed (`requireGit` in `internal/resolve/worktree_test.go`,
-and the setup tests in `internal/cli/setup_test.go`). Older tests in
-`internal/guard`, and the render and import tests in `internal/cli`, fail
-instead of skipping, so in practice git is a prerequisite for the suite.
+and the setup tests in `internal/cli/setup_test.go`). The older ones fail
+instead of skipping: `internal/guard`'s, and every `internal/cli` test that
+calls the harness's `gitInit` (`render_test.go`): those in `render_test`,
+`exec_test`, `status_test`, `manage_test`, `root_test`, `outputs_seam_test`
+and `import_test` (which also runs `git init` directly). In practice git is a
+prerequisite for the suite.
 
 ## Real-terminal checks
 
@@ -233,9 +239,14 @@ breaks one is reworking the design, not adding a feature.
   Retrying a failed batch is safe only because nothing runs after that save;
   a new change kind goes into an existing phase, never after it. See
   [architecture.md](architecture.md#the-staged-commit).
-- **Keyring first, manifest last, for writes and deletes alike**, and a
-  failure partway reports how far it got. The manifest is the only inventory
-  of what is in the keyring.
+- **A partial failure may leave an unreferenced keyring item, never a
+  manifest entry pointing at nothing, and never a value with no copy.** The
+  manifest is the only inventory of what is in the keyring. For storing and
+  deleting secrets that means keyring first, manifest last. `trenvy secret
+  demote` is the case where it means the opposite: its values move *into* the
+  manifest, so the manifest is saved first and the keyring items are deleted
+  after, and a failure there leaves only unreferenced items. Either way, a
+  failure partway reports how far it got.
 - **Never print a secret value**: not in an error, a log line, a success
   message or a test failure. Report the name, or the length.
 - **The two axes stay separate.** A profile decides values; an output
@@ -284,3 +295,47 @@ not in the repository, so state the reason itself.
   read help text; only running the binary checks it.
 - Docs describe the system as it stands. When a change makes a sentence
   false, fix the sentence in the same change.
+
+### Recapturing the README screens
+
+The screens are **100 columns wide**. Each is captured at the height that
+leaves its pane without empty rows: **12** for the setup and import steps
+and the screen setup lands on, and **14 to 23** for the other interface
+screens (the Variables layout screen is 100×17). Use the private-socket tmux setup above with `NO_COLOR=1` on the
+`env` line, and a short scratch path such as `/tmp/t6`, so the paths the
+screens show stay readable.
+
+**The interface screens** use one demo project. With the scratch
+environment exported (`TRENVY_CONFIG_DIR=/tmp/t6/cfg`, the `file` backend):
+
+```bash
+mkdir -p /tmp/t6/myapp && cd /tmp/t6/myapp && git init -q
+printf '.env\nweb.json\n' > .gitignore
+cat > .env.example <<'EOF'
+APP_MODE=development
+API_TOKEN=
+DATABASE_URL=postgres://app@db.example.test:5432/app
+PUBLIC_URL=https://app.example.test
+EOF
+trenvy project init
+trenvy import .env.example --output local --no-tui
+trenvy output add web --format json --path web.json --include PUBLIC_URL
+trenvy profile add staging
+trenvy profile add prod
+trenvy -p prod set APP_MODE production
+printf 'tok-dev' | trenvy secret set API_TOKEN --stdin
+```
+
+`trenvy ui` there at 100×17 reproduces the README's layout screen line for
+line: `API_TOKEN` stored under `dev` and missing under `staging` and
+`prod`, two problems, `written to local (.env)`. The other interface
+screens start from this state and stage or select what each shows; read the
+screen for the steps (its header, marks and message line say what was
+done).
+
+**The setup screens** use a fresh directory instead, outside any registered
+project: `/tmp/t6/proj/myapp`, a git repository whose `.gitignore` holds
+`.env` and whose `.env.example` holds `APP_MODE=debug`,
+`DATABASE_URL=postgres://app@db.example.test:5432/app` and `API_TOKEN=`, with
+the config at `/tmp/t6/cfg`. Run `trenvy ui` there at 100×12; for the review
+screen, `enter` twice, then `j` and `d` to leave `DATABASE_URL` out.

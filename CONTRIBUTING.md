@@ -22,9 +22,12 @@ go test ./...
 To run your build without installing it over a real one:
 
 ```bash
-go build -o /tmp/trenvy ./cmd/trenvy
-/tmp/trenvy --help
+T=$(mktemp -d)
+go build -o "$T/trenvy" ./cmd/trenvy
+"$T/trenvy" --help
 ```
+
+To install it, `go install ./cmd/trenvy` puts it in `$(go env GOPATH)/bin`.
 
 ### Try it without touching your real setup
 

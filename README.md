@@ -53,14 +53,16 @@ outputs
 
 ## Install
 
-**trenvy is not published yet.** There is no module to `go install` from, no
-tagged releases, no Homebrew formula, no binaries and no checksums. Build it
-from your copy of the source:
+**trenvy is not published yet.** There is no published module to
+`go install` from by path, no tagged releases, no Homebrew formula, no
+binaries and no checksums. Install it from a checkout of the source:
 
 ```bash
 cd /path/to/trenvy
-go build -o ~/.local/bin/trenvy ./cmd/trenvy
+go install ./cmd/trenvy        # installs into $(go env GOPATH)/bin
 ```
+
+Make sure `$(go env GOPATH)/bin` is on your `PATH`.
 
 Requires Go 1.27 or newer. trenvy is cgo-free on every platform, so it
 cross-compiles anywhere Go does. There is no `trenvy --version`; the commit

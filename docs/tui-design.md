@@ -10,6 +10,30 @@ The code is `internal/manage` (the interface), `internal/session` (the
 UI-free state it stands on) and `internal/style` (the theme). Test names
 below are in `internal/manage` unless another package is named.
 
+## Older references in code comments
+
+Many comments in `internal/manage`, `internal/session`, `internal/style` and
+`internal/cli` cite `spec §N`, `spec Risks`, `spec diagnosis` or
+`(spec, "Agreed")`. They refer to the redesign's original design document
+(dated 2026-09-30), which is not in the repository. This document replaces
+it; the old section numbers map as follows:
+
+| comment says | read |
+|---|---|
+| §0 | [Visual hierarchy and theme](#visual-hierarchy-and-theme) |
+| §1 | [Anatomy](#anatomy), [Footer rules](#footer-rules), [The fixed verbs](#the-fixed-verbs), [The line editor](#the-line-editor) |
+| §2 | [Variables](#variables) |
+| §3 | [The save review and typed confirmation](#the-save-review-and-typed-confirmation) |
+| §4 | [Outputs](#outputs) |
+| §5 | [Profiles](#profiles) |
+| §6 | [Setup](#setup) |
+| §7 | [`Update` purity and the `Deps` pattern](#update-purity-and-the-deps-pattern), and [architecture.md](architecture.md#internalmanage-and-internalsession) |
+| "Risks" | the failed-reload rule under [The save review](#the-save-review-and-typed-confirmation) ("save-and-stay"), and [Light, dark and `TRENVY_THEME`](#light-dark-and-trenvy_theme) (detection can guess wrong) |
+| "Agreed", "diagnosis" | [design-history.md](design-history.md), section 8: what we chose for the redesign, and the problems it answered |
+
+A comment citing "the spec's table" in `internal/style` means the
+command-line token colours from the restyle (design history, section 7).
+
 ## Visual hierarchy and theme
 
 The first interface drew everything but the status words in one colour and
@@ -50,7 +74,9 @@ Layout rules that follow from the levels:
 
 trenvy ships its own truecolor palette, light and dark, as
 `lipgloss.AdaptiveColor` pairs. The values live only in
-`internal/style/theme.go`; no other file may hold a colour literal. That is
+`internal/style/theme.go`; no other file may hold a hex colour literal.
+(The command-line tokens in `internal/style/style.go` are ANSI colour
+numbers, which follow the terminal's theme; see below.) That is
 what lets a later theme source (see [roadmap.md](roadmap.md)) replace the
 palette by producing the same roles, without touching a screen.
 
@@ -192,7 +218,8 @@ overlay sees it.
   fits. Only if those two alone are too wide is the line cut.
   `TestNarrowFootersDropWholeHints`.
 - **Overlays and setup have their own footers.** An overlay lists its own
-  keys, ending with `esc`. Setup lists the step's `enter` first and `esc`
+  keys, usually ending with `esc` (the live filter ends with `ctrl+u`
+  clear, since `enter` and `esc` both keep it). Setup lists the step's `enter` first and `esc`
   last, so a 40-column footer keeps the way forward and the way back.
   `TestSetupFooterListsOnlyKeysThatAct`,
   `TestSetupReviewFooterKeepsEnterAndEscAtFortyColumns`.
@@ -257,7 +284,9 @@ dependency (the `bubbles` text input was considered and declined).
 - **Editing keys:** `←` `→`; `ctrl+a`/`home` and `ctrl+e`/`end`; backspace
   and delete; `ctrl+u` clears to the start, `ctrl+k` clears to the end,
   `ctrl+w` deletes the word before the cursor. On a selected value, any of
-  the clearing keys clears it all. `TestFieldEditingKeys`.
+  the clearing keys clears it all. `TestFieldEditingKeys` covers each key,
+  but on a selected value only backspace; the others are in the
+  [roadmap](roadmap.md) backlog (Tests 6).
 - **A paste is one insertion, and line breaks are dropped:** every value
   edited here is one line, and a pasted newline would split a dotenv entry.
   `TestFieldPasteIsOneInsertionWithoutNewlines`.
@@ -427,9 +456,10 @@ the summary's `enter`, and cancelling at any step writes nothing.
   it offers no `enter` and refuses one. `TestImportSummaryRefusesConflictsWithoutForce`.
 - The summary scrolls with `j`/`k` when taller than the terminal.
   `TestSetupSummaryScrollsToEveryLine`.
-- After creating, the interface opens on Variables filtered to the missing
-  values when there are any, unfiltered otherwise, with a message naming the
-  next step. `TestAfterSetupFiltersToWhatIsMissing`.
+- After creating, the interface opens on Variables with the problems-only
+  filter (`!`) on when any value is missing — the filter then shows every row
+  with a problem — and unfiltered otherwise, with a message naming how many
+  secrets to store. `TestAfterSetupFiltersToWhatIsMissing`.
 
 ## The save review and typed confirmation
 
@@ -503,8 +533,8 @@ every keypress. `TestStagedAddReplacesAChangeToTheSameCell`,
 by `Change.Name`, and an output or a profile may share a variable's name, so
 every rule keyed by name looks only at its own kinds. Staging, deleting or
 undoing an output called `local` never touches a variable called `local`.
-`TestStagedKeepsVariableAndOutputChangesApart`,
-`TestProfileKindsAreTheirOwnNamespace` (`internal/session`), and
+`TestStagedKeepsVariableAndOutputChangesApart` and
+`TestProfileKindsAreTheirOwnNamespace` (both `internal/session`), and
 `TestOutputAndVariableWithTheSameNameStageIndependently`.
 
 **A delete and other changes on the same thing never both stand.** Deleting
@@ -543,8 +573,9 @@ Known exceptions, all in the [roadmap](roadmap.md) backlog:
 - The too-small sentence is itself about 53 cells wide, so on a terminal
   narrower than that it overflows the line it is warning about.
 - At 40 columns the Variables detail header cuts its meta
-  (`x marked for deletion · secret · required`) at the pane edge; the
-  Outputs detail wraps the same text instead.
+  (`x marked for deletion · secret · required`) at the pane edge, and the
+  variable's name above it drops to a bare `…`; the Outputs detail wraps
+  the same text under the name instead.
 - An import path that cannot fit the setup header's two lines is cut at its
   front with `…`, keeping the file name. The path is the user's own
   argument, already printed by the shell.
@@ -589,5 +620,8 @@ Why:
 
 Nothing checks the package's imports automatically: purity is held by
 review and by the fact that every test of the model runs with fake `Deps`.
-`internal/manage` imports nothing that does I/O; its one use of
-`internal/config` is the pure path-containment helper.
+What is true today: `Update` is pure in both models; `run.go` is the one file
+that touches the real terminal, running the bubbletea program; and from the
+rest of trenvy the package uses only pure helpers — `manifest`'s validators
+and types, `config.UnderOrEqual` (path containment), `sample.Entry`, plus
+`session` and `style`.
