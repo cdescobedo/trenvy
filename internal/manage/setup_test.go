@@ -288,7 +288,7 @@ func flatten(v string) string { return strings.NewReplacer("│", "", " ", "", "
 // overflows.
 func TestSetupSummaryScrollsToEveryLine(t *testing.T) {
 	fresh := setupInput()
-	fresh.Root = "/Users/cescobedo/workspace/personal/envctl"
+	fresh.Root = "/home/user/workspace/personal/a-long-project"
 	fresh.Dir = fresh.Root + "/main"
 	fresh.Samples[0].Ignored = false
 	imp := importInput()
