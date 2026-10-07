@@ -227,12 +227,15 @@ answering and then changing its answer, so that is checked by hand: open
 colours should change with no keystroke, and the cursor, any staged edit and
 any open panel should stay where they were. Do it with a theme that flips
 dark/light, and again between two of the same mode: whether the second is
-announced is open (roadmap, section 1), and if it is not, the colours follow
-on focus or within about 5 seconds. To check the signal, send `SIGUSR2` to
-the interface's process, by its pid: `pkill -x trenvy` would signal every
-trenvy on the machine. Under tmux, whether the terminal's colours reach
-trenvy has not been explained yet, so judge the terminal theme in the
-terminal itself.
+announced is open (roadmap, section 1). Ghostty answers the DECRQM for mode
+2031, so the 5 second timer is off there, and an unannounced dark-to-dark
+switch follows on focus or `SIGUSR2` only. To check the signal, send
+`SIGUSR2` to the interface's process, by its pid (`kill -USR2 <pid>`):
+`pkill -USR2 -x trenvy` would signal every trenvy on the machine. Inside an
+attached tmux (3.7c), tmux answers the colour queries with the outer
+terminal's colours and forwards the 997 notification, so trenvy follows a
+Ghostty switch; a detached tmux (no client) answers DA1 only, so trenvy uses
+its own palette, the expected fallback.
 
 `TRENVY_THEME=palette` shows the old palette beside it for comparison.
 

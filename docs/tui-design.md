@@ -157,9 +157,11 @@ plus synthetic black, white and grey backgrounds and a run of near mid-grey
 ones with a white foreground, and checks every pair
 `style.TerminalContrastPairs` returns, at least 17 of them, at 4.5:1; it also
 checks the two halves of each swatch agree, since a terminal theme is not
-adaptive. `TestThemeFromTerminalNeedsACompleteReply` pins the all-or-nothing
-fallback and `TestThemeFromTerminalUsesTheThemesColours` that a readable
-colour is used as the theme gave it.
+adaptive; Ghostty's recorded answer on Tokyo Night Moon is checked the same
+way. `TestThemeFromTerminalNeedsACompleteReply` pins the all-or-nothing
+fallback, `TestThemeFromTerminalUsesTheThemesColours` that a readable
+colour is used as the theme gave it, and `TestThemeFromTerminalMapsRolesOnMoon`
+the mapping from the palette on that recording.
 
 **Following a switch.** While the interface runs, input passes through
 `termcolor.Filter`, which removes the terminal's replies and notifications
@@ -170,9 +172,14 @@ dark/light notification (the interface enables DEC mode 2031 and turns it off
 on exit), `SIGUSR2`, a focus event, and a 5 second timer that is off when the
 terminal announces changes (it answered the DECRQM for 2031) and over SSH.
 Setup and the interactive import review re-query on the notification and
-`SIGUSR2` only. Windows reads the colours at startup only. A switch changes
-the theme and nothing else: staged edits, the cursor and any open overlay
-stay.
+`SIGUSR2` only. Windows asks the terminal nothing and uses palette C until the
+Windows Terminal probe ([roadmap](roadmap.md)) confirms how replies arrive
+there: cancelreader cannot always cancel a console read, so a round could
+wait for the next key and eat it. A switch changes the theme and nothing
+else: staged edits, the cursor and any open overlay stay. Nothing is asked
+once a program has exited (`TestLiveThemeAsksNothingAfterExit`,
+`TestWatchSignalStopIsAFence`), but a query written in the last milliseconds
+before quitting can still have its reply echoed at the shell prompt (rare).
 
 The filter's contract, which the tests pin:
 
@@ -189,17 +196,35 @@ The filter's contract, which the tests pin:
   released as keys
   (`TestFilterReleasesAnUnfinishedSequence`).
 - Sequences that merely resemble ours pass through
-  (`TestFilterPassesSequencesItDoesNotOwn`).
+  (`TestFilterPassesSequencesItDoesNotOwn`). `ESC O` is SS3 only when a
+  final byte follows; alt+O right before a reply does not take the reply's
+  `ESC` (`TestFilterTakesSS3OnlyWithAFinalByte`).
 
 One consequence no test pins: `esc` followed by another key within 25 ms
 arrives in one read and reads as `alt+` that key, as in most terminal
 programs.
 
 The startup query is one round with a 100 ms ceiling (`queryTimeout`,
-`internal/cli/theme.go`) and is skipped when stdin or stdout is not a
-terminal. `TestQueryGivesUpWithoutStealingInput` (`internal/termcolor`) pins
-that a terminal answering nothing, not even DA1, ends the round at its
-timeout and leaves no reader behind to swallow the user's first key.
+`internal/cli/theme.go`). It is skipped when stdin or stdout is not a
+terminal, when the colour profile is Ascii (`NO_COLOR`), and on Windows.
+`TestQueryGivesUpWithoutStealingInput` (`internal/termcolor`) pins that a
+terminal answering nothing, not even DA1, ends the round at its timeout and
+leaves no reader behind to swallow the user's first key. `termcolor.Query`
+returns a `Round`: the colours that came in time, whether DA1 ended it
+(`Done`), and the bytes it read that are not replies (`Keys`). A round that
+ended with DA1 and builds a theme is used and followed; one that ended with
+DA1 and builds none is palette C with nothing following it, drawn on the
+side its background is on when it has one (lipgloss, told the side, then
+never asks the terminal itself). A round the timeout cut short still gets the input filter,
+on palette C: the rest of the answer arrives through it, is removed, and
+switches the interface to the terminal's colours
+(`TestQueryHandsALateRoundToTheFilter`,
+`TestPickThemeFiltersARoundThatTimedOut`,
+`TestLiveThemeSwitchesWhenALateRoundCompletes`). The round's `Keys` are
+handed to the filter first, so keys typed while it ran reach the interface
+in order (`TestQueryKeepsKeysTypedDuringTheRound`); when no filter would
+otherwise run, a filter that does nothing else carries them
+(`TestPickThemeTakesNoForAnAnswer`).
 `TestThemeMsgKeepsStateAndOverlays` (`internal/manage`) pins that a switch
 keeps staged edits, the cursor and the open overlay.
 

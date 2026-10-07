@@ -23,16 +23,18 @@ tinted by the theme rather than copied from it.
 
 **What remains:**
 
-- **Live following on Windows.** Windows reads the colours at startup only.
-  Following needs the Windows Terminal probe below, to see how replies and
-  notifications arrive there.
+- **Terminal colours on Windows.** Windows uses trenvy's own palette and asks
+  the terminal nothing, until the Windows Terminal probe below confirms how
+  replies and notifications arrive there: cancelreader cannot always cancel
+  a console read, so a round could wait for the next key and eat it.
 - **foot on Omarchy.** Whether foot answers the colour queries and what it
   does with DEC mode 2031 is confirmed by hand on first run on Omarchy, not
   assumed.
 - **Whether dark-to-dark switches announce.** The terminal's dark/light
   notification may fire only when the mode flips. Two dark themes, or two
   light ones, may then be followed only by focus, the 5 second timer (off
-  over SSH), or the Omarchy hook's `SIGUSR2`.
+  over SSH and on terminals that announce changes), or the Omarchy hook's
+  `SIGUSR2`.
 
 ### The approach: ask the terminal
 

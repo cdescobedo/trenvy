@@ -74,9 +74,9 @@ the command surface may still move under you.
 
 - **The interface uses your terminal's colours.** trenvy asks the terminal for
   its background, foreground and palette, adjusts any colour that would be hard
-  to read, and follows a theme switch while it runs (on Windows, at startup
-  only for now). `TRENVY_THEME=palette` keeps trenvy's own palette; `light` and
-  `dark` still force it.
+  to read, and follows a theme switch while it runs. On Windows it keeps
+  trenvy's own palette for now. `TRENVY_THEME=palette` keeps trenvy's own
+  palette; `light` and `dark` still force it.
 - **`trenvy secret demote <NAME>`** turns a secret back into a plain
   variable across every profile: it reads each profile's keyring value,
   writes the values into the manifest in plain text, then deletes the

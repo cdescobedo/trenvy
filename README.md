@@ -954,12 +954,16 @@ It follows a theme switch while it runs:
 The setup flow and the interactive import review follow only the terminal's
 announcement and `SIGUSR2`, not focus or the timer.
 
-If the terminal does not answer in time, or answers only in part, trenvy uses
-its own palette for the whole interface, never a mix of the two. The same
-happens when `TRENVY_THEME` asks for it, and when stdin or stdout is not a
-terminal. On Windows the colours are read at startup only, for now. With
-`NO_COLOR` set, or output that is not a terminal, every state still reads in
-words.
+If the terminal answers without its colours, or only in part, trenvy uses
+its own palette for the whole interface, never a mix of the two. A terminal
+that answers too slowly (over a slow SSH link, say) gets trenvy's own palette
+first, and the interface switches to the terminal's colours when the answer
+arrives; the late answer is never typed into the interface, and keys typed
+while trenvy was asking still arrive. trenvy's own palette is also used, and
+the terminal asked nothing, when `TRENVY_THEME` asks for it, when stdin or
+stdout is not a terminal, with `NO_COLOR` set, and on Windows, until how
+Windows Terminal answers has been checked. With `NO_COLOR` set, or output
+that is not a terminal, every state still reads in words.
 
 `TRENVY_THEME` chooses the source; see [Environment variables](#environment-variables).
 
