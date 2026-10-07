@@ -60,7 +60,7 @@ func pickTheme(opts *Options) (style.Theme, *liveTheme, error) {
 	}
 	round, _ := queryTerminal(stdin, stdout, queryTimeout)
 	if !round.Done {
-		th, err := style.ThemeFor(r, "")
+		th, err := paletteC(r, round.Reply)
 		live := newLiveTheme(r, round.Reply, stdin, stdout)
 		live.shown = false
 		live.filter.Seed(round.Keys)
@@ -71,8 +71,19 @@ func pickTheme(opts *Options) (style.Theme, *liveTheme, error) {
 		live.filter.Seed(round.Keys)
 		return th, live, nil
 	}
-	th, err := style.ThemeFor(r, "")
+	th, err := paletteC(r, round.Reply)
 	return th, keysOnly(stdin, round.Keys), err
+}
+
+// paletteC is the fallback after a round: palette C, on the side the
+// reply's background is on when it has one. Told the side, lipgloss never
+// asks the terminal itself mid-program, where it would read the answer
+// straight off the tty and race the input filter for the user's keys.
+func paletteC(r *lipgloss.Renderer, rep termcolor.Reply) (style.Theme, error) {
+	if rep.HasBackground {
+		r.SetHasDarkBackground(rep.Dark())
+	}
+	return style.ThemeFor(r, "")
 }
 
 // terminalFile returns v as a file when it is a terminal.

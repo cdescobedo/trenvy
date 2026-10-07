@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"github.com/cdescobedo/trenvy/internal/manage"
 	"github.com/cdescobedo/trenvy/internal/style"
@@ -351,5 +352,34 @@ func TestPickThemeAsksNothingWithoutColour(t *testing.T) {
 	_, live, err := pickTheme(opts)
 	if err != nil || asked || live != nil {
 		t.Errorf("asked = %v, live = %v, err %v: want no query and no live theme", asked, live, err)
+	}
+}
+
+// Review F7: a reply with a background that still builds no theme says
+// which side the terminal is on. Palette C is drawn for that side, and
+// lipgloss, told so, never asks the terminal itself mid-program (it would
+// read the answer straight off the tty, racing the filter for keys).
+func TestPaletteCFallbackTakesTheSideFromTheReply(t *testing.T) {
+	render := func(dark bool) string {
+		r := lipgloss.NewRenderer(io.Discard)
+		r.SetColorProfile(termenv.ANSI)
+		r.SetHasDarkBackground(dark)
+		return style.NewTheme(r).Text.Render("x")
+	}
+	if render(true) == render(false) {
+		t.Fatal("palette C's text looks the same on both sides; the test cannot tell them apart")
+	}
+	for _, done := range []bool{true, false} {
+		for _, bg := range []termcolor.RGB{{R: 0xe1, G: 0xe2, B: 0xe7}, {R: 0x22, G: 0x24, B: 0x36}} {
+			var rep termcolor.Reply
+			rep.Background, rep.HasBackground = bg, true
+			th, _, err := pickTheme(fakeTerminal(t, termcolor.Round{Reply: rep, Done: done}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := th.Text.Render("x"), render(rep.Dark()); got != want {
+				t.Errorf("done=%v background %s: text = %q, want %q (dark=%v)", done, bg.Hex(), got, want, rep.Dark())
+			}
+		}
 	}
 }
