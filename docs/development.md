@@ -229,9 +229,10 @@ any open panel should stay where they were. Do it with a theme that flips
 dark/light, and again between two of the same mode: whether the second is
 announced is open (roadmap, section 1), and if it is not, the colours follow
 on focus or within about 5 seconds. To check the signal, send `SIGUSR2` to
-the interface's process (by its pid: `pkill -x trenvy` would signal every
-trenvy on the machine). Under tmux (3.7c, run on a private socket) the interface came up in
-palette C, so judge the terminal theme in the terminal itself.
+the interface's process, by its pid: `pkill -x trenvy` would signal every
+trenvy on the machine. Under tmux, whether the terminal's colours reach
+trenvy has not been explained yet, so judge the terminal theme in the
+terminal itself.
 
 `TRENVY_THEME=palette` shows the old palette beside it for comparison.
 

@@ -106,10 +106,10 @@ passes, recording the size of each move.
 
 ### Confirm with a terminal probe
 
-A small probe run in real terminals settles what the approach assumes, and
-is still open for Windows Terminal and foot. Run it in Ghostty on macOS (outside and inside tmux), foot
-on Omarchy, and Windows Terminal, with the system theme set to light, then
-dark, then switched while the probe waits. Check:
+A small probe run in real terminals settles what the approach assumes.
+Ghostty on macOS has been probed, outside and inside tmux. foot on Omarchy
+and Windows Terminal are still to do. Run it in each, with the system theme
+set to light, then dark, then switched while the probe waits. Check:
 
 - whether OSC 10, 11 and 4 (for all 16 colours) are answered, how fast, and
   in what format, and whether the answers match the theme on screen;

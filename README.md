@@ -1000,7 +1000,7 @@ Directories are created `0700`; every file is written atomically at `0600`.
 | `TRENVY_CONFIG_DIR` | overrides the config directory entirely; ahead of `XDG_CONFIG_HOME` |
 | `TRENVY_PROFILE` | names the profile, unless `--profile` is passed; outranks the active selection and the manifest default |
 | `TRENVY_BACKEND` | the secret backend, unless `--backend` is passed |
-| `TRENVY_THEME` | where the interface's colours come from: unset or `auto` uses the terminal's colours and falls back to trenvy's own palette when the terminal does not answer; `palette` uses trenvy's own palette and detects light or dark itself; `light` or `dark` forces that palette and asks the terminal nothing; any other value is an error |
+| `TRENVY_THEME` | where the interface's colours come from: unset or `auto` uses the terminal's colours and falls back to trenvy's own palette when the terminal does not answer; `palette` uses trenvy's own palette and detects light or dark itself; `light` or `dark` forces that palette and sends none of trenvy's own colour queries; any other value is an error |
 | `TRENVY_PASSPHRASE` | unlocks the `file` backend (**stripped from `exec`'s child environment**) |
 | `TRENVY_PROJECT` | *set by* `trenvy shell` in the subshell, so your prompt can mark it |
 

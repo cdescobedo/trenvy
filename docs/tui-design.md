@@ -28,7 +28,7 @@ it; the old section numbers map as follows:
 | §5 | [Profiles](#profiles) |
 | §6 | [Setup](#setup) |
 | §7 | [`Update` purity and the `Deps` pattern](#update-purity-and-the-deps-pattern), and [architecture.md](architecture.md#internalmanage-and-internalsession) |
-| "Risks" | the failed-reload rule under [The save review](#the-save-review-and-typed-confirmation) ("save-and-stay"), and [Light, dark and `TRENVY_THEME`](#light-dark-and-trenvy_theme) (detection can guess wrong) |
+| "Risks" | the failed-reload rule under [The save review](#the-save-review-and-typed-confirmation) ("save-and-stay"), and [`TRENVY_THEME`](#trenvy_theme) (detection can guess wrong) |
 | "Agreed", "diagnosis" | [design-history.md](design-history.md), section 8: what we chose for the redesign, and the problems it answered |
 
 A comment citing "the spec's table" in `internal/style` means the
@@ -129,7 +129,10 @@ Dark or light is judged from the background's luminance alone
 (`termcolor.Reply.Dark`), never from `CSI ? 996 n` or the `997` notification:
 Ghostty answers those with the operating system's appearance, which is not
 what the terminal shows. The renderer is told the same answer
-(`SetHasDarkBackground`), so lipgloss sends no background query of its own.
+(`SetHasDarkBackground`), so lipgloss makes no background query while the
+interface runs. (Bubbletea's package init makes one background query at
+process start, before trenvy's own; that is the library's behaviour, not
+trenvy's, and it happens under every `TRENVY_THEME` value.)
 
 **The nudge rule.** A mapped colour that does not reach 4.5:1 against every
 surface it is drawn on is mixed toward white (dark background) or black
@@ -182,12 +185,15 @@ The filter's contract, which the tests pin:
   (`TestFilterPassesAKeyAfterANotification`).
 - A read that ends inside a sequence waits up to 25 ms for the rest, so a
   lone `esc` reaches the interface up to 25 ms late
-  (`TestFilterPassesTheEscKeyAtOnce`), and `esc` followed by another key
-  within 25 ms reads as `alt+` that key, as in most terminal programs. A cut
-  that never completes is released as keys
+  (`TestFilterPassesTheEscKeyAtOnce`). A cut that never completes is
+  released as keys
   (`TestFilterReleasesAnUnfinishedSequence`).
 - Sequences that merely resemble ours pass through
   (`TestFilterPassesSequencesItDoesNotOwn`).
+
+One consequence no test pins: `esc` followed by another key within 25 ms
+arrives in one read and reads as `alt+` that key, as in most terminal
+programs.
 
 The startup query is one round with a 100 ms ceiling (`queryTimeout`,
 `internal/cli/theme.go`) and is skipped when stdin or stdout is not a
@@ -222,10 +228,10 @@ updating the pairs would still pass. It is in the [roadmap](roadmap.md) backlog.
 
 | value | colours | queries the terminal |
 |---|---|---|
-| unset or `auto` | the terminal's, else palette C | yes, when stdin and stdout are terminals |
-| `palette` | palette C, light or dark by lipgloss's detection | no query of ours |
-| `light` or `dark` | palette C, forced | no |
-| anything else | an error naming `auto`, `palette`, `light` and `dark` | no |
+| unset or `auto` | the terminal's, else palette C | trenvy's own round, when stdin and stdout are terminals |
+| `palette` | palette C, light or dark by lipgloss's detection | none of trenvy's own colour queries |
+| `light` or `dark` | palette C, forced | none of trenvy's own colour queries |
+| anything else | an error naming `auto`, `palette`, `light` and `dark` | none |
 
 Detection by lipgloss can guess wrong, and with a fixed palette a wrong guess
 makes text hard to read; `light` and `dark` are the escape hatch, and
