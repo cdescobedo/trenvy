@@ -5,6 +5,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,6 +31,43 @@ func TestQueryReadsARound(t *testing.T) {
 	}
 }
 
+// countingReader counts Read calls still in flight.
+type countingReader struct {
+	r        io.Reader
+	inflight atomic.Int32
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	c.inflight.Add(1)
+	defer c.inflight.Add(-1)
+	return c.r.Read(p)
+}
+
+// A reply that arrives in two writes must not end the round early: only DA1
+// ends it.
+func TestQueryWaitsForDA1AcrossWrites(t *testing.T) {
+	inR, inW, _ := os.Pipe()
+	defer inR.Close()
+	defer inW.Close()
+	i := strings.Index(ghosttyMoon, "\x1b]4;3;")
+	if i < 0 {
+		t.Fatal("ghosttyMoon has no palette 3 entry to split at")
+	}
+	go func() {
+		io.WriteString(inW, ghosttyMoon[:i])
+		time.Sleep(30 * time.Millisecond)
+		io.WriteString(inW, ghosttyMoon[i:])
+	}()
+	cr, err := cancelreader.NewReader(inR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep, _ := query(cr, cr.Cancel, io.Discard, 500*time.Millisecond)
+	if !rep.Complete() {
+		t.Fatalf("incomplete: %+v", rep)
+	}
+}
+
 // Review Focus 3: a terminal that answers nothing.
 func TestQueryGivesUpWithoutStealingInput(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -42,8 +80,13 @@ func TestQueryGivesUpWithoutStealingInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	c := &countingReader{r: cr}
 	start := time.Now()
-	rep, _ := query(cr, cr.Cancel, io.Discard, 100*time.Millisecond)
+	rep, _ := query(c, cr.Cancel, io.Discard, 100*time.Millisecond)
+	if n := c.inflight.Load(); n != 0 {
+		cr.Cancel() // unblock it so the deferred Close cannot hang the test
+		t.Errorf("reader still blocked: %d in flight", n)
+	}
 	if took := time.Since(start); took > 400*time.Millisecond {
 		t.Errorf("took %v", took)
 	}
