@@ -7,17 +7,32 @@ interface's rules, which any of this has to keep.
 
 ## 1. Follow the system theme
 
-**Goal:** the interface takes its colours from the system theme — on
-Omarchy, macOS and Windows, in whatever terminal it runs in — and follows a
-theme change while it is open. The colours stay readable: every text role
-keeps at least 4.5:1 against the surface it is drawn on, tinted by the
-theme rather than copied from it.
+**Status: built.** The interface asks the terminal for its colours, builds
+every role from them, nudges any role that would fall below 4.5:1 until it
+passes, and follows a theme switch while it runs. Palette C is the fallback
+and what `TRENVY_THEME=palette`, `light` and `dark` select. What was built,
+and the rules and tests that hold it, is in
+[tui-design.md](tui-design.md#the-terminal-theme); the user's side is in the
+README's *Colour* section. The rest of this section is the reasoning it was
+built from, and what is still open.
 
-The interface already keeps every colour behind a named role on one
-`style.Theme`, with the values only in `internal/style/theme.go`, so a new
-colour source only has to produce those roles. Palette C stays as the
-fallback, and the contrast check (`TestThemeContrast`) stays the gate any
-loaded palette must pass.
+**Goal (met):** the interface takes its colours from the system theme, in
+whatever terminal it runs in, and follows a theme change while it is open.
+Every text role keeps at least 4.5:1 against the surface it is drawn on,
+tinted by the theme rather than copied from it.
+
+**What remains:**
+
+- **Live following on Windows.** Windows reads the colours at startup only.
+  Following needs the Windows Terminal probe below, to see how replies and
+  notifications arrive there.
+- **foot on Omarchy.** Whether foot answers the colour queries and what it
+  does with DEC mode 2031 is confirmed by hand on first run on Omarchy, not
+  assumed.
+- **Whether dark-to-dark switches announce.** The terminal's dark/light
+  notification may fire only when the mode flips. Two dark themes, or two
+  light ones, may then be followed only by focus, the 5 second timer (off
+  over SSH), or the Omarchy hook's `SIGUSR2`.
 
 ### The approach: ask the terminal
 
@@ -25,42 +40,32 @@ Whatever the platform, the terminal is what is already showing the system
 theme, so trenvy asks it:
 
 - **OSC 10 and OSC 11** for the foreground and background colours, and
-  **OSC 4** for each of the 16 palette colours. Today lipgloss's detection
-  already asks for the background (OSC 11) but keeps only "light or dark".
-- **Nudge, then use.** Each role is built from those answers (mapping
-  below), and any role that falls below 4.5:1 on a surface it is drawn on is
-  moved toward white (on a dark background) or black (on a light one) just
-  until it passes. The result is readable and still tinted by the theme.
+  **OSC 4** for each of the 16 palette colours.
+- **Nudge, then use.** Each role is built from those answers (mapping in
+  tui-design.md), and any role that falls below 4.5:1 on a surface it is
+  drawn on is moved toward white (on a dark background) or black (on a light
+  one) just until it passes. The result is readable and still tinted by the
+  theme.
 - **Fall back to palette C** when the terminal does not answer in time, or
   answers only in part. All or nothing: a screen is never half one palette
   and half another.
-- **Follow changes live.** Re-query when the terminal reports that its
-  colour scheme changed (DEC private mode 2031; `CSI ? 996 n` asks for the
-  current scheme), or when Omarchy's theme-set hook signals trenvy (below).
-  Without either, the colours are read once at startup.
+- **Follow changes live.** Re-query when the terminal announces a dark/light
+  change (DEC private mode 2031), on focus, on a 5 second timer where the
+  terminal does not announce, and when Omarchy's theme-set hook signals
+  trenvy (below). Dark or light is judged from the background's luminance,
+  never from `CSI ? 996 n` or `997`, which Ghostty answers with the
+  operating system's appearance.
 
 `TRENVY_THEME=light` or `dark` keeps forcing palette C and always wins,
-which remains the escape hatch when a terminal answers wrongly. Unset means
-"ask the terminal". Whether to add a value that refuses the fallback, for
-testing, is open.
+which remains the escape hatch when a terminal answers wrongly; `palette`
+keeps palette C with the old light/dark detection, and unset or `auto` asks
+the terminal. Whether to add a value that refuses the fallback, for testing,
+is open.
 
-Proposed role mapping from the terminal's answers (ANSI numbers are the OSC 4
-palette index):
-
-| trenvy role | from the terminal |
-|---|---|
-| text | foreground (OSC 10) |
-| title | foreground, bold; nudged further from the background if it ties with text |
-| muted | derived: foreground mixed 40% toward background |
-| accent | blue (4), or bright blue (12) if blue fails |
-| danger, ok, warn, staged | red (1), green (2), yellow (3), magenta (5) |
-| surface: header | background mixed slightly toward foreground |
-| surface: selection | background mixed 12% toward foreground |
-| border: unfocused | foreground mixed most of the way toward background |
-| pills | background-coloured text on a red (danger) or magenta (staged) fill |
-
-The muted and selection derivations come from the Omarchy work below, where
-they were measured.
+The role mapping as built is in
+[tui-design.md](tui-design.md#the-terminal-theme). It differs from the
+proposal made here in one place: accent is blue (4) alone, with no
+bright-blue (12) fallback, because the nudge makes one unnecessary.
 
 ### Background: Omarchy's own theme files
 
@@ -86,8 +91,8 @@ remain the reference for what a theme contains and for Omarchy's hook:
   `~/.config/omarchy/hooks/theme-set.d/` on a theme change (its
   `bin/omarchy-hook`), and restarts btop with `SIGUSR2`. A documented hook
   running `pkill -USR2 -x trenvy`, with trenvy re-querying on `SIGUSR2`,
-  would follow a switch even in a terminal that sends no change notification.
-  This is Unix only; Windows relies on the notification or a restart.
+  follows a switch even in a terminal that sends no change notification. The
+  README documents the hook. This is Unix only; Windows has no `SIGUSR2`.
 
 **Measured once, at that commit:** raw theme colours fail trenvy's bar — 94
 role and surface pairs across the 22 themes fall below 4.5:1 — and nudging
@@ -99,10 +104,10 @@ compute WCAG contrast for each role on each surface it is drawn on, in both
 modes, and move each failing role toward white or black in 1% steps until it
 passes, recording the size of each move.
 
-### Confirm with a terminal probe first
+### Confirm with a terminal probe
 
-Before building, a small probe run in real terminals settles what the
-approach assumes. Run it in Ghostty on macOS (outside and inside tmux), foot
+A small probe run in real terminals settles what the approach assumes, and
+is still open for Windows Terminal and foot. Run it in Ghostty on macOS (outside and inside tmux), foot
 on Omarchy, and Windows Terminal, with the system theme set to light, then
 dark, then switched while the probe waits. Check:
 
@@ -119,14 +124,14 @@ dark, then switched while the probe waits. Check:
 - what the nudged colours look like, and whether they still read as the
   theme.
 
-Also unknown until then: how `SIGUSR2` and terminal replies fit bubbletea's
-own input and signal handling, and how long Omarchy's remove-then-move gap
-lasts.
+Also unknown until then: how long Omarchy's remove-then-move gap lasts. (How
+`SIGUSR2` and terminal replies fit bubbletea's input and signal handling is
+settled: replies go through `termcolor.Filter` and the signal is watched only
+while a program runs.)
 
-The contrast gate has a gap to close first: `style.ContrastPairs` is kept by
-hand beside `NewTheme`, so a theme built from answered colours needs its
-pairs derived from the same values, or the test proves nothing about it
-(backlog, Tests 1).
+The terminal theme's contrast pairs are built from the same palette values
+as its theme (`style.TerminalContrastPairs`); the hand-kept pair table is
+still a backlog item (Tests 1).
 
 ## 2. Polish backlog
 
@@ -224,7 +229,8 @@ tests and docs.
 
 1. **`style.ContrastPairs` is not tied to `NewTheme`.** A role recoloured in
    `NewTheme` alone still passes `TestThemeContrast`. Derive the pairs from
-   the theme's own values, or cross-check them. Do this before section 1.
+   the theme's own values, or cross-check them. The terminal theme's pairs are
+   already built from its palette (section 1); palette C's are not.
 2. No direct tests for `Staged.DropCell`, `DropKind`, `Clear`, or `Drop` out
    of range; they are covered only through the interface's tests.
 3. `stateWord` (`internal/cli/status.go`) has no direct test of its mapping

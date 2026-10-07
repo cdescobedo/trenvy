@@ -77,8 +77,9 @@ trenvy ships its own truecolor palette, light and dark, as
 `internal/style/theme.go`; no other file may hold a hex colour literal.
 (The command-line tokens in `internal/style/style.go` are ANSI colour
 numbers, which follow the terminal's theme; see below.) That is
-what lets a later theme source (see [roadmap.md](roadmap.md)) replace the
-palette by producing the same roles, without touching a screen.
+what let a second theme source, the terminal's own colours (below), replace
+the palette by producing the same roles, without touching a screen. Palette C
+is now the fallback and what `TRENVY_THEME=palette`, `light` and `dark` use.
 
 | role | light | dark |
 |---|---|---|
@@ -100,38 +101,144 @@ The command-line output (`status`, `show`, the lists) does not use palette
 C. It keeps `style.Styler`'s 16-colour tokens, which follow the terminal's
 own theme. Bringing the two together is on the roadmap.
 
+### The terminal theme
+
+By default the interface is not palette C. `cli.pickTheme` asks the terminal
+for its background (OSC 11), foreground (OSC 10) and the 16 palette colours
+(OSC 4), then DA1, which every terminal answers, so a terminal that does not
+support the query is known at once rather than after a timeout.
+`style.ThemeFromTerminal` builds the same roles from the answer, and the
+whole theme comes from one source: if the reply lacks the background, the
+foreground or palette colours 1 to 5, the whole interface is palette C.
+`internal/termcolor` has no UI imports; the roles and the nudge live in
+`internal/style/theme.go`, which stays the only file that builds colours.
+
+| role | from the terminal |
+|---|---|
+| text | foreground |
+| title | foreground, or bright white (palette 15) when that contrasts with the background at least as much; bold as in palette C |
+| muted (also footer key descriptions, inactive tabs) | foreground mixed 40% toward the background |
+| accent (also key letters, the focused border) | blue (palette 4) |
+| danger, ok, warn, staged | red (1), green (2), yellow (3), magenta (5) |
+| surface: header | background mixed 6% toward the foreground |
+| surface: selection, active tab | background mixed 12% toward the foreground |
+| border: unfocused | foreground mixed 70% toward the background |
+| pills (fg on bg) | the background colour on the danger or staged colour |
+
+Dark or light is judged from the background's luminance alone
+(`termcolor.Reply.Dark`), never from `CSI ? 996 n` or the `997` notification:
+Ghostty answers those with the operating system's appearance, which is not
+what the terminal shows. The renderer is told the same answer
+(`SetHasDarkBackground`), so lipgloss sends no background query of its own.
+
+**The nudge rule.** A mapped colour that does not reach 4.5:1 against every
+surface it is drawn on is mixed toward white (dark background) or black
+(light) in 1% steps until it does, so the result keeps the theme's hue.
+Text roles (title, text, muted, accent) are checked against the background,
+the header and the selection; the marks (danger, ok, warn, staged), as in
+palette C, against the background only, and a pill's text (the background
+colour) against its fill. Raw theme colours do
+fail: rose-pine's yellow is 2.05:1 and catppuccin-latte's is 2.31:1.
+
+**The shrinking surface shift.** The header and selection surfaces sit toward
+the foreground (6% and 12%). Near a mid-grey background that can leave a
+surface where neither white nor black reaches 4.5:1 on all three surfaces, so
+the shift shrinks (12%, 10% and so on down to 0) until every role fits. At 0
+the surfaces equal the background, and the better of white and black always
+reaches at least 4.58:1 against a single colour, so a complete reply always
+builds a theme.
+
+**Tests.** `TestTerminalThemesPassContrast` (`internal/style`) builds the
+theme for all 22 Omarchy themes (a pinned copy in `internal/style/testdata`)
+plus synthetic black, white and grey backgrounds and a run of near mid-grey
+ones with a white foreground, and checks every pair
+`style.TerminalContrastPairs` returns, at least 17 of them, at 4.5:1; it also
+checks the two halves of each swatch agree, since a terminal theme is not
+adaptive. `TestThemeFromTerminalNeedsACompleteReply` pins the all-or-nothing
+fallback and `TestThemeFromTerminalUsesTheThemesColours` that a readable
+colour is used as the theme gave it.
+
+**Following a switch.** While the interface runs, input passes through
+`termcolor.Filter`, which removes the terminal's replies and notifications
+and hands every other byte on unchanged and in order. A re-query is a `Deps`
+function (`Requery`) run in a `tea.Cmd`, and a changed theme arrives as a
+`manage.ThemeMsg`, so `Update` stays pure. A re-query follows the terminal's
+dark/light notification (the interface enables DEC mode 2031 and turns it off
+on exit), `SIGUSR2`, a focus event, and a 5 second timer that is off when the
+terminal announces changes (it answered the DECRQM for 2031) and over SSH.
+Setup and the interactive import review re-query on the notification and
+`SIGUSR2` only. Windows reads the colours at startup only. A switch changes
+the theme and nothing else: staged edits, the cursor and any open overlay
+stay.
+
+The filter's contract, which the tests pin:
+
+- No keystroke is lost or reordered; only complete reply sequences are
+  removed.
+- A reply cut across two reads is joined, not leaked as keys
+  (`TestFilterJoinsAReplySplitAcrossReads`,
+  `TestFilterJoinsARoundCutAnywhereInTwoArrivals`).
+- A key right after a notification still arrives
+  (`TestFilterPassesAKeyAfterANotification`).
+- A read that ends inside a sequence waits up to 25 ms for the rest, so a
+  lone `esc` reaches the interface up to 25 ms late
+  (`TestFilterPassesTheEscKeyAtOnce`), and `esc` followed by another key
+  within 25 ms reads as `alt+` that key, as in most terminal programs. A cut
+  that never completes is released as keys
+  (`TestFilterReleasesAnUnfinishedSequence`).
+- Sequences that merely resemble ours pass through
+  (`TestFilterPassesSequencesItDoesNotOwn`).
+
+The startup query is one round with a 100 ms ceiling (`queryTimeout`,
+`internal/cli/theme.go`) and is skipped when stdin or stdout is not a
+terminal. `TestQueryGivesUpWithoutStealingInput` (`internal/termcolor`) pins
+that a terminal answering nothing, not even DA1, ends the round at its
+timeout and leaves no reader behind to swallow the user's first key.
+`TestThemeMsgKeepsStateAndOverlays` (`internal/manage`) pins that a switch
+keeps staged edits, the cursor and the open overlay.
+
 ### The contrast rule and its test
 
 Every text role, on every surface it is drawn on, is at least 4.5:1 (WCAG AA
-for normal text) in both light and dark. `style.ContrastPairs` lists the
-foreground and background pairs the theme draws, terminal background
+for normal text) in both light and dark, for palette C and for a theme built
+from the terminal's colours alike. `style.ContrastPairs` lists the
+foreground and background pairs palette C draws, terminal background
 included, and `TestThemeContrast` (`internal/style`) computes WCAG relative
-luminance for each pair in both modes. It also refuses a list shorter than
+luminance for each pair in both modes; `TestTerminalThemesPassContrast`
+(above) does the same for the terminal theme. It also refuses a list shorter than
 17 pairs, so pairs cannot quietly disappear.
 
 When the first draft of the palette was checked this way, three roles
 failed (light ok, light muted, dark muted) and the selection surface was
 retinted from blue to neutral so accent and danger clear it. Any palette
-change, including one loaded from the system later, has to keep this test
+change, including the terminal theme's rules, has to keep these tests
 passing.
 
-Known gap: `ContrastPairs` is maintained by hand beside `NewTheme`. A role
-recoloured in `NewTheme` without updating the swatch the pairs read would
-still pass. It is in the [roadmap](roadmap.md) backlog.
+Known gap: the pair tables are maintained by hand beside `newTheme`; both
+read the same `palette` values, but a role recoloured in `newTheme` without
+updating the pairs would still pass. It is in the [roadmap](roadmap.md) backlog.
 
-### Light, dark and `TRENVY_THEME`
+### `TRENVY_THEME`
 
-The interface picks light or dark by asking the terminal for its background
-(lipgloss's detection). Detection can guess wrong, and with a fixed palette a
-wrong guess makes text hard to read, so `TRENVY_THEME=light` or
-`TRENVY_THEME=dark` overrides it. Empty keeps detection. Any other value is
-an error naming the two legal values, rather than a guess. `style.ThemeFor`
-applies it; `trenvy ui`, `trenvy edit`, setup and interactive `trenvy import`
-all read it.
+| value | colours | queries the terminal |
+|---|---|---|
+| unset or `auto` | the terminal's, else palette C | yes, when stdin and stdout are terminals |
+| `palette` | palette C, light or dark by lipgloss's detection | no query of ours |
+| `light` or `dark` | palette C, forced | no |
+| anything else | an error naming `auto`, `palette`, `light` and `dark` | no |
+
+Detection by lipgloss can guess wrong, and with a fixed palette a wrong guess
+makes text hard to read; `light` and `dark` are the escape hatch, and
+`palette` keeps the old behaviour without forcing a side. Anything else is an
+error rather than a guess. `cli.pickTheme` reads the variable for
+`trenvy ui`, `trenvy edit`, setup and interactive `trenvy import`;
+`style.ThemeFor` builds palette C for the other values. A stdin or stdout
+that is not a terminal, and a terminal that answers too little, also give
+palette C.
 
 Tests: `TestThemeForAcceptsLightDarkOrEmpty` and
-`TestThemeForForcesTheBackground` (`internal/style`), and
-`TestUiRejectsABadThemeName` (`internal/cli`).
+`TestThemeForForcesTheBackground` (`internal/style`), `TestPickThemeValues`
+and `TestUiRejectsABadThemeName` (`internal/cli`).
 
 ### Why the renderer is injected
 

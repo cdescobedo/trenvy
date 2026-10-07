@@ -216,6 +216,25 @@ Add `tm send-keys -t drive …` and further captures between the `sleep` and
 the `q` to walk a change. For a README screen, add `NO_COLOR=1` to the
 `env` line.
 
+### The terminal's colours
+
+The tests for the terminal theme need no terminal: `internal/termcolor`
+parses and filters recorded replies, `internal/style` builds the theme from
+them (`TestTerminalThemesPassContrast`), and `internal/manage` takes a
+`ThemeMsg` as any other message. What they cannot show is a real terminal
+answering and then changing its answer, so that is checked by hand: open
+`trenvy ui` in Ghostty and switch the Ghostty theme while it is open. The
+colours should change with no keystroke, and the cursor, any staged edit and
+any open panel should stay where they were. Do it with a theme that flips
+dark/light, and again between two of the same mode: whether the second is
+announced is open (roadmap, section 1), and if it is not, the colours follow
+on focus or within about 5 seconds. To check the signal, send `SIGUSR2` to
+the interface's process (by its pid: `pkill -x trenvy` would signal every
+trenvy on the machine). Under tmux (3.7c, run on a private socket) the interface came up in
+palette C, so judge the terminal theme in the terminal itself.
+
+`TRENVY_THEME=palette` shows the old palette beside it for comparison.
+
 ## Invariants a change must keep
 
 These are the properties the rest of the code relies on. A change that

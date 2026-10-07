@@ -933,11 +933,50 @@ what is there.
 
 ### Colour
 
-The interface uses its own palette, light or dark by detecting the terminal's
-background. Detection can guess wrong, and a wrong guess makes text hard to
-read, so `TRENVY_THEME=light` or `TRENVY_THEME=dark` overrides it; any other
-value is an error rather than a guess. With `NO_COLOR` set, or output that is
-not a terminal, every state still reads in words.
+The interface uses your terminal's colours. At startup trenvy asks the
+terminal for its background, foreground and palette, builds the interface's
+colours from them, and moves any colour that would be hard to read just far
+enough toward white (on a dark background) or black (on a light one) to be
+readable, so every piece of text keeps at least 4.5:1 contrast against what
+it is drawn on and still looks like your theme. Dark or light is judged from
+the background's own brightness, not from the operating system's setting.
+
+It follows a theme switch while it runs:
+
+- at once, when the terminal announces that its dark/light mode changed
+  (terminals that support DEC private mode 2031);
+- on focus, when the terminal reports focus changes (best effort);
+- within about 5 seconds, when the terminal does not announce changes. Over
+  SSH this timer is off, so a switch is picked up on focus or on the signal
+  below;
+- at once, when trenvy receives `SIGUSR2` (below).
+
+The setup flow and the interactive import review follow only the terminal's
+announcement and `SIGUSR2`, not focus or the timer.
+
+If the terminal does not answer in time, or answers only in part, trenvy uses
+its own palette for the whole interface, never a mix of the two. The same
+happens when `TRENVY_THEME` asks for it, and when stdin or stdout is not a
+terminal. On Windows the colours are read at startup only, for now. With
+`NO_COLOR` set, or output that is not a terminal, every state still reads in
+words.
+
+`TRENVY_THEME` chooses the source; see [Environment variables](#environment-variables).
+
+#### Following an Omarchy theme switch
+
+Omarchy runs the executable files in `~/.config/omarchy/hooks/theme-set.d/`
+after a theme change. A hook that signals trenvy makes an open interface
+re-read the terminal's colours at once:
+
+```bash
+mkdir -p ~/.config/omarchy/hooks/theme-set.d
+printf '#!/bin/sh\npkill -USR2 -x trenvy\n' > ~/.config/omarchy/hooks/theme-set.d/trenvy
+chmod +x ~/.config/omarchy/hooks/theme-set.d/trenvy
+```
+
+`pkill -USR2 -x trenvy` signals every process named `trenvy`. A `trenvy`
+that is not showing the interface ignores it.
 
 ## Configuration
 
@@ -961,7 +1000,7 @@ Directories are created `0700`; every file is written atomically at `0600`.
 | `TRENVY_CONFIG_DIR` | overrides the config directory entirely; ahead of `XDG_CONFIG_HOME` |
 | `TRENVY_PROFILE` | names the profile, unless `--profile` is passed; outranks the active selection and the manifest default |
 | `TRENVY_BACKEND` | the secret backend, unless `--backend` is passed |
-| `TRENVY_THEME` | `light` or `dark` forces the interface's palette instead of detecting the terminal's background; any other value is an error |
+| `TRENVY_THEME` | where the interface's colours come from: unset or `auto` uses the terminal's colours and falls back to trenvy's own palette when the terminal does not answer; `palette` uses trenvy's own palette and detects light or dark itself; `light` or `dark` forces that palette and asks the terminal nothing; any other value is an error |
 | `TRENVY_PASSPHRASE` | unlocks the `file` backend (**stripped from `exec`'s child environment**) |
 | `TRENVY_PROJECT` | *set by* `trenvy shell` in the subshell, so your prompt can mark it |
 

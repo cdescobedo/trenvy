@@ -146,9 +146,10 @@ global, which keeps `internal/manage` free of I/O and makes the colour profile
 testable: the global renderer resolves to Ascii under `go test`. A zero `Theme`
 renders plain text with no escapes, which is the form the word-level tests use.
 Screens reference roles, never colours; the hexadecimal values live only in
-`internal/style/theme.go`, so a later palette only has to produce a `Theme`.
-`TRENVY_THEME` (`light` or `dark`) overrides the background detection through
-`style.ThemeFor`, and any other value is an error. Colour is additive: the Ascii
+`internal/style/theme.go`, so a palette only has to produce a `Theme`: palette C
+is one, and `style.ThemeFromTerminal` builds the other from the terminal's own
+colours. `TRENVY_THEME` chooses between them (`auto`, `palette`, `light`, `dark`;
+`cli.pickTheme` and `style.ThemeFor`), and any other value is an error. Colour is additive: the Ascii
 profile (`NO_COLOR`, or output that is not a terminal) removes escape sequences
 and nothing else, and every state in the interface still reads as a word.
 
