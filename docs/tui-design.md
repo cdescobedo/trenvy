@@ -213,18 +213,22 @@ leaves no reader behind to swallow the user's first key. `termcolor.Query`
 returns a `Round`: the colours that came in time, whether DA1 ended it
 (`Done`), and the bytes it read that are not replies (`Keys`). A round that
 ended with DA1 and builds a theme is used and followed; one that ended with
-DA1 and builds none is palette C with nothing following it, drawn on the
-side its background is on when it has one (lipgloss, told the side, then
-never asks the terminal itself). A round the timeout cut short still gets the input filter,
-on palette C: the rest of the answer arrives through it, is removed, and
-switches the interface to the terminal's colours
-(`TestQueryHandsALateRoundToTheFilter`,
+DA1 and builds none is palette C with nothing following it. A round the
+timeout cut short still gets the input filter, on palette C: the rest of
+the answer arrives through it, is removed, and switches the interface to
+the terminal's colours (`TestQueryHandsALateRoundToTheFilter`,
 `TestPickThemeFiltersARoundThatTimedOut`,
-`TestLiveThemeSwitchesWhenALateRoundCompletes`). The round's `Keys` are
-handed to the filter first, so keys typed while it ran reach the interface
-in order (`TestQueryKeepsKeysTypedDuringTheRound`); when no filter would
-otherwise run, a filter that does nothing else carries them
-(`TestPickThemeTakesNoForAnAnswer`).
+`TestLiveThemeSwitchesWhenALateRoundCompletes`). In both palette C cases
+the renderer is told the side: the reply's background's when it has one,
+otherwise the one lipgloss's default renderer detected before `main`. Left
+to detect, lipgloss asks the terminal at the first frame and reads the tty
+directly, racing the filter for keys and eating a late round
+(`TestPaletteCFallbackTakesTheSideFromTheReply`,
+`TestPaletteCFallbackWithoutABackgroundReusesTheDetectedSide`). The
+round's `Keys` are handed to the filter first, so keys typed while it ran
+reach the interface in order (`TestQueryKeepsKeysTypedDuringTheRound`);
+when no filter would otherwise run, a filter that does nothing else carries
+them (`TestPickThemeTakesNoForAnAnswer`).
 `TestThemeMsgKeepsStateAndOverlays` (`internal/manage`) pins that a switch
 keeps staged edits, the cursor and the open overlay.
 
