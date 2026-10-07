@@ -228,7 +228,16 @@ directly, racing the filter for keys and eating a late round
 round's `Keys` are handed to the filter first, so keys typed while it ran
 reach the interface in order (`TestQueryKeepsKeysTypedDuringTheRound`);
 when no filter would otherwise run, a filter that does nothing else carries
-them (`TestPickThemeTakesNoForAnAnswer`).
+them (`TestPickThemeTakesNoForAnAnswer`). bubbletea waits for the
+terminal's fd to be readable before each read, so held keys would wait for
+the next keystroke: when the filter holds any as a program starts, trenvy
+asks the terminal for DA1 once the program reads, and the reply, which the
+filter removes, wakes the reader. A held `esc` still arrives on its own
+(`TestSeededKeyArrivesWithNoFurtherInput`, `TestSeededEscStaysALoneEsc`,
+`TestEmptySeedWritesNoWake`). Held keys longer than one read (a paste
+during the round) are scanned like any input, never cut inside a sequence
+(`TestLongSeedIsScannedLikeAnyInput`,
+`TestFilterScansASeedLongerThanTheBuffer`).
 `TestThemeMsgKeepsStateAndOverlays` (`internal/manage`) pins that a switch
 keeps staged edits, the cursor and the open overlay.
 
