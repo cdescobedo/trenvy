@@ -40,11 +40,13 @@ type Filter struct {
 	mu       sync.Mutex
 	onReply  func(Reply)
 	onNotify func(dark bool)
-
-	// carry is an unfinished sequence that did not fit in the last Read's
-	// buffer while more input was already waiting.
+	// carry is what the next Read takes before src: the seed (Seed), or
+	// what did not fit in the last Read's buffer while more input was
+	// already waiting. Guarded by mu: Pending reads it from another
+	// goroutine.
 	carry []byte
-	acc   Reply // colour replies seen since the round's OSC 11
+
+	acc Reply // colour replies seen since the round's OSC 11
 }
 
 // NewFilter wraps src. Production must pass the terminal's *os.File
@@ -72,10 +74,39 @@ func (f *Filter) SetHandlers(onReply func(Reply), onNotify func(dark bool)) {
 
 // Seed puts b ahead of everything src has: the keys the startup round read
 // before the Filter existed (Round.Keys). Call it before the first Read.
-// b is scanned like any input, so an unfinished reply at its end is joined
-// with the rest when that follows within moreWait.
+// b is scanned like any input, however long, so an unfinished reply at its
+// end is joined with the rest when that follows within moreWait.
+//
+// A reader that waits for the terminal's fd before calling Read (bubbletea
+// wraps its input in a cancelreader) never reads a seed on its own: the
+// caller asks the terminal for something (see Pending) so its answer wakes
+// the reader.
 func (f *Filter) Seed(b []byte) {
+	f.mu.Lock()
 	f.carry = append(append([]byte(nil), b...), f.carry...)
+	f.mu.Unlock()
+}
+
+// Pending reports whether the Filter holds bytes the next Read returns
+// before reading src.
+func (f *Filter) Pending() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.carry) > 0
+}
+
+func (f *Filter) takeCarry() []byte {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	in := f.carry
+	f.carry = nil
+	return in
+}
+
+func (f *Filter) keepCarry(b []byte) {
+	f.mu.Lock()
+	f.carry = append([]byte(nil), b...)
+	f.mu.Unlock()
 }
 
 func (f *Filter) Fd() uintptr {
@@ -102,27 +133,19 @@ func (f *Filter) Write(p []byte) (int, error) {
 // Close does nothing: the terminal outlives each program that reads it.
 func (f *Filter) Close() error { return nil }
 
-// Read never returns more than len(p) bytes: everything it reads from src
-// fits in p before replies are removed. A read that held only replies
-// returns 0, nil.
+// Read never returns more than len(p) bytes. What it reads from src fits
+// in p before replies are removed; only a seed can be longer, and then
+// what does not fit waits in carry, cut between tokens, never inside one.
+// A read that held only replies returns 0, nil.
 func (f *Filter) Read(p []byte) (int, error) {
-	if len(p) <= len(f.carry) {
-		// Not with bubbletea's 256-byte buffer, maxCarry 128 and a seed
-		// of keys typed within the 100 ms round.
-		n := copy(p, f.carry)
-		f.carry = f.carry[n:]
-		return n, nil
-	}
-	in := append(make([]byte, 0, len(p)), f.carry...)
-	f.carry = nil
+	in := f.takeCarry()
 	var err error
 	if len(in) == 0 {
+		in = make([]byte, len(p))
 		var n int
-		n, err = f.src.Read(in[:len(p)])
+		n, err = f.src.Read(in)
 		in = in[:n]
 	}
-	// w + len(in[i:]) never exceeds len(p): scanning moves bytes from in to
-	// p or drops them, and src is asked only for what still fits.
 	w, i := 0, 0
 	for {
 		for i < len(in) {
@@ -132,14 +155,33 @@ func (f *Filter) Read(p []byte) (int, error) {
 			}
 			if k == reply {
 				f.handle(in[i : i+n])
-			} else {
-				w += copy(p[w:], in[i:i+n])
+				i += n
+				continue
 			}
+			if w+n > len(p) {
+				if w == 0 {
+					// One token longer than p: not with bubbletea's
+					// 256-byte reads.
+					n = copy(p, in[i:])
+					f.keepCarry(in[i+n:])
+					return n, nil
+				}
+				// The rest of a seed. The input its wake asked for is
+				// still unread, so the next Read comes at once.
+				f.keepCarry(in[i:])
+				return w, nil
+			}
+			w += copy(p[w:], in[i:i+n])
 			i += n
 		}
 		tail := in[i:]
 		if len(tail) == 0 {
 			return w, err
+		}
+		if w+len(tail) > len(p) {
+			// Only after a seed, as above: the cut sequence waits whole.
+			f.keepCarry(tail)
+			return w, nil
 		}
 		if err != nil || len(tail) > maxCarry || !f.more(moreWait) {
 			return w + copy(p[w:], tail), err
@@ -150,7 +192,7 @@ func (f *Filter) Read(p []byte) (int, error) {
 				return copy(p, tail), nil
 			}
 			// The rest is already waiting, so the next Read comes at once.
-			f.carry = append([]byte(nil), tail...)
+			f.keepCarry(tail)
 			return w, nil
 		}
 		var n int

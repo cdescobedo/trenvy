@@ -326,3 +326,43 @@ func TestFilterTakesSS3OnlyWithAFinalByte(t *testing.T) {
 		t.Errorf("SS3 keys = %q, want %q", got, keys)
 	}
 }
+
+// A seed longer than the reader's buffer (a paste during the round) is
+// scanned like any input: a sequence at the buffer's edge is not split,
+// and reply bytes never pass as keys.
+func TestFilterScansASeedLongerThanTheBuffer(t *testing.T) {
+	reply := "\x1b]11;rgb:2222/2424/3636\x1b\\"
+	keys := strings.Repeat("a", 240) + "\x1b[A" + strings.Repeat("b", 10)
+	seed := keys[:250] + reply + keys[250:] + "\x1b]11;rgb:22"
+	if len(seed) <= 256 {
+		t.Fatalf("seed is %d bytes; it must not fit one read", len(seed))
+	}
+	f := newTestFilter(&chunks{"22/2424/3636\x1b\\\x1b[?62;22c"})
+	f.Seed([]byte(seed))
+	rec := &record{}
+	f.SetHandlers(func(r Reply) { rec.replies = append(rec.replies, r) }, nil)
+	var got []string
+	buf := make([]byte, 256)
+	for {
+		n, err := f.Read(buf)
+		if n > 0 {
+			got = append(got, string(buf[:n]))
+		}
+		if err != nil {
+			break
+		}
+	}
+	if joined := strings.Join(got, ""); joined != keys {
+		t.Errorf("keys = %q, want %q", joined, keys)
+	}
+	whole := false
+	for _, r := range got {
+		whole = whole || strings.Contains(r, "\x1b[A")
+	}
+	if !whole {
+		t.Errorf("the up arrow was split across reads %q", got)
+	}
+	if len(rec.replies) == 0 || !rec.replies[len(rec.replies)-1].HasBackground {
+		t.Errorf("replies = %+v, want the background", rec.replies)
+	}
+}
