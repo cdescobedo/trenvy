@@ -70,6 +70,14 @@ func (f *Filter) SetHandlers(onReply func(Reply), onNotify func(dark bool)) {
 	f.mu.Unlock()
 }
 
+// Seed puts b ahead of everything src has: the keys the startup round read
+// before the Filter existed (Round.Keys). Call it before the first Read.
+// b is scanned like any input, so an unfinished reply at its end is joined
+// with the rest when that follows within moreWait.
+func (f *Filter) Seed(b []byte) {
+	f.carry = append(append([]byte(nil), b...), f.carry...)
+}
+
 func (f *Filter) Fd() uintptr {
 	if f.file != nil {
 		return f.file.Fd()
@@ -99,7 +107,8 @@ func (f *Filter) Close() error { return nil }
 // returns 0, nil.
 func (f *Filter) Read(p []byte) (int, error) {
 	if len(p) <= len(f.carry) {
-		// Not with bubbletea's 256-byte buffer and maxCarry 128.
+		// Not with bubbletea's 256-byte buffer, maxCarry 128 and a seed
+		// of keys typed within the 100 ms round.
 		n := copy(p, f.carry)
 		f.carry = f.carry[n:]
 		return n, nil

@@ -2,8 +2,11 @@ package cli
 
 import (
 	"bytes"
+	"io"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -165,5 +168,148 @@ func TestLiveThemeAsksNothingAfterExit(t *testing.T) {
 	l.onNotify(true)
 	if err := l.requery(); err != nil || out.Len() != 0 {
 		t.Errorf("after exit: wrote %q, err %v; want nothing", out.String(), err)
+	}
+}
+
+// fakeTerminal makes pickTheme see two terminals, pipes standing in for
+// them, whose startup round comes back as round. Colour is forced: the
+// renderer would otherwise find a pipe and fall back to no colour.
+func fakeTerminal(t *testing.T, round termcolor.Round) *Options {
+	t.Helper()
+	inR, inW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	inW.Close() // nothing more is typed: reads after the seed end at EOF
+	t.Cleanup(func() { inR.Close(); outR.Close(); outW.Close() })
+	go func() { _, _ = io.Copy(io.Discard, outR) }()
+	t.Setenv("TRENVY_THEME", "")
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("CLICOLOR_FORCE", "1")
+	t.Setenv("SSH_TTY", "")
+	t.Setenv("SSH_CONNECTION", "")
+	oldIs, oldQuery := isTerminal, queryTerminal
+	t.Cleanup(func() { isTerminal, queryTerminal = oldIs, oldQuery })
+	isTerminal = func(*os.File) bool { return true }
+	queryTerminal = func(*os.File, io.Writer, time.Duration) (termcolor.Round, error) { return round, nil }
+	return &Options{Stdin: inR, Stdout: outW}
+}
+
+// readKeys reads what the program would read first through o's input.
+func readKeys(t *testing.T, o manage.RunOptions) string {
+	t.Helper()
+	if o.Input == nil {
+		t.Fatal("no input filter")
+	}
+	buf := make([]byte, 256)
+	n, _ := o.Input.Read(buf)
+	return string(buf[:n])
+}
+
+func paletteCText() lipgloss.TerminalColor {
+	return style.NewTheme(lipgloss.NewRenderer(io.Discard)).Text.GetForeground()
+}
+
+// Review F1: a terminal slower than the 100 ms round answers after it. The
+// interface must still read through the filter, or that answer is typed
+// into the focused field; it opens on palette C, and the keys typed during
+// the round come first.
+func TestPickThemeFiltersARoundThatTimedOut(t *testing.T) {
+	var partial termcolor.Reply
+	partial.Background, partial.HasBackground = termcolor.RGB{R: 0x22, G: 0x24, B: 0x36}, true
+	opts := fakeTerminal(t, termcolor.Round{Reply: partial, Done: false, Keys: []byte("x")})
+	th, live, err := pickTheme(opts)
+	if err != nil || live == nil {
+		t.Fatalf("live = %v, err %v: a round that timed out still needs the filter", live, err)
+	}
+	if th.Text.GetForeground() != paletteCText() {
+		t.Errorf("text = %v, want palette C until the terminal's colours arrive", th.Text.GetForeground())
+	}
+	o := live.runOptions()
+	if o.OnStart == nil || !o.ReportFocus || o.Poll != pollEvery {
+		t.Errorf("run options = %+v, want the live machinery with the poll (Notifies unknown)", o)
+	}
+	if got := readKeys(t, o); got != "x" {
+		t.Errorf("first read = %q, want the key typed during the round", got)
+	}
+}
+
+// The terminal answered DA1 and its colours build a theme: as before, with
+// the round's keys first.
+func TestPickThemeFollowsATerminalThatAnswered(t *testing.T) {
+	rep := moonReply()
+	rep.Notifies = true
+	opts := fakeTerminal(t, termcolor.Round{Reply: rep, Done: true, Keys: []byte("y")})
+	th, live, err := pickTheme(opts)
+	if err != nil || live == nil {
+		t.Fatalf("live = %v, err %v", live, err)
+	}
+	if th.Text.GetForeground() == paletteCText() {
+		t.Error("the terminal's colours were not used")
+	}
+	if got := readKeys(t, live.runOptions()); got != "y" {
+		t.Errorf("first read = %q, want the key typed during the round", got)
+	}
+}
+
+// The terminal answered DA1 without colours that build a theme: it said
+// no, so palette C and nothing follows it. Keys typed during the round
+// still arrive, through a filter that does nothing else.
+func TestPickThemeTakesNoForAnAnswer(t *testing.T) {
+	var partial termcolor.Reply
+	partial.Background, partial.HasBackground = termcolor.RGB{R: 0x22, G: 0x24, B: 0x36}, true
+	th, live, err := pickTheme(fakeTerminal(t, termcolor.Round{Reply: partial, Done: true}))
+	if err != nil || live != nil {
+		t.Fatalf("live = %v, err %v: want no live theme", live, err)
+	}
+	if th.Text.GetForeground() != paletteCText() {
+		t.Error("want palette C")
+	}
+	_, live, err = pickTheme(fakeTerminal(t, termcolor.Round{Reply: partial, Done: true, Keys: []byte("z")}))
+	if err != nil || live == nil {
+		t.Fatalf("live = %v, err %v: the round's keys need a way in", live, err)
+	}
+	o := live.runOptions()
+	if o.OnStart != nil || o.OnExit != nil || o.ReportFocus || o.Poll != 0 {
+		t.Errorf("run options = %+v, want the filter alone", o)
+	}
+	if got := readKeys(t, o); got != "z" {
+		t.Errorf("first read = %q, want the key typed during the round", got)
+	}
+}
+
+// After a round that timed out, the first complete reply (the late round,
+// or a re-query) switches the program from palette C to the terminal's
+// colours, even when everything but DA1 had already arrived in time.
+func TestLiveThemeSwitchesWhenALateRoundCompletes(t *testing.T) {
+	opts := fakeTerminal(t, termcolor.Round{Reply: moonReply(), Done: false})
+	th, live, err := pickTheme(opts)
+	if err != nil || live == nil {
+		t.Fatalf("live = %v, err %v", live, err)
+	}
+	if th.Text.GetForeground() != paletteCText() || live.theme(th).Text.GetForeground() != paletteCText() {
+		t.Fatal("a round that timed out must open on palette C")
+	}
+	var sent []tea.Msg
+	live.start(func(m tea.Msg) { sent = append(sent, m) })
+	defer live.exit()
+	live.onReply(moonReply())
+	if len(sent) != 1 {
+		t.Fatalf("sent %d messages, want the terminal's theme", len(sent))
+	}
+	msg, ok := sent[0].(manage.ThemeMsg)
+	if !ok || msg.Theme.Text.GetForeground() == paletteCText() {
+		t.Errorf("sent %+v, want the terminal's colours", sent[0])
+	}
+	if live.theme(th).Text.GetForeground() == paletteCText() {
+		t.Error("the next program would open on palette C")
+	}
+	live.onReply(moonReply())
+	if len(sent) != 1 {
+		t.Errorf("an unchanged reply sent again: %d messages", len(sent))
 	}
 }

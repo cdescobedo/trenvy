@@ -68,8 +68,12 @@ type record struct {
 
 func drain(t *testing.T, src io.Reader) (string, *record) {
 	t.Helper()
+	return drainFilter(t, newTestFilter(src))
+}
+
+func drainFilter(t *testing.T, f *Filter) (string, *record) {
+	t.Helper()
 	rec := &record{}
-	f := newTestFilter(src)
 	f.SetHandlers(func(r Reply) { rec.replies = append(rec.replies, r) }, func(d bool) { rec.notes = append(rec.notes, d) })
 	var out bytes.Buffer
 	buf := make([]byte, 256)

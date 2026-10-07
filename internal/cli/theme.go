@@ -25,12 +25,21 @@ const (
 	pollEvery = 5 * time.Second
 )
 
+// How pickTheme reaches the terminal; the tests stand in for it.
+var (
+	isTerminal    = func(f *os.File) bool { return term.IsTerminal(int(f.Fd())) }
+	queryTerminal = termcolor.Query
+)
+
 // pickTheme chooses the interface's colours from TRENVY_THEME (spec
 // 2026-10-06 §4). Unset or "auto" asks the terminal, when stdin and stdout
 // are both terminals, and uses its colours when they build a readable
 // theme; then the returned liveTheme follows a switch while the interface
 // runs (not on Windows, until the Windows Terminal probe shows how replies
-// arrive there: §5). Every other case is palette C with no live theme.
+// arrive there: §5). A round the timeout cut short also gets a liveTheme,
+// on palette C: the rest of the answer is still coming, and only its
+// filter keeps it out of the keys. A terminal that answered without usable
+// colours gets palette C and nothing that follows it.
 func pickTheme(opts *Options) (style.Theme, *liveTheme, error) {
 	mode := os.Getenv("TRENVY_THEME")
 	r := lipgloss.NewRenderer(opts.Stdout)
@@ -44,21 +53,30 @@ func pickTheme(opts *Options) (style.Theme, *liveTheme, error) {
 		th, err := style.ThemeFor(r, "")
 		return th, nil, err
 	}
-	rep, _ := termcolor.Query(stdin, stdout, queryTimeout)
-	if th, ok := terminalTheme(r, rep); ok {
+	round, _ := queryTerminal(stdin, stdout, queryTimeout)
+	if !round.Done {
+		th, err := style.ThemeFor(r, "")
+		live := newLiveTheme(r, round.Reply, stdin, stdout)
+		live.shown = false
+		live.filter.Seed(round.Keys)
+		return th, live, err
+	}
+	if th, ok := terminalTheme(r, round.Reply); ok {
 		if runtime.GOOS == "windows" {
 			return th, nil, nil
 		}
-		return th, newLiveTheme(r, rep, stdin, stdout), nil
+		live := newLiveTheme(r, round.Reply, stdin, stdout)
+		live.filter.Seed(round.Keys)
+		return th, live, nil
 	}
 	th, err := style.ThemeFor(r, "")
-	return th, nil, err
+	return th, keysOnly(stdin, round.Keys), err
 }
 
 // terminalFile returns v as a file when it is a terminal.
 func terminalFile(v any) (*os.File, bool) {
 	f, ok := v.(*os.File)
-	if !ok || !term.IsTerminal(int(f.Fd())) {
+	if !ok || !isTerminal(f) {
 		return nil, false
 	}
 	return f, true
@@ -86,16 +104,23 @@ type liveTheme struct {
 	filter *termcolor.Filter
 	poll   time.Duration // pollEvery, or 0 over SSH or when the terminal announces changes (spec Risks 3)
 
+	// follows is false for a liveTheme that only hands the startup
+	// round's keys to the program (keysOnly): no queries, no handlers.
+	follows bool
+
 	mu   sync.Mutex
 	send func(tea.Msg)
 	last termcolor.Reply
-	stop func()
+	// shown: the program shows the theme built from last. False on palette
+	// C after a round that timed out, until a complete reply arrives.
+	shown bool
+	stop  func()
 }
 
 // newLiveTheme follows from rep, the startup answer. in is the terminal
 // (os.Stdin) in production; see termcolor.NewFilter.
 func newLiveTheme(r *lipgloss.Renderer, rep termcolor.Reply, in io.Reader, out io.Writer) *liveTheme {
-	l := &liveTheme{r: r, out: out, filter: termcolor.NewFilter(in), last: rep, poll: pollEvery}
+	l := &liveTheme{r: r, out: out, filter: termcolor.NewFilter(in), last: rep, poll: pollEvery, follows: true, shown: true}
 	if os.Getenv("SSH_TTY") != "" || os.Getenv("SSH_CONNECTION") != "" || rep.Notifies {
 		l.poll = 0
 	}
@@ -103,11 +128,26 @@ func newLiveTheme(r *lipgloss.Renderer, rep termcolor.Reply, in io.Reader, out i
 	return l
 }
 
+// keysOnly carries the keys typed during a round that found no theme to
+// the first program, through a filter that does nothing else. nil when
+// there are none: the program reads the terminal as it always has.
+func keysOnly(in io.Reader, keys []byte) *liveTheme {
+	if len(keys) == 0 {
+		return nil
+	}
+	f := termcolor.NewFilter(in)
+	f.Seed(keys)
+	return &liveTheme{filter: f}
+}
+
 // runOptions is how each program runs: reading through the filter, with
 // focus reporting, the poll and start/exit around it.
 func (l *liveTheme) runOptions() manage.RunOptions {
 	if l == nil {
 		return manage.RunOptions{}
+	}
+	if !l.follows {
+		return manage.RunOptions{Input: l.filter}
 	}
 	return manage.RunOptions{Input: l.filter, ReportFocus: true, Poll: l.poll, OnStart: l.start, OnExit: l.exit}
 }
@@ -120,8 +160,11 @@ func (l *liveTheme) theme(fallback style.Theme) style.Theme {
 		return fallback
 	}
 	l.mu.Lock()
-	rep := l.last
+	rep, shown := l.last, l.shown
 	l.mu.Unlock()
+	if !shown {
+		return fallback
+	}
 	if th, ok := terminalTheme(l.r, rep); ok {
 		return th
 	}
@@ -179,7 +222,7 @@ func (l *liveTheme) requery() error {
 func (l *liveTheme) onReply(rep termcolor.Reply) {
 	l.mu.Lock()
 	merged := l.last.Merge(rep)
-	if merged == l.last {
+	if merged == l.last && l.shown {
 		l.mu.Unlock()
 		return
 	}
@@ -188,7 +231,7 @@ func (l *liveTheme) onReply(rep termcolor.Reply) {
 		l.mu.Unlock()
 		return
 	}
-	l.last = merged
+	l.last, l.shown = merged, true
 	send := l.send
 	l.mu.Unlock()
 	// Outside the lock: Send waits for the program's event loop.
