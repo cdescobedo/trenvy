@@ -313,3 +313,27 @@ func TestLiveThemeSwitchesWhenALateRoundCompletes(t *testing.T) {
 		t.Errorf("an unchanged reply sent again: %d messages", len(sent))
 	}
 }
+
+// Review F2: on Windows the startup query could leave its read blocked until
+// the next key (cancelreader cannot always cancel there) and eat that key.
+// Until the Windows Terminal probe shows how replies arrive, nothing is
+// asked: palette C, with today's detection, and nothing follows.
+func TestPickThemeAsksNothingOnWindows(t *testing.T) {
+	rep := moonReply()
+	opts := fakeTerminal(t, termcolor.Round{Reply: rep, Done: true})
+	asked := false
+	queryTerminal = func(*os.File, io.Writer, time.Duration) (termcolor.Round, error) {
+		asked = true
+		return termcolor.Round{Reply: rep, Done: true}, nil
+	}
+	oldGOOS := themeGOOS
+	t.Cleanup(func() { themeGOOS = oldGOOS })
+	themeGOOS = "windows"
+	th, live, err := pickTheme(opts)
+	if err != nil || asked || live != nil {
+		t.Errorf("asked = %v, live = %v, err %v: want no query and no live theme", asked, live, err)
+	}
+	if th.Text.GetForeground() != paletteCText() {
+		t.Error("want palette C")
+	}
+}

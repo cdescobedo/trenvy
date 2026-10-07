@@ -34,8 +34,6 @@ func Query(in *os.File, out io.Writer, timeout time.Duration) (Round, error) {
 		return Round{}, err
 	}
 	defer term.Restore(int(in.Fd()), state)
-	restoreVT := enableVT(out)
-	defer restoreVT()
 	cr, err := cancelreader.NewReader(in)
 	if err != nil {
 		return Round{}, err

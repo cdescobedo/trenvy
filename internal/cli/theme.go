@@ -27,6 +27,7 @@ const (
 
 // How pickTheme reaches the terminal; the tests stand in for it.
 var (
+	themeGOOS     = runtime.GOOS
 	isTerminal    = func(f *os.File) bool { return term.IsTerminal(int(f.Fd())) }
 	queryTerminal = termcolor.Query
 )
@@ -35,8 +36,9 @@ var (
 // 2026-10-06 §4). Unset or "auto" asks the terminal, when stdin and stdout
 // are both terminals, and uses its colours when they build a readable
 // theme; then the returned liveTheme follows a switch while the interface
-// runs (not on Windows, until the Windows Terminal probe shows how replies
-// arrive there: §5). A round the timeout cut short also gets a liveTheme,
+// runs. Windows is asked nothing until the Windows Terminal probe shows how
+// replies arrive there (§5): cancelreader cannot always cancel a read on
+// the console, so the round could wait for, and eat, the next key. A round the timeout cut short also gets a liveTheme,
 // on palette C: the rest of the answer is still coming, and only its
 // filter keeps it out of the keys. A terminal that answered without usable
 // colours gets palette C and nothing that follows it.
@@ -49,7 +51,7 @@ func pickTheme(opts *Options) (style.Theme, *liveTheme, error) {
 	}
 	stdin, inOK := terminalFile(opts.Stdin)
 	stdout, outOK := terminalFile(opts.Stdout)
-	if !inOK || !outOK {
+	if !inOK || !outOK || themeGOOS == "windows" {
 		th, err := style.ThemeFor(r, "")
 		return th, nil, err
 	}
@@ -62,9 +64,6 @@ func pickTheme(opts *Options) (style.Theme, *liveTheme, error) {
 		return th, live, err
 	}
 	if th, ok := terminalTheme(r, round.Reply); ok {
-		if runtime.GOOS == "windows" {
-			return th, nil, nil
-		}
 		live := newLiveTheme(r, round.Reply, stdin, stdout)
 		live.filter.Seed(round.Keys)
 		return th, live, nil
