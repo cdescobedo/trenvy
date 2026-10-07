@@ -1,0 +1,24 @@
+# Colours from basecamp/omarchy at commit 81145eb (MIT licence, Copyright (c) David Heinemeier Hansson).
+# One theme per line: name mode background foreground red green yellow blue magenta bright_foreground
+catppuccin-latte light #eff1f5 #4c4f69 #d20f39 #40a02b #df8e1d #1e66f5 #ea76cb #4c4f69
+catppuccin dark #1e1e2e #cdd6f4 #f38ba8 #a6e3a1 #f9e2af #89b4fa #f5c2e7 #cdd6f4
+ethereal dark #060B1E #ffcead #ED5B5A #92a593 #E9BB4F #7d82d9 #c89dc1 #ffcead
+everforest dark #2d353b #d3c6aa #e67e80 #a7c080 #dbbc7f #7fbbb3 #d699b6 #d3c6aa
+flexoki-light light #FFFCF0 #100F0F #D14D41 #879A39 #D0A215 #205EA6 #CE5D97 #100F0F
+gruvbox dark #282828 #d4be98 #ea6962 #a9b665 #d8a657 #7daea3 #d3869b #d4be98
+hackerman dark #0B0C16 #ddf7ff #50f872 #4fe88f #50f7d4 #829dd4 #86a7df #ddf7ff
+kanagawa dark #1f1f28 #dcd7ba #c34043 #76946a #c0a36e #7e9cd8 #957fb8 #dcd7ba
+last-horizon dark #0c0b0c #FAFCFB #c38b7b #87a9b0 #6B5E73 #b59790 #c4d8e2 #e2dddc
+lumon dark #16242d #d6e2ee #4d86b0 #5e95bc #6fa4c9 #6fb8e3 #8bc9eb #f2fcff
+lupine light #fafafa #212121 #c900c4 #4a2fd0 #026fde #3264eb #8a4ad7 #000000
+matte-black dark #121212 #bebebe #D35F5F #FFC107 #b91c1c #e68e0d #D35F5F #bebebe
+miasma dark #222222 #c2c2b0 #685742 #5f875f #b36d43 #78824b #bb7744 #c2c2b0
+nord dark #2e3440 #d8dee9 #bf616a #a3be8c #ebcb8b #81a1c1 #b48ead #d8dee9
+osaka-jade dark #111c18 #C1C497 #FF5345 #549e6a #459451 #509475 #D2689C #F7E8B2
+retro-82 dark #05182e #f6dcac #f85525 #028391 #e97b3c #3f8f8a #3f8f8a #f6dcac
+ristretto dark #2c2525 #e6d9db #fd6883 #adda78 #f9cc6c #f38d70 #a8a9eb #e6d9db
+rose-pine light #faf4ed #575279 #b4637a #286983 #ea9d34 #56949f #907aa9 #575279
+solitude dark #101315 #cacccc #565d60 #9fa5a9 #d9dbdc #798186 #aeaeae #a5aeb4
+tokyo-night dark #1a1b26 #a9b1d6 #f7768e #9ece6a #e0af68 #7aa2f7 #ad8ee6 #c0caf5
+vantablack dark #000000 #ffffff #a4a4a4 #b6b6b6 #cecece #8d8d8d #9b9b9b #ffffff
+white light #ffffff #000000 #2a2a2a #3a3a3a #4a4a4a #1a1a1a #2e2e2e #000000
