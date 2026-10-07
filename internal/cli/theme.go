@@ -142,22 +142,31 @@ func (l *liveTheme) start(send func(tea.Msg)) {
 }
 
 // exit runs after each program and undoes start: the terminal is left as
-// found.
+// found. Clearing send first fences every path into requery (the poll,
+// focus, notifications, SIGUSR2): the program has quit and the terminal is
+// back in cooked mode, where a reply would echo at the shell prompt.
 func (l *liveTheme) exit() {
-	_, _ = io.WriteString(l.out, "\x1b[?2031l")
 	l.mu.Lock()
 	stop := l.stop
 	l.stop, l.send = nil, nil
 	l.mu.Unlock()
+	_, _ = io.WriteString(l.out, "\x1b[?2031l")
 	if stop != nil {
 		stop()
 	}
 }
 
 // requery asks the terminal again, in one Write so the round is never
-// interleaved with a frame. The answer arrives through the filter.
+// interleaved with a frame. The answer arrives through the filter. It asks
+// only while a program runs (between start and exit), and holds the lock
+// while it writes so exit cannot slip in between the check and the write.
 func (l *liveTheme) requery() error {
 	if l == nil {
+		return nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.send == nil {
 		return nil
 	}
 	_, err := l.out.Write(termcolor.QueryBytes())

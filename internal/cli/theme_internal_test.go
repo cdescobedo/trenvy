@@ -145,3 +145,25 @@ func TestTerminalThemeSetsTheRenderersBackground(t *testing.T) {
 		t.Error("a switch to a light terminal left the renderer on a dark background")
 	}
 }
+
+// After a program exits, nothing may ask the terminal again: the terminal
+// is back in cooked mode and its reply would echo at the shell prompt. The
+// poll, focus, notification and signal paths all end in requery.
+func TestLiveThemeAsksNothingAfterExit(t *testing.T) {
+	var out bytes.Buffer
+	l := newLiveTheme(lipgloss.NewRenderer(&out), moonReply(), strings.NewReader(""), &out)
+	if err := l.requery(); err != nil || out.Len() != 0 {
+		t.Errorf("before start: wrote %q, err %v", out.String(), err)
+	}
+	l.start(func(tea.Msg) {})
+	out.Reset()
+	if err := l.requery(); err != nil || out.String() != string(termcolor.QueryBytes()) {
+		t.Errorf("while running: wrote %q, err %v; want one round", out.String(), err)
+	}
+	l.exit()
+	out.Reset()
+	l.onNotify(true)
+	if err := l.requery(); err != nil || out.Len() != 0 {
+		t.Errorf("after exit: wrote %q, err %v; want nothing", out.String(), err)
+	}
+}
