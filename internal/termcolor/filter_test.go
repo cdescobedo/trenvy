@@ -302,3 +302,23 @@ func TestFilterForgetsAnUnfinishedRound(t *testing.T) {
 		t.Errorf("replies = %+v, want the second round's background only", rec.replies)
 	}
 }
+
+// ESC O is SS3 only when a final byte follows it. Alt+O right before a
+// reply must not take the reply's ESC as its third byte: the reply would
+// pass as keys and its background would be lost.
+func TestFilterTakesSS3OnlyWithAFinalByte(t *testing.T) {
+	round := "\x1b]11;rgb:2222/2424/3636\x1b\\\x1b[?62;22c"
+	for _, in := range []*chunks{{"\x1bO" + round}, {"\x1bO", round}} {
+		got, rec := drain(t, in)
+		if got != "\x1bO" {
+			t.Errorf("keys = %q, want alt+O alone", got)
+		}
+		if len(rec.replies) != 1 || rec.replies[0].Background.Hex() != "#222436" {
+			t.Errorf("replies = %+v, want the background", rec.replies)
+		}
+	}
+	keys := "\x1bOP\x1bOA"
+	if got, _ := drain(t, &chunks{keys}); got != keys {
+		t.Errorf("SS3 keys = %q, want %q", got, keys)
+	}
+}

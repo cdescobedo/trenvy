@@ -178,7 +178,12 @@ func next(data []byte) (token, int) {
 			if len(data) < 3 {
 				return partial, 0
 			}
-			return plain, 3
+			if data[2] >= 0x40 && data[2] <= 0x7e {
+				return plain, 3
+			}
+			// Not SS3 but alt+O: the ESC passes alone, and what follows
+			// it, maybe a reply's ESC, is scanned on its own.
+			return plain, 1
 		}
 		return plain, 1 // alt+key: the key follows as its own token
 	case data[0] < utf8.RuneSelf:
