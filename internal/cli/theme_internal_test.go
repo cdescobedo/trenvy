@@ -337,3 +337,19 @@ func TestPickThemeAsksNothingOnWindows(t *testing.T) {
 		t.Error("want palette C")
 	}
 }
+
+// Review F6: with no colour to show (NO_COLOR, or a terminal without
+// colour), there is nothing to follow: no round, no live machinery.
+func TestPickThemeAsksNothingWithoutColour(t *testing.T) {
+	opts := fakeTerminal(t, termcolor.Round{Reply: moonReply(), Done: true})
+	asked := false
+	queryTerminal = func(*os.File, io.Writer, time.Duration) (termcolor.Round, error) {
+		asked = true
+		return termcolor.Round{Reply: moonReply(), Done: true}, nil
+	}
+	t.Setenv("NO_COLOR", "1")
+	_, live, err := pickTheme(opts)
+	if err != nil || asked || live != nil {
+		t.Errorf("asked = %v, live = %v, err %v: want no query and no live theme", asked, live, err)
+	}
+}

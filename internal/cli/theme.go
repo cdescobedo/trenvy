@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 	"golang.org/x/term"
 
 	"github.com/cdescobedo/trenvy/internal/manage"
@@ -51,7 +52,9 @@ func pickTheme(opts *Options) (style.Theme, *liveTheme, error) {
 	}
 	stdin, inOK := terminalFile(opts.Stdin)
 	stdout, outOK := terminalFile(opts.Stdout)
-	if !inOK || !outOK || themeGOOS == "windows" {
+	// With no colour to show (NO_COLOR, or a terminal without colour) there
+	// is nothing to follow either.
+	if !inOK || !outOK || themeGOOS == "windows" || r.ColorProfile() == termenv.Ascii {
 		th, err := style.ThemeFor(r, "")
 		return th, nil, err
 	}
