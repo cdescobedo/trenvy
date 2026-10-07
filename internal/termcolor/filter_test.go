@@ -366,3 +366,27 @@ func TestFilterScansASeedLongerThanTheBuffer(t *testing.T) {
 		t.Errorf("replies = %+v, want the background", rec.replies)
 	}
 }
+
+// A seed ending in an unfinished sequence longer than one read is not a
+// reply in progress: it is released like any tail past maxCarry, and the
+// terminal is read again. Holding it would return 0 forever.
+func TestFilterReleasesAnOverlongUnfinishedSeed(t *testing.T) {
+	seed := "\x1b]11;" + strings.Repeat("a", 300)
+	f := newTestFilter(&chunks{"k"})
+	f.Seed([]byte(seed))
+	var got strings.Builder
+	buf := make([]byte, 256)
+	for reads := 0; ; reads++ {
+		if reads == 10 {
+			t.Fatalf("after %d reads got %d bytes, want the seed and k: input is stuck", reads, got.Len())
+		}
+		n, err := f.Read(buf)
+		got.Write(buf[:n])
+		if err != nil {
+			break
+		}
+	}
+	if got.String() != seed+"k" {
+		t.Errorf("got %q, want the seed then k", got.String())
+	}
+}

@@ -178,12 +178,21 @@ func (f *Filter) Read(p []byte) (int, error) {
 		if len(tail) == 0 {
 			return w, err
 		}
+		if len(tail) > maxCarry {
+			// Too long to be a reply in progress: pass it on like keys.
+			n := copy(p[w:], tail)
+			if n < len(tail) {
+				f.keepCarry(tail[n:])
+				return w + n, nil
+			}
+			return w + n, err
+		}
 		if w+len(tail) > len(p) {
 			// Only after a seed, as above: the cut sequence waits whole.
 			f.keepCarry(tail)
 			return w, nil
 		}
-		if err != nil || len(tail) > maxCarry || !f.more(moreWait) {
+		if err != nil || !f.more(moreWait) {
 			return w + copy(p[w:], tail), err
 		}
 		room := len(p) - w - len(tail)
