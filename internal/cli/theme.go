@@ -42,10 +42,11 @@ var (
 // theme; then the returned liveTheme follows a switch while the interface
 // runs. Windows is asked nothing until the Windows Terminal probe shows how
 // replies arrive there (§5): cancelreader cannot always cancel a read on
-// the console, so the round could wait for, and eat, the next key. A round the timeout cut short also gets a liveTheme,
-// on palette C: the rest of the answer is still coming, and only its
-// filter keeps it out of the keys. A terminal that answered without usable
-// colours gets palette C and nothing that follows it.
+// the console, so the round could wait for, and eat, the next key. A round
+// the timeout cut short also gets a liveTheme, on palette C: the rest of
+// the answer is still coming, and only its filter keeps it out of the keys.
+// A terminal that answered without usable colours gets palette C and
+// nothing that follows it.
 func pickTheme(opts *Options) (style.Theme, *liveTheme, error) {
 	mode := os.Getenv("TRENVY_THEME")
 	r := lipgloss.NewRenderer(opts.Stdout)
