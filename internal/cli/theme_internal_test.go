@@ -383,3 +383,25 @@ func TestPaletteCFallbackTakesTheSideFromTheReply(t *testing.T) {
 		}
 	}
 }
+
+// A reply that, even merged with what came before, builds no theme
+// changes nothing: the program keeps its theme and is sent nothing.
+func TestLiveThemeKeepsItsThemeOnAReplyThatBuildsNone(t *testing.T) {
+	var bgOnly, fgOnly termcolor.Reply
+	bgOnly.Background, bgOnly.HasBackground = termcolor.RGB{R: 0x22, G: 0x24, B: 0x36}, true
+	fgOnly.Foreground, fgOnly.HasForeground = termcolor.RGB{R: 0xc8, G: 0xd3, B: 0xf5}, true
+	th, live, err := pickTheme(fakeTerminal(t, termcolor.Round{Reply: bgOnly, Done: false}))
+	if err != nil || live == nil {
+		t.Fatalf("live = %v, err %v", live, err)
+	}
+	var sent []tea.Msg
+	live.start(func(m tea.Msg) { sent = append(sent, m) })
+	defer live.exit()
+	live.onReply(fgOnly)
+	if len(sent) != 0 {
+		t.Errorf("sent %d messages for a reply that builds no theme", len(sent))
+	}
+	if live.theme(th).Text.GetForeground() != th.Text.GetForeground() {
+		t.Error("the next program would not open on the current theme")
+	}
+}

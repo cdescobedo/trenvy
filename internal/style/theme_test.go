@@ -194,6 +194,7 @@ func TestTerminalThemesPassContrast(t *testing.T) {
 	for name, rep := range synthetic {
 		reps[name] = rep
 	}
+	reps["ghostty-moon-recorded"] = ghosttyMoonReply(t)
 	for name, rep := range reps {
 		pairs, ok := style.TerminalContrastPairs(rep)
 		if !ok {
@@ -233,5 +234,94 @@ func TestThemeFromTerminalUsesTheThemesColours(t *testing.T) {
 	// tokyo-night's foreground #a9b1d6 passes as-is on its background, so text is unchanged.
 	if got := th.Text.Render("x"); !strings.Contains(got, "38;2;169;177;214") {
 		t.Errorf("text = %q, want the theme's foreground", got)
+	}
+}
+
+// ghosttyMoon is Ghostty's answer to the round, recorded on Tokyo Night
+// Moon (the same recording internal/termcolor's tests parse).
+const ghosttyMoon = "\x1b]11;rgb:2222/2424/3636\x1b\\\x1b]10;rgb:c8c8/d3d3/f5f5\x1b\\" +
+	"\x1b]4;0;rgb:1b1b/1d1d/2b2b\x1b\\\x1b]4;1;rgb:ffff/7575/7f7f\x1b\\\x1b]4;2;rgb:c3c3/e8e8/8d8d\x1b\\" +
+	"\x1b]4;3;rgb:ffff/c7c7/7777\x1b\\\x1b]4;4;rgb:8282/aaaa/ffff\x1b\\\x1b]4;5;rgb:c0c0/9999/ffff\x1b\\" +
+	"\x1b]4;6;rgb:8686/e1e1/fcfc\x1b\\\x1b]4;7;rgb:8282/8b8b/b8b8\x1b\\\x1b]4;8;rgb:4444/4a4a/7373\x1b\\" +
+	"\x1b]4;9;rgb:ffff/7575/7f7f\x1b\\\x1b]4;10;rgb:c3c3/e8e8/8d8d\x1b\\\x1b]4;11;rgb:ffff/c7c7/7777\x1b\\" +
+	"\x1b]4;12;rgb:8282/aaaa/ffff\x1b\\\x1b]4;13;rgb:c0c0/9999/ffff\x1b\\\x1b]4;14;rgb:8686/e1e1/fcfc\x1b\\" +
+	"\x1b]4;15;rgb:c8c8/d3d3/f5f5\x1b\\\x1b[?2031;2$y\x1b[?62;22c"
+
+func ghosttyMoonReply(t *testing.T) termcolor.Reply {
+	t.Helper()
+	rep, da1 := termcolor.Parse([]byte(ghosttyMoon))
+	if !da1 || !rep.Complete() {
+		t.Fatalf("the Moon recording did not parse: %+v", rep)
+	}
+	return rep
+}
+
+// Each role takes its colour from the terminal's own: accent and keys from
+// blue (palette 4), danger red (1), ok green (2), warn yellow (3), staged
+// magenta (5), text the foreground. A colour is nudged only when it fails
+// 4.5:1, so where the raw colour already passes on every surface the role
+// is drawn on, the role is that colour exactly.
+func TestThemeFromTerminalMapsRolesOnMoon(t *testing.T) {
+	rep := ghosttyMoonReply(t)
+	r := lipgloss.NewRenderer(io.Discard)
+	r.SetColorProfile(termenv.TrueColor)
+	th, ok := style.ThemeFromTerminal(r, rep)
+	if !ok {
+		t.Fatal("Moon did not build")
+	}
+	// The surfaces each role is drawn on, from the contrast table.
+	pairs, _ := style.TerminalContrastPairs(rep)
+	drawnOn := map[string][]string{}
+	for _, p := range pairs {
+		if role, _, ok := strings.Cut(p.Name, " on "); ok {
+			drawnOn[role] = append(drawnOn[role], p.BG.Dark)
+		}
+	}
+	drawnOn["key"] = drawnOn["accent"]
+	colour := func(s lipgloss.Style) string {
+		c, ok := s.GetForeground().(lipgloss.AdaptiveColor)
+		if !ok || c.Light != c.Dark {
+			t.Fatalf("foreground %#v is not one terminal colour", s.GetForeground())
+		}
+		return c.Dark
+	}
+	if colour(th.Key) != colour(th.Accent) {
+		t.Errorf("key %s differs from accent %s", colour(th.Key), colour(th.Accent))
+	}
+	roles := []struct {
+		name  string
+		style lipgloss.Style
+		raw   termcolor.RGB
+	}{
+		{"accent", th.Accent, rep.Palette[4]},
+		{"key", th.Key, rep.Palette[4]},
+		{"danger", th.Danger, rep.Palette[1]},
+		{"ok", th.OK, rep.Palette[2]},
+		{"warn", th.Warn, rep.Palette[3]},
+		{"staged", th.Staged, rep.Palette[5]},
+		{"text", th.Text, rep.Foreground},
+	}
+	checked := 0
+	for _, role := range roles {
+		if len(drawnOn[role.name]) == 0 {
+			t.Fatalf("%s is on no surface in the contrast table", role.name)
+		}
+		passes := true
+		for _, bg := range drawnOn[role.name] {
+			if ratio(t, role.raw.Hex(), bg) < 4.5 {
+				passes = false
+			}
+		}
+		if !passes {
+			t.Logf("%s: raw %s needs a nudge on Moon; not compared", role.name, role.raw.Hex())
+			continue
+		}
+		checked++
+		if got := colour(role.style); got != role.raw.Hex() {
+			t.Errorf("%s = %s, want the terminal's %s unchanged", role.name, got, role.raw.Hex())
+		}
+	}
+	if checked == 0 {
+		t.Error("no role passed unnudged on Moon; the mapping was not checked")
 	}
 }
