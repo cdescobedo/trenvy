@@ -71,7 +71,9 @@ func program(t *testing.T, o manage.RunOptions) (next func(d time.Duration) (str
 		t.Fatal(err)
 	}
 	ch := make(chan string, 64)
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		buf := make([]byte, 256)
 		for {
 			n, err := cr.Read(buf)
@@ -92,6 +94,7 @@ func program(t *testing.T, o manage.RunOptions) (next func(d time.Duration) (str
 			o.OnExit()
 		}
 		cr.Cancel()
+		<-done // the reader has stopped before the pipes close
 	})
 	return func(d time.Duration) (string, bool) {
 		select {
