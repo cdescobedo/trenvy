@@ -8,7 +8,7 @@ import (
 
 // Run drives m in the terminal's alternate screen until it quits.
 func Run(m Model) (Model, error) {
-	final, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
+	final, err := m.run.start(tea.NewProgram(m, m.run.programOptions()...))
 	if err != nil {
 		return m, fmt.Errorf("run interface: %w", err)
 	}

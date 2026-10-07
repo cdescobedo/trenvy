@@ -50,9 +50,12 @@ var ErrNothingWritten = errors.New("nothing was written")
 
 // Deps is every piece of I/O the interface asks for.
 type Deps struct {
-	Reveal func(name, profile string) (string, error)
-	Commit func([]session.Change) (CommitResult, error)
-	Reload func() (Snapshot, error)
+	// Requery asks the terminal for its colours again; nil when the theme
+	// does not follow the terminal. The answer arrives as a ThemeMsg.
+	Requery func() error
+	Reveal  func(name, profile string) (string, error)
+	Commit  func([]session.Change) (CommitResult, error)
+	Reload  func() (Snapshot, error)
 	// Ignored reports whether git ignores path in this worktree, for the
 	// add-output warning (spec §4). A worktree outside git, or no git at
 	// all, counts as ignored: render's guard judges it the same way
@@ -97,6 +100,7 @@ type ignoredMsg struct {
 
 // Model is the interface's whole state.
 type Model struct {
+	run  RunOptions
 	th   style.Theme
 	deps Deps
 	snap Snapshot
@@ -130,7 +134,7 @@ func New(snap Snapshot, deps Deps, th style.Theme) Model {
 	return Model{th: th, deps: deps, snap: snap, vars: newVariables(), outs: newOutputs(), profs: profiles{}}
 }
 
-func (m Model) Init() tea.Cmd { return nil }
+func (m Model) Init() tea.Cmd { return m.pollCmd() }
 
 // AfterSetup shapes the first screen after setup created project id: it
 // points at the next thing to do rather than at a list that looks done.
@@ -222,6 +226,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case ThemeMsg:
+		m.th = msg.Theme
+		return m, nil
+	case tea.FocusMsg:
+		return m, m.requeryCmd()
+	case pollMsg:
+		return m, tea.Batch(m.requeryCmd(), m.pollCmd())
 	case tea.KeyMsg:
 		return m.key(msg)
 	}

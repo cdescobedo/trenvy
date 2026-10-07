@@ -78,6 +78,7 @@ type setupRow struct {
 // Setup is the setup flow (spec §6). Like Model it performs no I/O: the
 // caller hands it every fact in SetupInput and writes the SetupResult.
 type Setup struct {
+	run           RunOptions
 	th            style.Theme
 	in            SetupInput
 	width, height int
@@ -140,6 +141,9 @@ func (s Setup) Quitting() bool { return s.quit || s.result != nil }
 
 func (s Setup) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case ThemeMsg:
+		s.th = msg.Theme
+		return s, nil
 	case tea.WindowSizeMsg:
 		s.width, s.height = msg.Width, msg.Height
 	case tea.KeyMsg:
@@ -757,7 +761,7 @@ func (s Setup) outputLines() []string {
 
 // RunSetup drives s in the terminal's alternate screen until it quits.
 func RunSetup(s Setup) (Setup, error) {
-	final, err := tea.NewProgram(s, tea.WithAltScreen()).Run()
+	final, err := s.run.start(tea.NewProgram(s, s.run.programOptions()...))
 	if err != nil {
 		return s, fmt.Errorf("run setup: %w", err)
 	}
