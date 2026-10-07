@@ -88,14 +88,14 @@ func TestTrueColorThemeColoursItsRoles(t *testing.T) {
 }
 
 func TestThemeForAcceptsLightDarkOrEmpty(t *testing.T) {
-	for _, mode := range []string{"", "light", "dark"} {
+	for _, mode := range []string{"", "auto", "palette", "light", "dark"} {
 		if _, err := style.ThemeFor(lipgloss.NewRenderer(nil), mode); err != nil {
 			t.Errorf("ThemeFor(%q) = %v", mode, err)
 		}
 	}
 	_, err := style.ThemeFor(lipgloss.NewRenderer(nil), "solarized")
-	if err == nil || !strings.Contains(err.Error(), "light") || !strings.Contains(err.Error(), "dark") {
-		t.Errorf("ThemeFor(solarized) = %v, want an error naming light and dark", err)
+	if err == nil || !strings.Contains(err.Error(), "auto, palette, light or dark") {
+		t.Errorf("ThemeFor(solarized) = %v, want an error naming auto, palette, light or dark", err)
 	}
 }
 

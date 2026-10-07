@@ -3,10 +3,7 @@ package cli
 import (
 	"errors"
 	"io"
-	"os"
 	"sync"
-
-	"github.com/charmbracelet/lipgloss"
 
 	"github.com/cdescobedo/trenvy/internal/config"
 	"github.com/cdescobedo/trenvy/internal/guard"
@@ -22,10 +19,18 @@ import (
 // given, shapes only the first model the loop builds: setup lands on a
 // message and a filter, and a project switch must start plain.
 func runManage(opts *Options, app *appContext, first ...func(manage.Model) manage.Model) error {
-	th, err := style.ThemeFor(lipgloss.NewRenderer(opts.Stdout), os.Getenv("TRENVY_THEME"))
+	th, live, err := pickTheme(opts)
 	if err != nil {
 		return err
 	}
+	return runManageWith(opts, app, th, live, first...)
+}
+
+// runManageWith is runManage on a theme already picked. Setup picks it
+// before running and hands it on, so one liveTheme (one input filter, one
+// startup query) serves every program the command runs; each model opens
+// on the terminal's colours as last seen.
+func runManageWith(opts *Options, app *appContext, th style.Theme, live *liveTheme, first ...func(manage.Model) manage.Model) error {
 	reg, err := config.LoadRegistry()
 	if err != nil {
 		return err
@@ -95,7 +100,10 @@ func runManage(opts *Options, app *appContext, first ...func(manage.Model) manag
 			Clean: func(id string) (string, error) { return cleanOutput(current(), id, false) },
 			Check: func(id string) (string, error) { return checkOutput(&quiet, current(), id), nil },
 		}
-		model := manage.New(snap, deps, th)
+		if live != nil {
+			deps.Requery = live.requery
+		}
+		model := manage.New(snap, deps, live.theme(th)).WithRun(live.runOptions())
 		for _, shape := range first {
 			model = shape(model)
 		}

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
 	"github.com/cdescobedo/trenvy/internal/config"
@@ -16,7 +15,6 @@ import (
 	"github.com/cdescobedo/trenvy/internal/manifest"
 	"github.com/cdescobedo/trenvy/internal/resolve"
 	"github.com/cdescobedo/trenvy/internal/sample"
-	"github.com/cdescobedo/trenvy/internal/style"
 )
 
 func newImportCmd(opts *Options) *cobra.Command {
@@ -123,14 +121,14 @@ func reviewImport(opts *Options, app *appContext, samplePath string, entries []s
 		s.Reused = rep.Created == ""
 		s.Ignored, _ = guard.GitIgnored(app.Worktree, s.OutputPath)
 	}
-	th, err := style.ThemeFor(lipgloss.NewRenderer(opts.Stdout), os.Getenv("TRENVY_THEME"))
+	th, live, err := pickTheme(opts)
 	if err != nil {
 		return nil, err
 	}
 	final, err := opts.RunSetup(manage.NewSetup(manage.SetupInput{
 		Mode: manage.SetupImport, ID: app.Entry.ID, ManifestPath: config.ManifestPath,
 		Samples: []manage.SetupSample{s}, Existing: app.Manifest.Vars, Force: force,
-	}, th))
+	}, th).WithRun(live.runOptions()))
 	if err != nil {
 		return nil, err
 	}

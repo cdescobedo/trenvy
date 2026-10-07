@@ -5,15 +5,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/charmbracelet/lipgloss"
-
 	"github.com/cdescobedo/trenvy/internal/config"
 	"github.com/cdescobedo/trenvy/internal/guard"
 	"github.com/cdescobedo/trenvy/internal/manage"
 	"github.com/cdescobedo/trenvy/internal/manifest"
 	"github.com/cdescobedo/trenvy/internal/resolve"
 	"github.com/cdescobedo/trenvy/internal/sample"
-	"github.com/cdescobedo/trenvy/internal/style"
 )
 
 // runSetup is `trenvy ui` / `trenvy edit` outside a registered project: it
@@ -21,7 +18,7 @@ import (
 // only after its summary's enter writes the project, in project init's order,
 // then lands on Variables. Cancelling writes nothing.
 func runSetup(opts *Options) error {
-	th, err := style.ThemeFor(lipgloss.NewRenderer(opts.Stdout), os.Getenv("TRENVY_THEME"))
+	th, live, err := pickTheme(opts)
 	if err != nil {
 		return err
 	}
@@ -54,7 +51,7 @@ func runSetup(opts *Options) error {
 		Mode: manage.SetupNew, ID: filepath.Base(root), Root: root, Dir: opts.Dir,
 		TakenIDs: ids, TakenRoots: roots, ManifestPath: config.ManifestPath, Samples: samples,
 		NoSamplesNote: note,
-	}, th))
+	}, th).WithRun(live.runOptions()))
 	if err != nil {
 		return err
 	}
@@ -80,7 +77,7 @@ func runSetup(opts *Options) error {
 	if err != nil {
 		return err
 	}
-	return runManage(opts, app, func(mm manage.Model) manage.Model { return mm.AfterSetup(res.ID) })
+	return runManageWith(opts, app, th, live, func(mm manage.Model) manage.Model { return mm.AfterSetup(res.ID) })
 }
 
 // detectSamples lists the samples in the worktree root that setup can offer:

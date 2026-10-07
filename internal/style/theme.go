@@ -151,19 +151,21 @@ func newTheme(r *lipgloss.Renderer, p palette) Theme {
 	}
 }
 
-// ThemeFor applies TRENVY_THEME to r and builds the theme. Detection of the
+// ThemeFor applies TRENVY_THEME to r and builds palette C. Detection of the
 // terminal's background can guess wrong, and with palette C a wrong guess
 // makes text unreadable (spec Risks), so "light" or "dark" overrides it;
-// empty keeps detection. Anything else is an error rather than a guess.
+// empty, "auto" and "palette" keep detection (the cli asks the terminal for
+// its colours first on empty and "auto"; spec 2026-10-06 §4). Anything else
+// is an error rather than a guess.
 func ThemeFor(r *lipgloss.Renderer, mode string) (Theme, error) {
 	switch mode {
-	case "":
+	case "", "auto", "palette":
 	case "light":
 		r.SetHasDarkBackground(false)
 	case "dark":
 		r.SetHasDarkBackground(true)
 	default:
-		return Theme{}, fmt.Errorf("TRENVY_THEME=%q: use light or dark, or leave it unset to detect", mode)
+		return Theme{}, fmt.Errorf("TRENVY_THEME=%q: use auto, palette, light or dark, or leave it unset", mode)
 	}
 	return NewTheme(r), nil
 }
