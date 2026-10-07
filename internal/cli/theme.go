@@ -31,6 +31,9 @@ var (
 	themeGOOS     = runtime.GOOS
 	isTerminal    = func(f *os.File) bool { return term.IsTerminal(int(f.Fd())) }
 	queryTerminal = termcolor.Query
+	// detectedDark is lipgloss's default renderer's answer. bubbletea's
+	// init asks it before main, so reading it here asks nothing again.
+	detectedDark = lipgloss.HasDarkBackground
 )
 
 // pickTheme chooses the interface's colours from TRENVY_THEME (spec
@@ -76,12 +79,16 @@ func pickTheme(opts *Options) (style.Theme, *liveTheme, error) {
 }
 
 // paletteC is the fallback after a round: palette C, on the side the
-// reply's background is on when it has one. Told the side, lipgloss never
-// asks the terminal itself mid-program, where it would read the answer
-// straight off the tty and race the input filter for the user's keys.
+// reply's background is on when it has one, and otherwise on the side
+// already detected (detectedDark). Told the side, lipgloss never asks the
+// terminal itself mid-program, where it would read the answer straight off
+// the tty and race the input filter for the user's keys and for the rest
+// of a late round.
 func paletteC(r *lipgloss.Renderer, rep termcolor.Reply) (style.Theme, error) {
 	if rep.HasBackground {
 		r.SetHasDarkBackground(rep.Dark())
+	} else {
+		r.SetHasDarkBackground(detectedDark())
 	}
 	return style.ThemeFor(r, "")
 }

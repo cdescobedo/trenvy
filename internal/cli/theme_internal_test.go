@@ -405,3 +405,33 @@ func TestLiveThemeKeepsItsThemeOnAReplyThatBuildsNone(t *testing.T) {
 		t.Error("the next program would not open on the current theme")
 	}
 }
+
+// A round with no background (nothing came in time, or the terminal sent
+// no OSC 11) still tells the renderer its side, from the answer bubbletea's
+// init already got through lipgloss's default renderer. Left to detect,
+// the renderer asks the terminal at the first frame and reads the tty
+// directly: in a pty with replies 150 ms late it ate the late round, and
+// the interface never left palette C.
+func TestPaletteCFallbackWithoutABackgroundReusesTheDetectedSide(t *testing.T) {
+	render := func(dark bool) string {
+		r := lipgloss.NewRenderer(io.Discard)
+		r.SetColorProfile(termenv.ANSI)
+		r.SetHasDarkBackground(dark)
+		return style.NewTheme(r).Text.Render("x")
+	}
+	for _, done := range []bool{true, false} {
+		for _, dark := range []bool{true, false} {
+			opts := fakeTerminal(t, termcolor.Round{Done: done})
+			old := detectedDark
+			detectedDark = func() bool { return dark }
+			th, _, err := pickTheme(opts)
+			detectedDark = old
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := th.Text.Render("x"), render(dark); got != want {
+				t.Errorf("done=%v detected dark=%v: text = %q, want %q", done, dark, got, want)
+			}
+		}
+	}
+}
