@@ -76,7 +76,7 @@ func pickTheme(opts *Options) (style.Theme, *liveTheme, error) {
 		return th, live, nil
 	}
 	th, err := paletteC(r, round.Reply)
-	return th, keysOnly(stdin, round.Keys), err
+	return th, keysOnly(stdin, stdout, round.Keys), err
 }
 
 // paletteC is the fallback after a round: palette C, on the side the
@@ -126,7 +126,8 @@ type liveTheme struct {
 	poll   time.Duration // pollEvery, or 0 over SSH or when the terminal announces changes (spec Risks 3)
 
 	// follows is false for a liveTheme that only hands the startup
-	// round's keys to the program (keysOnly): no queries, no handlers.
+	// round's keys to the program (keysOnly): no colour queries, no
+	// handlers, no focus, poll or signal; only the wake (see start).
 	follows bool
 
 	mu   sync.Mutex
@@ -152,13 +153,13 @@ func newLiveTheme(r *lipgloss.Renderer, rep termcolor.Reply, in io.Reader, out i
 // keysOnly carries the keys typed during a round that found no theme to
 // the first program, through a filter that does nothing else. nil when
 // there are none: the program reads the terminal as it always has.
-func keysOnly(in io.Reader, keys []byte) *liveTheme {
+func keysOnly(in io.Reader, out io.Writer, keys []byte) *liveTheme {
 	if len(keys) == 0 {
 		return nil
 	}
 	f := termcolor.NewFilter(in)
 	f.Seed(keys)
-	return &liveTheme{filter: f}
+	return &liveTheme{out: out, filter: f}
 }
 
 // runOptions is how each program runs: reading through the filter, with
@@ -168,7 +169,7 @@ func (l *liveTheme) runOptions() manage.RunOptions {
 		return manage.RunOptions{}
 	}
 	if !l.follows {
-		return manage.RunOptions{Input: l.filter}
+		return manage.RunOptions{Input: l.filter, OnStart: l.start, OnExit: l.exit}
 	}
 	return manage.RunOptions{Input: l.filter, ReportFocus: true, Poll: l.poll, OnStart: l.start, OnExit: l.exit}
 }
@@ -193,16 +194,39 @@ func (l *liveTheme) theme(fallback style.Theme) style.Theme {
 }
 
 // start runs before each program: it asks the terminal to announce
-// dark/light switches (DEC mode 2031) and listens for SIGUSR2.
+// dark/light switches (DEC mode 2031) and listens for SIGUSR2. When the
+// filter already holds keys (the startup round's), it wakes the reader.
 func (l *liveTheme) start(send func(tea.Msg)) {
 	l.mu.Lock()
 	l.send = send
 	l.mu.Unlock()
+	if l.filter.Pending() {
+		go l.wake(send)
+	}
+	if !l.follows {
+		return
+	}
 	_, _ = io.WriteString(l.out, "\x1b[?2031h")
 	stop := watchSignal(func() { _ = l.requery() })
 	l.mu.Lock()
 	l.stop = stop
 	l.mu.Unlock()
+}
+
+// wake asks the terminal for DA1 once the program reads, so the keys the
+// filter holds reach it. bubbletea waits for the terminal's fd to be
+// readable before each Read, so held keys would otherwise wait for the
+// next keystroke; the DA1 reply wakes the reader, and the filter removes
+// it. send(nil) returns once the program's event loop runs, after raw mode
+// is on, so the reply is never echoed; bubbletea drops a nil message.
+func (l *liveTheme) wake(send func(tea.Msg)) {
+	send(nil)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.send == nil {
+		return // the program has already exited
+	}
+	_, _ = io.WriteString(l.out, "\x1b[c")
 }
 
 // exit runs after each program and undoes start: the terminal is left as
@@ -214,7 +238,9 @@ func (l *liveTheme) exit() {
 	stop := l.stop
 	l.stop, l.send = nil, nil
 	l.mu.Unlock()
-	_, _ = io.WriteString(l.out, "\x1b[?2031l")
+	if l.follows {
+		_, _ = io.WriteString(l.out, "\x1b[?2031l")
+	}
 	if stop != nil {
 		stop()
 	}
@@ -230,7 +256,7 @@ func (l *liveTheme) requery() error {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.send == nil {
+	if l.send == nil || !l.follows {
 		return nil
 	}
 	_, err := l.out.Write(termcolor.QueryBytes())

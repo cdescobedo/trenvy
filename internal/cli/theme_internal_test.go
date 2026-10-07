@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/cancelreader"
 	"github.com/muesli/termenv"
 
 	"github.com/cdescobedo/trenvy/internal/manage"
@@ -200,15 +201,39 @@ func fakeTerminal(t *testing.T, round termcolor.Round) *Options {
 	return &Options{Stdin: inR, Stdout: outW}
 }
 
-// readKeys reads what the program would read first through o's input.
+// readKeys reads what the program would read first, the way bubbletea
+// does: OnStart, then through cancelreader.NewReader(o.Input), which waits
+// for the terminal's fd before each Read. fakeTerminal's input is at EOF,
+// so the fd is readable; theme_wake_unix_test.go pins the case where it
+// is not.
 func readKeys(t *testing.T, o manage.RunOptions) string {
 	t.Helper()
 	if o.Input == nil {
 		t.Fatal("no input filter")
 	}
-	buf := make([]byte, 256)
-	n, _ := o.Input.Read(buf)
-	return string(buf[:n])
+	cr, err := cancelreader.NewReader(o.Input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cr.Cancel()
+	if o.OnStart != nil {
+		o.OnStart(func(tea.Msg) {})
+	}
+	if o.OnExit != nil {
+		defer o.OnExit()
+	}
+	got := make(chan string, 1)
+	go func() {
+		buf := make([]byte, 256)
+		n, _ := cr.Read(buf)
+		got <- string(buf[:n])
+	}()
+	select {
+	case s := <-got:
+		return s
+	case <-time.After(time.Second):
+		return ""
+	}
 }
 
 func paletteCText() lipgloss.TerminalColor {
@@ -259,7 +284,7 @@ func TestPickThemeFollowsATerminalThatAnswered(t *testing.T) {
 
 // The terminal answered DA1 without colours that build a theme: it said
 // no, so palette C and nothing follows it. Keys typed during the round
-// still arrive, through a filter that does nothing else.
+// still arrive, through a filter that does nothing but wake the reader.
 func TestPickThemeTakesNoForAnAnswer(t *testing.T) {
 	var partial termcolor.Reply
 	partial.Background, partial.HasBackground = termcolor.RGB{R: 0x22, G: 0x24, B: 0x36}, true
@@ -275,8 +300,8 @@ func TestPickThemeTakesNoForAnAnswer(t *testing.T) {
 		t.Fatalf("live = %v, err %v: the round's keys need a way in", live, err)
 	}
 	o := live.runOptions()
-	if o.OnStart != nil || o.OnExit != nil || o.ReportFocus || o.Poll != 0 {
-		t.Errorf("run options = %+v, want the filter alone", o)
+	if o.ReportFocus || o.Poll != 0 || o.OnStart == nil || o.OnExit == nil {
+		t.Errorf("run options = %+v, want the filter with only start/exit (for the wake)", o)
 	}
 	if got := readKeys(t, o); got != "z" {
 		t.Errorf("first read = %q, want the key typed during the round", got)
